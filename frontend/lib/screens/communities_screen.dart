@@ -1,4 +1,3 @@
-// screens/communities_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
@@ -11,12 +10,27 @@ class CommunitiesScreen extends StatefulWidget {
 }
 
 class _CommunitiesScreenState extends State<CommunitiesScreen> {
+  String searchQuery = '';
+  final List<Color> cardColors = [
+    Colors.orange.shade300,
+    Colors.green.shade300,
+    Colors.red.shade300,
+    Colors.blue.shade300,
+    Colors.purple.shade300,
+  ];
+
+  void _updateSearchQuery(String query) {
+    setState(() {
+      searchQuery = query.toLowerCase();
+    });
+  }
 
   Future<void> _navigateToCreateCommunity(BuildContext context) async {
-      final authProvider = context.read<AuthProvider>();
-    if(!authProvider.isAuthenticated) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You must be logged in to create a community.')));
-        return;
+    final authProvider = context.read<AuthProvider>();
+    if (!authProvider.isAuthenticated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You must be logged in to create a community.')));
+      return;
     }
     Navigator.push(
       context,
@@ -25,88 +39,175 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       setState(() {}); // Refresh communities after returning
     });
   }
-    Future<void> _deleteCommunity(String communityId, ApiService apiService, AuthProvider authProvider) async {
-    if (!authProvider.isAuthenticated) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You must be logged in to delete communities.')));
-      return;
-    }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Delete'),
-        content: const Text('Are you sure you want to delete this community?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Delete')),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      try {
-        await apiService.deleteCommunity(communityId, authProvider.token!);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Community deleted successfully.')));
-        setState(() {}); // Refresh communities after deleting
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error deleting community: ${e.toString()}')));
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final apiService = Provider.of<ApiService>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false); // Get AuthProvider
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     return Scaffold(
-      body: RefreshIndicator(
-        onRefresh: () async {
-            setState(() {
+      body: Column(
+        children: [
+          // Search Bar
+          Padding(
+            padding: const EdgeInsets.all(10.0),
+            child: TextField(
+              onChanged: _updateSearchQuery,
+              decoration: InputDecoration(
+                hintText: "Search for Communities...",
+                prefixIcon: Icon(Icons.search),
+                filled: true,
+                fillColor: Colors.grey.shade900,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(30),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
 
-            });
-        },
-        child: FutureBuilder<List<dynamic>>(
-          future: apiService.fetchCommunities(authProvider.token), // Pass token
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
-            }
-            final communities = snapshot.data!;
+          // Scrollable Categories with Icons
+          SizedBox(
+            height: 80,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _buildCategoryIcon(Icons.sports_soccer, "Sports"),
+                _buildCategoryIcon(Icons.music_note, "Music"),
+                _buildCategoryIcon(Icons.code, "Tech"),
+                _buildCategoryIcon(Icons.palette, "Art"),
+                _buildCategoryIcon(Icons.fitness_center, "Fitness"),
+                _buildCategoryIcon(Icons.movie, "Movies"),
+              ],
+            ),
+          ),
 
-            return ListView.builder(
-              padding: const EdgeInsets.all(8),
-              itemCount: communities.length,
-              itemBuilder: (context, index) {
-                final comm = communities[index];
-                return Card(
-                  elevation: 3,
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  child: ListTile(
-                    title: Text(comm['name'] ?? 'No Name',
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text(comm['description'] ?? 'No Description'),
-                    ),
-                    trailing: (authProvider.isAuthenticated && authProvider.userId == comm['created_by'].toString())
-                    ? IconButton( // Add a trailing delete button
-                        icon: const Icon(Icons.delete),
-                        onPressed: () => _deleteCommunity(comm['id'].toString(), apiService, authProvider)
-                      )
-                    : null, // Don't show delete if not the creator
-                  ),
-                );
+          // Community List
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () async {
+                setState(() {});
               },
-            );
-          },
-        ),
+              child: FutureBuilder<List<dynamic>>(
+                future: apiService.fetchCommunities(authProvider.token),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: ${snapshot.error}'));
+                  }
+                  final communities = snapshot.data!
+                      .where((comm) =>
+                          comm['name'].toString().toLowerCase().contains(searchQuery))
+                      .toList();
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(8),
+                    itemCount: communities.length,
+                    itemBuilder: (context, index) {
+                      final comm = communities[index];
+                      return _buildCommunityCard(comm, index % cardColors.length);
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
+
+      // Floating Action Button
       floatingActionButton: FloatingActionButton(
         onPressed: () => _navigateToCreateCommunity(context),
         child: const Icon(Icons.add),
         tooltip: "Create Community",
+      ),
+    );
+  }
+
+  // Widget for category icons
+  Widget _buildCategoryIcon(IconData icon, String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: Colors.grey.shade800,
+            child: Icon(icon, color: Colors.white),
+          ),
+          const SizedBox(height: 5),
+          Text(label, style: TextStyle(color: Colors.white, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  // Widget for community card
+  Widget _buildCommunityCard(dynamic comm, int colorIndex) {
+    return Card(
+      color: cardColors[colorIndex], // Assign color dynamically
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Community Name & Members Count
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  comm['name'] ?? 'No Name',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                Text(
+                  "${comm['members'] ?? 0} members",
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // Online Members
+            Row(
+              children: [
+                Icon(Icons.circle, color: Colors.greenAccent, size: 10),
+                const SizedBox(width: 5),
+                Text(
+                  "${comm['online_members'] ?? 0} Online",
+                  style: TextStyle(color: Colors.white),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // Description
+            Text(
+              comm['description'] ?? 'No Description',
+              style: const TextStyle(color: Colors.white),
+            ),
+            const SizedBox(height: 10),
+
+            // Comments like Mutual Friends
+            if (comm['mutual_friends'] != null) ...[
+              Row(
+                children: [
+                  Icon(Icons.people, color: Colors.white70, size: 18),
+                  const SizedBox(width: 5),
+                  Text(
+                    "${comm['mutual_friends']} mutual friends",
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
