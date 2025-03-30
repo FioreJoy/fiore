@@ -16,33 +16,49 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _locationController = TextEditingController();
+  final _interestController = TextEditingController(); // Added controller for interest
   bool _isLoading = false;
+
   @override
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
     _locationController.dispose();
+    _interestController.dispose(); // Dispose new controller
     super.dispose();
   }
-  void _createCommunity(
-      ApiService apiService, AuthProvider authProvider, BuildContext context) async {
+
+  void _createCommunity(ApiService apiService, AuthProvider authProvider, BuildContext context) async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
       try {
+        // Ensure location is in POINT format for backend, e.g., '(lon,lat)'
+        // You might need a map picker or separate lat/lon fields for better UX
+        String formattedLocation = _locationController.text; // Assuming user inputs '(lon,lat)' for now
+        if (!formattedLocation.startsWith('(') || !formattedLocation.endsWith(')')) {
+           // Basic validation or formatting helper needed here
+           formattedLocation = '(0,0)'; // Default if format is wrong
+        }
+
         await apiService.createCommunity(
           _nameController.text,
-          _descriptionController.text,
-          _locationController.text,
+          _descriptionController.text.isNotEmpty ? _descriptionController.text : null, // Send null if empty
+          formattedLocation, // Send formatted location string
+          _interestController.text.isNotEmpty ? _interestController.text : null, // Send interest or null
           authProvider.token!,
         );
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Community created successfully!')));
-        Navigator.pop(context);
+        if (mounted) { // Check if mounted before showing SnackBar/popping
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Community created successfully!')));
+          Navigator.pop(context);
+        }
       } catch (e) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed to create community: ${e.toString()}')));
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to create community: ${e.toString()}')));
+         }
       } finally {
-        setState(() => _isLoading = false);
+         if (mounted) {
+           setState(() => _isLoading = false);
+         }
       }
     }
   }
@@ -58,30 +74,36 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
-          child: Column(
+          child: ListView( // Use ListView for scrollability
             children: [
               TextFormField(
                 controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Name'),
-                validator: (value) =>
-                    value == null || value.isEmpty ? 'Please enter a name' : null,
+                decoration: const InputDecoration(labelText: 'Name *'),
+                validator: (value) => value == null || value.isEmpty ? 'Please enter a name' : null,
               ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _descriptionController,
                 decoration: const InputDecoration(labelText: 'Description'),
+                 maxLines: 3,
               ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _locationController,
-                decoration: const InputDecoration(labelText: 'Location'),
-                validator: (value) =>
-                    value == null || value.isEmpty ? 'Please enter a location' : null,
+                decoration: const InputDecoration(labelText: 'Location *', hintText: 'e.g., (77.10, 28.70)'),
+                validator: (value) => value == null || value.isEmpty ? 'Please enter a location (lon,lat)' : null, // Add better validation later
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
+               TextFormField( // Added field for interest
+                 controller: _interestController,
+                 decoration: const InputDecoration(labelText: 'Interest / Category'),
+               ),
+              const SizedBox(height: 24),
               _isLoading
-                  ? const CircularProgressIndicator()
+                  ? const Center(child: CircularProgressIndicator())
                   : ElevatedButton(
                       onPressed: () => _createCommunity(apiService, authProvider, context),
-                      child: const Text('Create'),
+                      child: const Text('Create Community'),
                     ),
             ],
           ),

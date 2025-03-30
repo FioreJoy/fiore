@@ -9,6 +9,34 @@ import '../widgets/custom_button.dart';
 import '../theme/theme_constants.dart';
 import 'create_community_screen.dart';
 
+  Widget _buildLoadingShimmer(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final baseColor = isDark ? Colors.grey.shade800 : Colors.grey.shade300;
+    final highlightColor = isDark ? Colors.grey.shade700 : Colors.grey.shade100;
+
+    return Shimmer.fromColors(
+      baseColor: baseColor,
+      highlightColor: highlightColor,
+      child: GridView.builder(
+        padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          childAspectRatio: 0.8,
+          crossAxisSpacing: ThemeConstants.mediumPadding,
+          mainAxisSpacing: ThemeConstants.mediumPadding,
+        ),
+        itemCount: 6,
+        itemBuilder: (_, __) => Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius),
+          ),
+        ),
+      ),
+    );
+  }
+
 class CommunitiesScreen extends StatefulWidget {
   const CommunitiesScreen({Key? key}) : super(key: key);
 
@@ -17,123 +45,141 @@ class CommunitiesScreen extends StatefulWidget {
 }
 
 class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKeepAliveClientMixin {
-  // Keep page state alive when switching tabs
   @override
   bool get wantKeepAlive => true;
 
-  // Search query
   String _searchQuery = '';
-
-  // Joined communities map
   final Map<String, bool> _joinedCommunities = {};
-
-  // Selected category filter
   String? _selectedCategory;
+  Future<List<dynamic>>? _loadCommunitiesFuture;
 
-  // Category tabs
   final List<Map<String, dynamic>> _categoryTabs = [
     {'id': 'all', 'label': 'All', 'icon': Icons.public},
+    {'id': 'trending', 'label': 'Trending', 'icon': Icons.trending_up},
     {'id': 'gaming', 'label': 'Gaming', 'icon': Icons.sports_esports},
     {'id': 'tech', 'label': 'Tech', 'icon': Icons.code},
     {'id': 'music', 'label': 'Music', 'icon': Icons.music_note},
     {'id': 'art', 'label': 'Art', 'icon': Icons.palette},
-    {'id': 'science', 'label': 'Science', 'icon': Icons.science},
-    {'id': 'sports', 'label': 'Sports', 'icon': Icons.sports_soccer},
-    {'id': 'food', 'label': 'Food', 'icon': Icons.restaurant},
   ];
 
-  void _updateSearchQuery(String query) {
+  @override
+  void initState() {
+    super.initState();
+    // Use WidgetsBinding to ensure Provider is ready
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+       if (mounted) {
+         _triggerCommunityLoad();
+       }
+    });
+  }
+  // --- Helper Build Methods ---
+   Widget _buildEmptyUI(bool isDark, {bool isSearchOrFilterActive = false}) {
+      return Center(
+         child: Column(
+           mainAxisAlignment: MainAxisAlignment.center,
+           children: [
+             Icon(Icons.people_outline, size: 64, color: isDark ? Colors.grey.shade600 : Colors.grey.shade400),
+             const SizedBox(height: 16),
+             Text('No communities found', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
+             const SizedBox(height: 8),
+             Text(
+               isSearchOrFilterActive
+                   ? 'Try adjusting your search or filter.'
+                   : 'Start by creating a new community!',
+               style: TextStyle(color: isDark ? Colors.grey.shade500 : Colors.grey.shade700),
+               textAlign: TextAlign.center,
+             ),
+             const SizedBox(height: 24),
+             if (!isSearchOrFilterActive)
+               CustomButton(text: 'Create Community', icon: Icons.add, onPressed: () => _navigateToCreateCommunity(), type: ButtonType.primary),
+           ],
+         ),
+      );
+   }
+  Widget _buildErrorUI(Object? error) {
+     return Center(
+        child: CustomCard(
+          elevation: 4,
+          child: Padding(
+            padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 48),
+                const SizedBox(height: ThemeConstants.smallPadding),
+                Text('Error: ${error.toString()}'), // Display error
+                const SizedBox(height: ThemeConstants.mediumPadding),
+                CustomButton(text: 'Retry', icon: Icons.refresh, onPressed: _triggerCommunityLoad, type: ButtonType.primary),
+              ],
+            ),
+          ),
+        ),
+     );
+   }
+  void _triggerCommunityLoad() {
+    if (!mounted) return;
+    final apiService = Provider.of<ApiService>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    // Use setState to update the future, triggering FutureBuilder rebuild
     setState(() {
-      _searchQuery = query.toLowerCase();
+       if (_selectedCategory == 'trending') {
+          _loadCommunitiesFuture = apiService.fetchTrendingCommunities(authProvider.token);
+       } else {
+          _loadCommunitiesFuture = apiService.fetchCommunities(authProvider.token);
+       }
     });
   }
 
-  void _navigateToCreateCommunity(BuildContext context) async {
-    final authProvider = context.read<AuthProvider>();
+  void _updateSearchQuery(String query) {
+    if (mounted) {
+      setState(() { _searchQuery = query.toLowerCase(); });
+    }
+  }
 
+  void _navigateToCreateCommunity() async {
+     if (!mounted) return;
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     if (!authProvider.isAuthenticated) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You must be logged in to create a community.'),
-          behavior: SnackBarBehavior.floating,
-        ),
+        const SnackBar(content: Text('You must be logged in to create a community.')),
       );
       return;
     }
-
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const CreateCommunityScreen()),
-    ).then((_) {
-      setState(() {}); // Refresh communities after returning
-    });
+    );
+    if (mounted) _triggerCommunityLoad(); // Refresh list after returning
   }
 
-  Future<void> _toggleJoinCommunity(
-      String communityId,
-      bool isJoined,
-      ApiService apiService,
-      AuthProvider authProvider
-      ) async {
-    if (!authProvider.isAuthenticated) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You must be logged in to join communities.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
+ Future<void> _toggleJoinCommunity(String communityId, bool isJoined, ApiService apiService, AuthProvider authProvider) async {
+    if (!authProvider.isAuthenticated || !mounted) return;
 
-    // Optimistic UI update
-    setState(() {
-      _joinedCommunities[communityId] = !isJoined;
-    });
+    setState(() { _joinedCommunities[communityId] = !isJoined; });
 
     try {
       if (isJoined) {
         await apiService.leaveCommunity(communityId, authProvider.token!);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You left the community'),
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 1),
-          ),
-        );
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You left the community'), duration: Duration(seconds: 1)));
       } else {
         await apiService.joinCommunity(communityId, authProvider.token!);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You joined the community'),
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 1),
-          ),
-        );
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You joined the community'), duration: Duration(seconds: 1)));
       }
+      if (mounted) _triggerCommunityLoad(); // Refresh counts
     } catch (e) {
-      // Revert UI if operation failed
-      setState(() {
-        _joinedCommunities[communityId] = isJoined;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: ThemeConstants.errorColor,
-        ),
-      );
+      if (!mounted) return;
+      setState(() { _joinedCommunities[communityId] = isJoined; }); // Revert
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: ThemeConstants.errorColor));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    super.build(context);
 
     final apiService = Provider.of<ApiService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // List of community colors
     final communityColors = ThemeConstants.communityColors;
 
     return Scaffold(
@@ -142,7 +188,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
           // Search Bar
           Padding(
             padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-            child: TextField(
+           child: TextField(
               onChanged: _updateSearchQuery,
               decoration: InputDecoration(
                 hintText: "Search communities...",
@@ -176,14 +222,16 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
               itemBuilder: (context, index) {
                 final category = _categoryTabs[index];
                 final isSelected = _selectedCategory == category['id'];
-
-                return GestureDetector(
+                return GestureDetector( // Correct nesting
                   onTap: () {
-                    setState(() {
-                      _selectedCategory = isSelected ? null : category['id'] as String;
-                    });
+                    if (!mounted) return;
+                    final newCategory = isSelected ? null : category['id'] as String?;
+                    if (_selectedCategory != newCategory) {
+                       setState(() { _selectedCategory = newCategory; });
+                       _triggerCommunityLoad();
+                    }
                   },
-                  child: Padding(
+                  child: Padding( // Padding is the child of GestureDetector
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     child: Column(
                       children: [
@@ -237,114 +285,43 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
           // Community grid
           Expanded(
             child: RefreshIndicator(
-              onRefresh: () async {
-                setState(() {});
-              },
+              onRefresh: () async => _triggerCommunityLoad(),
               child: FutureBuilder<List<dynamic>>(
-                future: apiService.fetchCommunities(authProvider.token),
+                future: _loadCommunitiesFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return _buildLoadingShimmer();
+                    return _buildLoadingShimmer(context);
                   }
-
                   if (snapshot.hasError) {
-                    return Center(
-                      child: CustomCard(
-                        elevation: 4,
-                        child: Padding(
-                          padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                color: ThemeConstants.errorColor,
-                                size: 48,
-                              ),
-                              const SizedBox(height: ThemeConstants.smallPadding),
-                              Text('Error: ${snapshot.error}'),
-                              const SizedBox(height: ThemeConstants.mediumPadding),
-                              CustomButton(
-                                text: 'Retry',
-                                icon: Icons.refresh,
-                                onPressed: () => setState(() {}),
-                                type: ButtonType.primary,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
+                    return _buildErrorUI(snapshot.error); // Use helper for error UI
+                  }
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return _buildEmptyUI(isDark); // Use helper for empty UI
                   }
 
-                  // Filter communities based on search query and selected category
+                  // Client-side filtering
                   var communities = snapshot.data!.where((comm) {
-                    final name = comm['name'].toString().toLowerCase();
-                    final description = (comm['description'] ?? '').toString().toLowerCase();
-                    final matchesSearch = name.contains(_searchQuery) ||
-                        description.contains(_searchQuery);
+                    // ... filtering logic ...
+                     final name = (comm['name'] ?? '').toString().toLowerCase();
+                     final description = (comm['description'] ?? '').toString().toLowerCase();
+                     final interest = (comm['interest'] ?? '').toString().toLowerCase();
+                     final matchesSearch = name.contains(_searchQuery) || description.contains(_searchQuery);
 
-                    // Filter by category if one is selected
-                    if (_selectedCategory != null && _selectedCategory != 'all') {
-                      // Note: This is a simplified example, in a real app you would
-                      // want to match against actual category data from the API
-                      final categoryName = _selectedCategory!.toLowerCase();
-                      final matchesCategory =
-                          name.contains(categoryName) ||
-                              description.contains(categoryName);
-
-                      return matchesSearch && matchesCategory;
-                    }
-
-                    return matchesSearch;
+                     if (_selectedCategory != null && _selectedCategory != 'all' && _selectedCategory != 'trending') {
+                       final categoryName = _selectedCategory!.toLowerCase();
+                       final matchesCategory = interest == categoryName || name.contains(categoryName);
+                       return matchesSearch && matchesCategory;
+                     }
+                     return matchesSearch;
                   }).toList();
 
                   if (communities.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.people_outline,
-                            size: 64,
-                            color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No communities found',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _searchQuery.isNotEmpty
-                                ? 'Try a different search term'
-                                : 'Start by creating a new community!',
-                            style: TextStyle(
-                              color: isDark ? Colors.grey.shade500 : Colors.grey.shade700,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 24),
-                          if (_searchQuery.isEmpty)
-                            CustomButton(
-                              text: 'Create Community',
-                              icon: Icons.add,
-                              onPressed: () => _navigateToCreateCommunity(context),
-                              type: ButtonType.primary,
-                            ),
-                        ],
-                      ),
-                    );
+                     return _buildEmptyUI(isDark, isSearchOrFilterActive: _searchQuery.isNotEmpty || (_selectedCategory != null && _selectedCategory != 'all'));
                   }
 
-                  // Grid view for communities
                   return GridView.builder(
                     padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount( // Correct parameters
                       crossAxisCount: 2,
                       childAspectRatio: 0.8,
                       crossAxisSpacing: ThemeConstants.mediumPadding,
@@ -354,31 +331,21 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
                     itemBuilder: (context, index) {
                       final community = communities[index];
                       final communityId = community['id'].toString();
-
-                      // Get or default to not joined
-                      final isJoined = _joinedCommunities[communityId] ??
-                          (community['is_member'] as bool? ?? false);
-
-                      // Get consistent color for community
+                      final isJoined = _joinedCommunities[communityId] ?? false;
                       final color = communityColors[index % communityColors.length];
+                      final onlineCount = community['online_count'] ?? 0;
+                      final memberCount = community['member_count'] ?? 0;
 
                       return CommunityCard(
                         name: community['name'] ?? 'No Name',
-                        description: community['description'] ?? 'No Description',
-                        memberCount: community['members'] ?? 0,
-                        onlineCount: community['online_members'] ?? 0,
+                        description: community['description'],
+                        memberCount: memberCount,
+                        onlineCount: onlineCount,
                         backgroundColor: color,
-                        location: community['primary_location'],
+                        location: community['primary_location']?.toString(),
                         isJoined: isJoined,
-                        onJoin: () => _toggleJoinCommunity(
-                            communityId,
-                            isJoined,
-                            apiService,
-                            authProvider
-                        ),
-                        onTap: () {
-                          // Navigate to community detail screen
-                        },
+                        onJoin: () => _toggleJoinCommunity(communityId, isJoined, apiService, authProvider),
+                        onTap: () { /* Navigate */ },
                       );
                     },
                   );
@@ -388,40 +355,17 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
           ),
         ],
       ),
-
-      // Create Community Button
+      // Correct FloatingActionButton assignment
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _navigateToCreateCommunity(context),
-        child: const Icon(Icons.add),
+        onPressed: () => _navigateToCreateCommunity(),
         tooltip: "Create Community",
+        child: const Icon(Icons.add),
       ),
     );
-  }
 
-  Widget _buildLoadingShimmer() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseColor = isDark ? Colors.grey.shade800 : Colors.grey.shade300;
-    final highlightColor = isDark ? Colors.grey.shade700 : Colors.grey.shade100;
 
-    return Shimmer.fromColors(
-      baseColor: baseColor,
-      highlightColor: highlightColor,
-      child: GridView.builder(
-        padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 0.8,
-          crossAxisSpacing: ThemeConstants.mediumPadding,
-          mainAxisSpacing: ThemeConstants.mediumPadding,
-        ),
-        itemCount: 6,
-        itemBuilder: (_, __) => Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius),
-          ),
-        ),
-      ),
-    );
-  }
+
+
+
+}
 }
