@@ -68,3 +68,12 @@ class ThemeConstants {
     ];
   }
 }
+
+// lib/utils/colors.dart
+//import 'package:flutter/material.dart';
+
+const Color kDeepMidnightBlue = Color(0xFF1B1F3B);
+const Color kCyan = Color(0xFF00FFFF);
+const Color kHighlightYellow = Color(0xFFFFDD44);
+const Color kLightText = Colors.white; // For contrast on dark background
+const Color kSubtleGray = Colors.white38; // For less important elements

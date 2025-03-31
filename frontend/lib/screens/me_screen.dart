@@ -6,6 +6,7 @@ import '../services/auth_provider.dart';
 import '../theme/theme_constants.dart';
 import '../app_constants.dart';
 import 'login_screen.dart';
+import 'settings.dart';
 
 class MeScreen extends StatefulWidget {
   const MeScreen({Key? key}) : super(key: key);
@@ -96,7 +97,10 @@ class _MeScreenState extends State<MeScreen> with AutomaticKeepAliveClientMixin 
                   IconButton(
                     icon: const Icon(Icons.settings),
                     onPressed: () {
-                      // Navigate to settings
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => SettingsPage()),
+                      );
                     },
                   ),
                 ],
