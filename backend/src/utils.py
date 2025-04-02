@@ -6,7 +6,7 @@ import base64
 import io
 from PIL import Image
 from fastapi import UploadFile
-from typing import Optional
+from typing import Optional, Dict
 
 IMAGE_DIR = "user_images" # Define image directory constant
 
