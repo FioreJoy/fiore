@@ -15,7 +15,7 @@ class PreferencesPage extends StatefulWidget {
 
 class _PreferencesPageState extends State<PreferencesPage> {
   // Placeholder state - replace with your actual state management
-  bool _isDarkMode = true; // Default based on our palette
+  bool isDark = true; // Default based on our palette
   bool _locationVisible = true;
   List<String> _selectedInterests = ['Movies', 'Hackathons']; // Example
 
@@ -26,11 +26,11 @@ class _PreferencesPageState extends State<PreferencesPage> {
 
   void _toggleTheme(bool value) {
     setState(() {
-      _isDarkMode = value;
+      isDark = value;
     });
     // TODO: Call your ThemeProvider to actually change the theme
     // Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
-    print('Dark Mode Toggled: $_isDarkMode');
+    print('Dark Mode Toggled: $isDark');
      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Theme changed (Simulated)'), backgroundColor: kCyan),
      );
@@ -68,7 +68,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
   Widget build(BuildContext context) {
     // Access ThemeProvider if using Provider
     // final themeProvider = Provider.of<ThemeProvider>(context);
-    // _isDarkMode = themeProvider.isDarkMode; // Sync state
+    // isDark = themeProvider.isDark; // Sync state
 
     return Scaffold(
       backgroundColor: kDeepMidnightBlue,
@@ -86,7 +86,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
           SwitchListTile.adaptive( // adaptive looks native on iOS/Android
             title: const Text('Dark Mode', style: TextStyle(color: kLightText)),
             subtitle: const Text('Reduce eye strain in low light', style: TextStyle(color: kSubtleGray)),
-            value: _isDarkMode,
+            value: isDark,
             onChanged: _toggleTheme,
             activeColor: kHighlightYellow, // Thumb color when on
             activeTrackColor: kCyan.withOpacity(0.5),

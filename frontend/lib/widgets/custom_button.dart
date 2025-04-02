@@ -15,6 +15,8 @@ enum ButtonSize {
 }
 
 class CustomButton extends StatelessWidget {
+  final Color? backgroundColor;
+  final Color? foregroundColor;
   final String text;
   final VoidCallback onPressed;
   final ButtonType type;
@@ -26,6 +28,8 @@ class CustomButton extends StatelessWidget {
 
   const CustomButton({
     Key? key,
+    this.backgroundColor,
+    this.foregroundColor,
     required this.text,
     required this.onPressed,
     this.type = ButtonType.primary,

@@ -1,40 +1,43 @@
 import 'package:flutter/material.dart';
-import '/theme/theme_constants.dart'; // Adjust import path if needed
+import '/theme/theme_constants.dart'; // Adjust path if needed
 
-// Import placeholder detail pages (Create these files next)
+// --- Import the ACTUAL sub-page files ---
 import 'settings_feature/account/edit_profile.dart';
 import 'settings_feature/account/change_password_page.dart';
 import 'settings_feature/account/linked_accounts_page.dart';
 import 'settings_feature/account/college_verification_page.dart';
-import 'settings_feature/privacy/privacy_security_page.dart'; // Combined privacy settings
+import 'settings_feature/privacy/privacy_security_page.dart';
 import 'settings_feature/privacy/blocked_users.dart';
 import 'settings_feature/notifications/notification_settings_page.dart';
-import 'settings_feature/preferences/preferences_page.dart'; // Theme, Interests, Location
-import 'settings_feature/app/app_settings_page.dart';       // Cache, Version
-import 'settings_feature/support/support_help_page.dart';     // FAQs, Contact, Report
-import 'settings_feature/legal/legal_policies_page.dart';   // Terms, Privacy, Guidelines
-import 'settings_feature/auth/logout_delete_page.dart';   // Logout, Delete
+import 'settings_feature/preferences/preferences_page.dart';
+import 'settings_feature/app/app_settings_page.dart';
+import 'settings_feature/support/support_help_page.dart';
+import 'settings_feature/legal/legal_policies_page.dart';
+import 'settings_feature/auth/logout_delete_page.dart';
+// --- End Imports ---
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
+
+  // Helper to navigate to a page
+  void _navigateTo(BuildContext context, Widget page) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kDeepMidnightBlue,
       appBar: AppBar(
-        title: const Text(
-          'Settings',
-          style: TextStyle(color: kHighlightYellow, fontWeight: FontWeight.bold),
-        ),
+        title: const Text('Settings', style: TextStyle(color: kHighlightYellow, fontWeight: FontWeight.bold)),
         backgroundColor: kDeepMidnightBlue,
-        elevation: 0, // Keep it clean
-        iconTheme: const IconThemeData(color: kCyan), // Back button color
-        leading: IconButton( // Optional: Customize back button if needed
+        elevation: 0,
+        iconTheme: const IconThemeData(color: kCyan),
+        leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new),
           onPressed: () => Navigator.of(context).pop(),
           color: kCyan,
-           tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+          tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         ),
       ),
       body: ListView(
@@ -44,80 +47,90 @@ class SettingsPage extends StatelessWidget {
             context,
             icon: Icons.person_outline,
             title: "Edit Profile",
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            // Navigate to the imported EditProfilePage
+            onTap: () => _navigateTo(context, const EditProfilePage()),
           ),
           _buildSettingsItem(
             context,
             icon: Icons.lock_outline,
             title: "Change Password",
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            // Navigate to the imported ChangePasswordPage
+            onTap: () => _navigateTo(context, const ChangePasswordPage()),
           ),
           _buildSettingsItem(
             context,
             icon: Icons.link,
             title: "Linked Accounts",
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            // Navigate to the imported LinkedAccountsPage
+            onTap: () => _navigateTo(context, const LinkedAccountsPage()),
           ),
           _buildSettingsItem(
             context,
             icon: Icons.school_outlined,
             title: "College Verification",
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            // Navigate to the imported CollegeVerificationPage
+            onTap: () => _navigateTo(context, const CollegeVerificationPage()),
           ),
 
           _buildSectionHeader("Privacy & Security"),
           _buildSettingsItem(
             context,
             icon: Icons.privacy_tip_outlined,
-            title: "Privacy Controls", // Combine Profile Vis, Activity, Requests
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            title: "Privacy Controls",
+            // Navigate to the imported PrivacySecurityPage
+            onTap: () => _navigateTo(context, const PrivacySecurityPage()),
           ),
           _buildSettingsItem(
             context,
             icon: Icons.block,
             title: "Blocked Users",
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedUsersPage())),
+            // Navigate to the imported BlockedUsersPage
+            onTap: () => _navigateTo(context, const BlockedUsersPage()),
           ),
 
           _buildSectionHeader("Notification Settings"),
           _buildSettingsItem(
             context,
             icon: Icons.notifications_outlined,
-            title: "Notifications", // Combine Push, Email, Sound
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            title: "Notifications",
+            // Navigate to the imported NotificationSettingsPage
+            onTap: () => _navigateTo(context, const NotificationSettingsPage()),
           ),
 
-           _buildSectionHeader("Preferences"),
+          _buildSectionHeader("Preferences"),
           _buildSettingsItem(
             context,
             icon: Icons.palette_outlined,
-            title: "Appearance & Preferences", // Combine Theme, Interests, Location
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PreferencesPage())),
+            title: "Appearance & Preferences",
+            // Navigate to the imported PreferencesPage
+            onTap: () => _navigateTo(context, const PreferencesPage()),
           ),
 
           _buildSectionHeader("App Settings"),
-           _buildSettingsItem(
+          _buildSettingsItem(
             context,
             icon: Icons.settings_applications_outlined,
-            title: "App Settings", // Combine Cache, Version
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            title: "App Settings",
+            // Navigate to the imported AppSettingsPage
+            onTap: () => _navigateTo(context, const AppSettingsPage()),
           ),
 
-
           _buildSectionHeader("Support & Help"),
-           _buildSettingsItem(
+          _buildSettingsItem(
             context,
             icon: Icons.help_outline,
-            title: "Support & Help", // Combine FAQ, Contact, Report
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            title: "Support & Help",
+            // Navigate to the imported SupportHelpPage
+            onTap: () => _navigateTo(context, const SupportHelpPage()),
           ),
 
           _buildSectionHeader("Legal & Policies"),
-           _buildSettingsItem(
+          _buildSettingsItem(
             context,
             icon: Icons.gavel_outlined,
-            title: "Legal & Policies", // Combine Terms, Privacy, Community
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            title: "Legal & Policies",
+            // Navigate to the imported LegalPoliciesPage
+            onTap: () => _navigateTo(context, const LegalPoliciesPage()),
           ),
 
           _buildSectionHeader("Account Actions"),
@@ -125,44 +138,42 @@ class SettingsPage extends StatelessWidget {
             context,
             icon: Icons.exit_to_app,
             title: "Logout / Delete Account",
-            iconColor: Colors.redAccent, // Highlight destructive actions
+            iconColor: Colors.redAccent,
             textColor: Colors.redAccent,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfilePage())),
+            // Navigate to the imported LogoutDeletePage
+            onTap: () => _navigateTo(context, const LogoutDeletePage()),
           ),
 
-          const SizedBox(height: 30), // Add some padding at the bottom
+          const SizedBox(height: 30), // Bottom padding
         ],
       ),
     );
   }
 
-  // Helper widget for section headers
+  // Helper widget for section headers (Keep as is)
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(top: 20.0, left: 16.0, bottom: 8.0, right: 16.0),
       child: Text(
         title.toUpperCase(),
         style: const TextStyle(
-          color: kHighlightYellow,
-          fontWeight: FontWeight.bold,
-          fontSize: 13,
-          letterSpacing: 0.8,
+          color: kHighlightYellow, fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.8,
         ),
       ),
     );
   }
 
-  // Helper widget for individual settings items
+  // Helper widget for individual settings items (Keep as is)
   Widget _buildSettingsItem(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-    Color iconColor = kCyan, // Default icon color
-    Color textColor = kLightText, // Default text color
-  }) {
-    return Material( // Use Material for InkWell splash effect
-      color: kDeepMidnightBlue, // Match background for seamless look
+      BuildContext context, {
+        required IconData icon,
+        required String title,
+        required VoidCallback onTap,
+        Color iconColor = kCyan,
+        Color textColor = kLightText,
+      }) {
+    return Material(
+      color: kDeepMidnightBlue,
       child: InkWell(
         onTap: onTap,
         splashColor: kCyan.withOpacity(0.2),
@@ -174,10 +185,7 @@ class SettingsPage extends StatelessWidget {
               Icon(icon, color: iconColor, size: 24),
               const SizedBox(width: 20),
               Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(color: textColor, fontSize: 16),
-                ),
+                child: Text(title, style: TextStyle(color: textColor, fontSize: 16)),
               ),
               Icon(Icons.chevron_right, color: kSubtleGray.withOpacity(0.7), size: 20),
             ],
@@ -186,4 +194,6 @@ class SettingsPage extends StatelessWidget {
       ),
     );
   }
+
+// --- REMOVED PLACEHOLDER CLASSES AND HELPER FUNCTION ---
 }
