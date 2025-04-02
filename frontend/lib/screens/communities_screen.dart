@@ -29,13 +29,18 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
 
   // Keep static category tabs
   final List<Map<String, dynamic>> _categoryTabs = [
-    {'id': 'all', 'label': 'All', 'icon': Icons.public},
-    {'id': 'trending', 'label': 'Trending', 'icon': Icons.trending_up},
-    {'id': 'gaming', 'label': 'Gaming', 'icon': Icons.sports_esports},
-    {'id': 'tech', 'label': 'Tech', 'icon': Icons.code},
-    {'id': 'music', 'label': 'Music', 'icon': Icons.music_note},
-    {'id': 'art', 'label': 'Art', 'icon': Icons.palette},
-  ];
+  {'id': 'all', 'label': 'All', 'icon': Icons.public},
+  {'id': 'trending', 'label': 'Trending', 'icon': Icons.trending_up},
+  {'id': 'gaming', 'label': 'Gaming', 'icon': Icons.sports_esports},
+  {'id': 'tech', 'label': 'Tech', 'icon': Icons.code},
+  {'id': 'science', 'label': 'Science', 'icon': Icons.science},
+  {'id': 'music', 'label': 'Music', 'icon': Icons.music_note},
+  {'id': 'sports', 'label': 'Sports', 'icon': Icons.sports},
+  {'id': 'college_events', 'label': 'College Events', 'icon': Icons.school},
+  {'id': 'activities', 'label': 'Activities', 'icon': Icons.hiking},
+  {'id': 'social', 'label': 'Social', 'icon': Icons.people},
+  {'id': 'other', 'label': 'Other', 'icon': Icons.more_horiz},
+];
 
   @override
   void initState() {
