@@ -1,4 +1,3 @@
-// frontend/lib/screens/communities_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
@@ -26,22 +25,31 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
   // Store join status locally for optimistic UI. Key: communityId (String), Value: isJoined (bool)
   final Map<String, bool> _joinedStatus = {};
   String _selectedCategory = 'all'; // Default to 'all'
+  String _selectedSortOption = 'latest'; // Default to 'latest'
   Future<List<dynamic>>? _loadCommunitiesFuture;
+
+  // Sort options for communities
+  final List<Map<String, dynamic>> _sortOptions = [
+    {'id': 'latest', 'label': 'Latest', 'icon': Icons.access_time},
+    {'id': 'popular', 'label': 'Most Popular', 'icon': Icons.trending_up},
+    {'id': 'active', 'label': 'Most Active', 'icon': Icons.bolt},
+    {'id': 'nearby', 'label': 'Nearby', 'icon': Icons.location_on},
+  ];
 
   // Keep static category tabs
   final List<Map<String, dynamic>> _categoryTabs = [
-  {'id': 'all', 'label': 'All', 'icon': Icons.public},
-  {'id': 'trending', 'label': 'Trending', 'icon': Icons.trending_up},
-  {'id': 'gaming', 'label': 'Gaming', 'icon': Icons.sports_esports},
-  {'id': 'tech', 'label': 'Tech', 'icon': Icons.code},
-  {'id': 'science', 'label': 'Science', 'icon': Icons.science},
-  {'id': 'music', 'label': 'Music', 'icon': Icons.music_note},
-  {'id': 'sports', 'label': 'Sports', 'icon': Icons.sports},
-  {'id': 'college_events', 'label': 'College Events', 'icon': Icons.school},
-  {'id': 'activities', 'label': 'Activities', 'icon': Icons.hiking},
-  {'id': 'social', 'label': 'Social', 'icon': Icons.people},
-  {'id': 'other', 'label': 'Other', 'icon': Icons.more_horiz},
-];
+    {'id': 'all', 'label': 'All', 'icon': Icons.public},
+    {'id': 'trending', 'label': 'Trending', 'icon': Icons.trending_up},
+    {'id': 'gaming', 'label': 'Gaming', 'icon': Icons.sports_esports},
+    {'id': 'tech', 'label': 'Tech', 'icon': Icons.code},
+    {'id': 'science', 'label': 'Science', 'icon': Icons.science},
+    {'id': 'music', 'label': 'Music', 'icon': Icons.music_note},
+    {'id': 'sports', 'label': 'Sports', 'icon': Icons.sports},
+    {'id': 'college_events', 'label': 'College Events', 'icon': Icons.school},
+    {'id': 'activities', 'label': 'Activities', 'icon': Icons.hiking},
+    {'id': 'social', 'label': 'Social', 'icon': Icons.people},
+    {'id': 'other', 'label': 'Other', 'icon': Icons.more_horiz},
+  ];
 
   @override
   void initState() {
@@ -90,7 +98,17 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
     }
   }
 
-   void _navigateToCommunityDetail(Map<String, dynamic> communityData, bool isJoined) {
+  void _selectSortOption(String sortOptionId) {
+    if (!mounted) return;
+    if (_selectedSortOption != sortOptionId) {
+      setState(() {
+        _selectedSortOption = sortOptionId;
+      });
+      _triggerCommunityLoad(); // Reload data for the new sort option
+    }
+  }
+
+  void _navigateToCommunityDetail(Map<String, dynamic> communityData, bool isJoined) {
       Navigator.of(context).push(
         PageRouteBuilder(
           opaque: false, // Make the route background transparent
@@ -109,7 +127,6 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
         ),
       );
   }
-
 
   void _navigateToCreateCommunity() async {
     if (!mounted) return;
@@ -182,6 +199,38 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
       // Removed AppBar to match design of other main screens
       body: Column(
         children: [
+          // Sort Options
+          Padding(
+            padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: _sortOptions.map((sortOption) {
+                final isSelected = _selectedSortOption == sortOption['id'];
+                return GestureDetector(
+                  onTap: () => _selectSortOption(sortOption['id'] as String),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        sortOption['icon'] as IconData,
+                        color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        sortOption['label'] as String,
+                        style: TextStyle(
+                          color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+
           // Search Bar
           Padding(
             padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
@@ -298,6 +347,34 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
                   if (communities.isEmpty) {
                     return _buildEmptyUI(isDark, isSearchOrFilterActive: _searchQuery.isNotEmpty || (_selectedCategory != 'all'));
                   }
+
+                  // Apply sorting based on the selected sort option
+                  if (_selectedSortOption == 'popular') {
+                    // Sort by member count (most to least)
+                    communities.sort((a, b) {
+                      final aMemberCount = a['member_count'] as int? ?? 0;
+                      final bMemberCount = b['member_count'] as int? ?? 0;
+                      return bMemberCount.compareTo(aMemberCount); // Descending order
+                    });
+                  } else if (_selectedSortOption == 'active') {
+                    // Sort by online count (most to least)
+                    communities.sort((a, b) {
+                      final aOnlineCount = a['online_count'] as int? ?? 0;
+                      final bOnlineCount = b['online_count'] as int? ?? 0;
+                      return bOnlineCount.compareTo(aOnlineCount); // Descending order
+                    });
+                  } else if (_selectedSortOption == 'nearby') {
+                    // Sort by distance (if location data is available)
+                    // This is a placeholder - would need actual location calculation
+                    // For now, we'll use a random property to demonstrate the sorting
+                    communities.sort((a, b) {
+                      final aId = a['id'] as int? ?? 0;
+                      final bId = b['id'] as int? ?? 0;
+                      return aId.compareTo(bId); // Ascending order by ID as a placeholder
+                    });
+                  }
+                  // For 'latest', we assume the API already returns communities in
+                  // reverse chronological order (newest first)
 
                   return GridView.builder(
                     padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
