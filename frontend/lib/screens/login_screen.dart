@@ -73,8 +73,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       setState(() => _isLoading = true);
       try {
         final result = await apiService.login(_emailController.text, _passwordController.text);
-        authProvider.setAuthToken(result['token']);
-        authProvider.setUserId(result['user_id'].toString());
+        await authProvider.setAuthToken(result['token']);
+        await authProvider.setUserId(result['user_id'].toString());
+
+        print("Token saved: ${result['token']}");
+        print("User ID saved: ${result['user_id']}");
 
         // Navigate to home screen
         Navigator.pushReplacement(

@@ -1,4 +1,3 @@
-// services/auth_provider.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
@@ -9,6 +8,9 @@ class AuthProvider with ChangeNotifier {
   String? _userId;
   DateTime? _tokenExpiryDate;
   Timer? _autoLogoutTimer;
+  bool _isTryingAutoLogin = true;
+  bool _isAuthenticated = false;
+  bool get isAuthenticated => _isAuthenticated;
   
   // Keys for SharedPreferences storage
   static const String _tokenKey = 'auth_token';
@@ -18,10 +20,14 @@ class AuthProvider with ChangeNotifier {
   // Session timeout in hours (adjust as needed)
   static const int _sessionTimeout = 24;
 
+  AuthProvider() {
+    tryAutoLogin();
+  }
+
   String? get token => _token;
   String? get userId => _userId;
-  bool get isAuthenticated => _token != null && !isTokenExpired();
-  
+  bool get isTryingAutoLogin => _isTryingAutoLogin;
+
   // Check if token is expired
   bool isTokenExpired() {
     if (_tokenExpiryDate == null) return true;
@@ -30,10 +36,16 @@ class AuthProvider with ChangeNotifier {
   
   // Initialize from shared preferences (call on app startup)
   Future<bool> tryAutoLogin() async {
+    _isTryingAutoLogin = true;
+    notifyListeners();
+
     final prefs = await SharedPreferences.getInstance();
     
     // Check if token exists in storage
     if (!prefs.containsKey(_tokenKey)) {
+      _isAuthenticated = false;
+      _isTryingAutoLogin = false;
+      notifyListeners();
       return false;
     }
     
@@ -49,6 +61,9 @@ class AuthProvider with ChangeNotifier {
     
     // Validate data
     if (storedToken == null || storedUserId == null || expiryDate == null) {
+      _isAuthenticated = false;
+      _isTryingAutoLogin = false;
+      notifyListeners();
       return false;
     }
     
@@ -56,6 +71,9 @@ class AuthProvider with ChangeNotifier {
     if (DateTime.now().isAfter(expiryDate)) {
       // Clear expired token
       await _clearStoredAuthData();
+      _isAuthenticated = false;
+      _isTryingAutoLogin = false;
+      notifyListeners();
       return false;
     }
     
@@ -63,10 +81,9 @@ class AuthProvider with ChangeNotifier {
     _token = storedToken;
     _userId = storedUserId;
     _tokenExpiryDate = expiryDate;
-    
-    // Set auto-logout timer
-    _setAutoLogoutTimer();
-    
+    _isAuthenticated = true;
+
+    _isTryingAutoLogin = false;
     notifyListeners();
     return true;
   }
@@ -84,10 +101,13 @@ class AuthProvider with ChangeNotifier {
       
       // Set auto-logout timer
       _setAutoLogoutTimer();
+      _isAuthenticated = true;
     } else {
       // If token is null, clear stored data
       await _clearStoredAuthData();
       _tokenExpiryDate = null;
+      _userId = null; // Added line to clear userId when token is null
+      _isAuthenticated = false;
       
       // Cancel any existing auto-logout timer
       _cancelAutoLogoutTimer();
@@ -117,6 +137,7 @@ class AuthProvider with ChangeNotifier {
     _token = null;
     _userId = null;
     _tokenExpiryDate = null;
+    _isAuthenticated = false;
     
     // Clear stored auth data
     await _clearStoredAuthData();
@@ -129,6 +150,7 @@ class AuthProvider with ChangeNotifier {
   
   // Extend session (call this when user performs significant actions)
   Future<void> extendSession() async {
+    if (isTokenExpired()) return; // Added check for token expiration
     if (_token != null && _userId != null) {
       // Set new expiry time (24 hours from now)
       _tokenExpiryDate = DateTime.now().add(Duration(hours: _sessionTimeout));

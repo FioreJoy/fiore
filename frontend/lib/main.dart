@@ -55,12 +55,18 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: AppConstants.appName,
           theme: themeNotifier.getTheme(),
-          initialRoute: '/',
-          routes: {
-            '/': (context) => const LoginScreen(),
-            '/signup': (context) => const SignUpScreen(),
-            '/home': (context) => const MainNavigationScreen(),
-          },
+          home: Consumer<AuthProvider>(
+            builder: (context, authProvider, _) {
+              if (authProvider.isTryingAutoLogin) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+              return authProvider.isAuthenticated
+                  ? const MainNavigationScreen()
+                  : const LoginScreen();
+            },
+          ),
           debugShowCheckedModeBanner: false,
         );
       },
@@ -78,7 +84,6 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   late final PageController _pageController;
-  late final TabController _tabController;
   
   // List of screens
   final List<Widget> _screens = const [
@@ -92,18 +97,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Single
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: _selectedIndex);
-    _tabController = TabController(length: 4, vsync: this);
-    _tabController.addListener(() {
-      setState(() {
-        _selectedIndex = _tabController.index;
-      });
-    });
   }
 
   @override
   void dispose() {
     _pageController.dispose();
-    _tabController.dispose();
     super.dispose();
   }
 
@@ -115,7 +113,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Single
         duration: ThemeConstants.mediumAnimation,
         curve: Curves.easeInOut,
       );
-      _tabController.animateTo(index);
     });
   }
 
@@ -130,7 +127,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Single
         onPageChanged: (index) {
           setState(() {
             _selectedIndex = index;
-            _tabController.animateTo(index);
           });
         },
         children: _screens,
@@ -148,25 +144,28 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Single
           ],
         ),
         child: SafeArea(
-          child: TabBar(
-            controller: _tabController,
-            tabs: [
-              _buildNavItem(Icons.explore, 'Explore', 0),
-              _buildNavItem(Icons.people, 'Communities', 1),
-              _buildNavItem(Icons.chat_bubble, 'Chatroom', 2),
-              _buildNavItem(Icons.person, 'Profile', 3),
-            ],
-            indicator: UnderlineTabIndicator(
-              borderSide: BorderSide(
-                color: ThemeConstants.accentColor,
-                width: 4,
+          child: DefaultTabController(
+            length: 4,
+            child: TabBar(
+              tabs: [
+                _buildNavItem(Icons.explore, 'Explore', 0),
+                _buildNavItem(Icons.people, 'Communities', 1),
+                _buildNavItem(Icons.chat_bubble, 'Chatroom', 2),
+                _buildNavItem(Icons.person, 'Profile', 3),
+              ],
+              onTap: _onNavItemTapped,
+              indicator: UnderlineTabIndicator(
+                borderSide: BorderSide(
+                  color: ThemeConstants.accentColor,
+                  width: 4,
+                ),
+                insets: const EdgeInsets.symmetric(horizontal: 16),
               ),
-              insets: const EdgeInsets.symmetric(horizontal: 16),
+              labelColor: ThemeConstants.accentColor,
+              unselectedLabelColor: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
+              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 10),
             ),
-            labelColor: ThemeConstants.accentColor,
-            unselectedLabelColor: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
-            labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 10),
           ),
         ),
       ),
