@@ -199,37 +199,6 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
       // Removed AppBar to match design of other main screens
       body: Column(
         children: [
-          // Sort Options
-          Padding(
-            padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: _sortOptions.map((sortOption) {
-                final isSelected = _selectedSortOption == sortOption['id'];
-                return GestureDetector(
-                  onTap: () => _selectSortOption(sortOption['id'] as String),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        sortOption['icon'] as IconData,
-                        color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        sortOption['label'] as String,
-                        style: TextStyle(
-                          color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
 
           // Search Bar
           Padding(
@@ -253,9 +222,10 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
             ),
           ),
 
+
           // Category tabs
           SizedBox(
-            height: 100, // Keep height for avatars + labels
+            height: 100,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: _categoryTabs.length,
@@ -264,17 +234,17 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
                 final category = _categoryTabs[index];
                 final isSelected = _selectedCategory == category['id'];
                 return GestureDetector(
-                  onTap: () => _selectCategory(category['id'] as String), // Use helper
+                  onTap: () => _selectCategory(category['id'] as String),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center, // Center content
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         AnimatedContainer(
                           duration: ThemeConstants.shortAnimation,
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? ThemeConstants.primaryColor // Use primary for selected background
+                                ? ThemeConstants.primaryColor
                                 : (isDark ? ThemeConstants.backgroundDark : Colors.grey.shade200),
                             shape: BoxShape.circle,
                             boxShadow: isSelected ? ThemeConstants.glowEffect(ThemeConstants.primaryColor) : null,
@@ -283,7 +253,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
                           child: Icon(
                             category['icon'] as IconData,
                             color: isSelected
-                                ? ThemeConstants.accentColor // Highlight icon color
+                                ? ThemeConstants.accentColor
                                 : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
                             size: 24,
                           ),
@@ -306,7 +276,42 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
               },
             ),
           ),
-
+          
+          // Sort Options Dropdown
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.mediumPadding),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                DropdownButton<String>(
+                  value: _selectedSortOption,
+                  icon: const Icon(Icons.arrow_drop_down),
+                  elevation: 16,
+                  style: TextStyle(color: Theme.of(context).textTheme.bodyLarge?.color),
+                  underline: Container(
+                    height: 2,
+                    color: ThemeConstants.primaryColor,
+                  ),
+                  onChanged: (String? newValue) {
+                    if (newValue != null) _selectSortOption(newValue);
+                  },
+                  items: _sortOptions.map<DropdownMenuItem<String>>((sortOption) {
+                    return DropdownMenuItem<String>(
+                      value: sortOption['id'] as String,
+                      child: Row(
+                        children: [
+                          Icon(sortOption['icon'] as IconData, size: 18),
+                          const SizedBox(width: 8),
+                          Text(sortOption['label'] as String),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+          
           // Community grid
           Expanded(
             child: RefreshIndicator(
@@ -509,3 +514,36 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
     );
   }
 }
+
+          // Container(
+          //   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          //   decoration: BoxDecoration(
+          //     color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
+          //     borderRadius: BorderRadius.circular(30),
+          //     border: Border.all(color: ThemeConstants.primaryColor.withOpacity(0.6)),
+          //   ),
+          //   child: DropdownButtonHideUnderline(
+          //     child: DropdownButton<String>(
+          //       value: _selectedSortOption,
+          //       icon: const Icon(Icons.arrow_drop_down),
+          //       elevation: 16,
+          //       dropdownColor: isDark ? Colors.grey.shade900 : Colors.white,
+          //       style: TextStyle(color: Theme.of(context).textTheme.bodyLarge?.color),
+          //       onChanged: (String? newValue) {
+          //         if (newValue != null) _selectSortOption(newValue);
+          //       },
+          //       items: _sortOptions.map<DropdownMenuItem<String>>((sortOption) {
+          //         return DropdownMenuItem<String>(
+          //           value: sortOption['id'] as String,
+          //           child: Row(
+          //             children: [
+          //               Icon(sortOption['icon'] as IconData, size: 18),
+          //               const SizedBox(width: 8),
+          //               Text(sortOption['label'] as String),
+          //             ],
+          //           ),
+          //         );
+          //       }).toList(),
+          //     ),
+          //   ),
+          // ),
