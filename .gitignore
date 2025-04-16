@@ -4,8 +4,8 @@ backend/lib/
 backend/include/
 backend/lib64/
 backend/pycache/
-backend/src/_pycache_/
-backend/src/routers/_pycache_/
+backend/src/__pycache__/
+backend/src/routers/__pycache__/
 backend/share/
 backend/var/
 backend/venv/
@@ -21,3 +21,4 @@ frontend/macos/
 frontend/ios/
 frontend/android/
 frontend/.env
+

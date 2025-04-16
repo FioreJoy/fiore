@@ -1,4 +1,4 @@
-// lib/screens/signup_form_screen.dart (No changes needed here from the previous correct version)
+// lib/screens/signup_form_screen.dart
 import 'dart:typed_data';
 import 'dart:io';
 
@@ -49,7 +49,8 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
     "NSUT",
     "RVCE"
   ];
-    // Use your interest list from the provided code
+
+  // Use your interest list from the provided code
   final List<Map<String, dynamic>> interests = [
     {"name": "Sports", "icon": Icons.sports_soccer},
     {"name": "Video Games", "icon": Icons.videogame_asset},
@@ -108,7 +109,7 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
     super.dispose();
   }
 
-    Future<void> _pickImage() async {
+  Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
 
@@ -137,45 +138,155 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
     return Icons.lock_rounded;
   }
 
-
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).primaryColor;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Sign Up"),
-        automaticallyImplyLeading: false,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-        child: Form( // Wrap with Form
-          key: _formKey,
-          child: Column(
-            children: [
-              // Progress Bar
-              LinearProgressIndicator(
-                value: (_currentStep + 1) / 4,
-                backgroundColor: Colors.grey[300],
-                valueColor: AlwaysStoppedAnimation<Color>(
-                    Theme.of(context).primaryColor),
-              ),
-              const SizedBox(height: ThemeConstants.mediumPadding),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: isDark
+              ? [Color(0xFF191C24), Color(0xFF0F1117)]
+              : [Color(0xFFE1F5FE), Color(0xFFB3E5FC)],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+            child: Column(
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (_currentStep > 0)
+                      IconButton(
+                        icon: Icon(Icons.arrow_back_ios),
+                        onPressed: () {
+                          setState(() => _currentStep--);
+                        },
+                      )
+                    else
+                      SizedBox(width: 48), // Empty space to maintain centering
 
-              // Step Content
-              Expanded(child: _buildStepContent()),
-
-              // Navigation Buttons
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  if (_currentStep > 0)
-                    ElevatedButton(
-                      onPressed: () {
-                        setState(() => _currentStep--);
-                      },
-                      child: const Text("Back"),
+                    Text(
+                      "Create Account",
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
                     ),
-                  ElevatedButton(
-                   onPressed: () async {
+                    SizedBox(width: 48), // Empty space for symmetry
+                  ],
+                ),
+                const SizedBox(height: ThemeConstants.mediumPadding),
+
+                // Step Indicator
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.largePadding),
+                  child: Row(
+                    children: List.generate(4, (index) {
+                      bool isActive = index <= _currentStep;
+                      bool isCurrent = index == _currentStep;
+
+                      return Expanded(
+                        child: Column(
+                          children: [
+                            // Step Circle
+                            Container(
+                              width: isCurrent ? 30 : 24,
+                              height: isCurrent ? 30 : 24,
+                              decoration: BoxDecoration(
+                                color: isActive ? primaryColor : Colors.grey.withOpacity(0.3),
+                                shape: BoxShape.circle,
+                                boxShadow: isCurrent ? [
+                                  BoxShadow(
+                                    color: primaryColor.withOpacity(0.4),
+                                    blurRadius: 8,
+                                    spreadRadius: 2,
+                                  )
+                                ] : null,
+                              ),
+                              child: isActive
+                                ? Icon(
+                                    isCurrent ? Icons.edit_outlined : Icons.check,
+                                    size: isCurrent ? 16 : 14,
+                                    color: Colors.white,
+                                  )
+                                : null,
+                            ),
+
+                            // Step Label
+                            const SizedBox(height: 4),
+                            Text(
+                              ["Profile", "Password", "College", "Interests"][index],
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                                color: isCurrent
+                                    ? primaryColor
+                                    : (isActive ? (isDark ? Colors.white70 : Colors.black54)
+                                              : Colors.grey.withOpacity(0.5)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+
+                // Progress Indicator Line
+                Padding(
+                  padding: const EdgeInsets.only(top: ThemeConstants.smallPadding),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: (_currentStep + 1) / 4,
+                      backgroundColor: Colors.grey.withOpacity(0.2),
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                      minHeight: 6,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: ThemeConstants.mediumPadding),
+
+                // Form Content
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.black.withOpacity(0.2) : Colors.white.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          spreadRadius: 0,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+                    child: Form(
+                      key: _formKey,
+                      child: _buildStepContent(),
+                    ),
+                  ),
+                ),
+
+                // Next Button
+                const SizedBox(height: ThemeConstants.mediumPadding),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : () async {
                       if (_currentStep < 3) {
                         // Validate current step before proceeding
                         if (_formKey.currentState!.validate()) {
@@ -188,17 +299,67 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
                         }
                       }
                     },
-                    child: Text(_currentStep == 3 ? "Finish" : "Next"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      elevation: 4,
+                    ),
+                    child: _isLoading
+                        ? SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(
+                            _currentStep == 3 ? "Create Account" : "Continue",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
-                ],
-              ),
-            ],
+                ),
+
+                // Login Link
+                const SizedBox(height: ThemeConstants.mediumPadding),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      "Already have an account? ",
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context);
+                      },
+                      child: Text(
+                        "Log In",
+                        style: TextStyle(
+                          color: primaryColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
-    // Step Content
+
+  // Step Content
   Widget _buildStepContent() {
     switch (_currentStep) {
       case 0:
@@ -216,50 +377,145 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
 
   // Step 1: Name, Username, Email, Gender, and Profile Image
   Widget _buildStep1() {
-      return SingleChildScrollView(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).primaryColor;
+
+    return SingleChildScrollView(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          GestureDetector(
-            onTap: _pickImage,
-            child: Stack(
-              alignment: Alignment.bottomRight,
-              children: [
-                CircleAvatar(
-                  radius: 50,
-                  backgroundColor: Colors.grey[300],
-                  backgroundImage: _profileImage != null ? MemoryImage(_profileImage!) : null,
+          // Profile Image Selector
+          Stack(
+            alignment: Alignment.bottomRight,
+            children: [
+              GestureDetector(
+                onTap: _pickImage,
+                child: Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200,
+                    border: Border.all(
+                      color: _profileImage != null
+                          ? primaryColor
+                          : Colors.transparent,
+                      width: 3,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: primaryColor.withOpacity(0.2),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                    image: _profileImage != null
+                        ? DecorationImage(
+                            image: MemoryImage(_profileImage!),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                  ),
                   child: _profileImage == null
-                      ? const Icon(Icons.camera_alt, size: 40, color: Colors.black54)
+                      ? Icon(
+                          Icons.person,
+                          size: 50,
+                          color: isDark ? Colors.white.withOpacity(0.6) : Colors.grey.shade400,
+                        )
                       : null,
                 ),
-                const CircleAvatar(
-                  radius: 16,
-                  backgroundColor: Colors.blue,
-                  child: Icon(Icons.edit, color: Colors.white, size: 16),
+              ),
+              Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: primaryColor,
+                  boxShadow: [
+                    BoxShadow(
+                      color: primaryColor.withOpacity(0.5),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+                child: const Icon(
+                  Icons.camera_alt,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: ThemeConstants.mediumPadding),
+
+          const SizedBox(height: 24),
+
+          // Name Field
           TextFormField(
             controller: _nameController,
-            decoration: const InputDecoration(labelText: 'Name'),
+            decoration: InputDecoration(
+              labelText: 'Full Name',
+              prefixIcon: Icon(Icons.person_outline, color: primaryColor),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(width: 1),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: primaryColor, width: 2),
+              ),
+              floatingLabelStyle: TextStyle(color: primaryColor),
+              filled: true,
+              fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade50,
+            ),
             validator: (value) =>
                 value == null || value.isEmpty ? 'Please enter your name' : null,
           ),
-          const SizedBox(height: ThemeConstants.smallPadding),
+
+          const SizedBox(height: 16),
+
+          // Username Field
           TextFormField(
             controller: _usernameController,
-            decoration: const InputDecoration(labelText: 'Username'),
+            decoration: InputDecoration(
+              labelText: 'Username',
+              prefixIcon: Icon(Icons.alternate_email, color: primaryColor),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(width: 1),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: primaryColor, width: 2),
+              ),
+              floatingLabelStyle: TextStyle(color: primaryColor),
+              filled: true,
+              fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade50,
+            ),
             validator: (value) =>
                 value == null || value.isEmpty ? 'Please enter a username' : null,
           ),
-          const SizedBox(height: ThemeConstants.smallPadding),
+
+          const SizedBox(height: 16),
+
+          // Email Field
           TextFormField(
             controller: _emailController,
-            decoration: const InputDecoration(labelText: 'Email'),
             keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(
+              labelText: 'Email Address',
+              prefixIcon: Icon(Icons.email_outlined, color: primaryColor),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(width: 1),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: primaryColor, width: 2),
+              ),
+              floatingLabelStyle: TextStyle(color: primaryColor),
+              filled: true,
+              fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade50,
+            ),
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Please enter your email';
@@ -270,33 +526,112 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
               return null;
             },
           ),
-           const SizedBox(height: ThemeConstants.smallPadding),
+
+          const SizedBox(height: 16),
+
+          // Location Field
           TextFormField(
             controller: _locationController,
-            decoration: const InputDecoration(labelText: 'Location'),
+            decoration: InputDecoration(
+              labelText: 'Location',
+              prefixIcon: Icon(Icons.location_on_outlined, color: primaryColor),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(width: 1),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: primaryColor, width: 2),
+              ),
+              floatingLabelStyle: TextStyle(color: primaryColor),
+              filled: true,
+              fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade50,
+            ),
             validator: (value) =>
                 value == null || value.isEmpty ? 'Please enter your location' : null,
           ),
-          const SizedBox(height: ThemeConstants.mediumPadding),
-          const Text("Select Gender",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: ThemeConstants.smallPadding),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: ["Male", "Female", "Others"].map((gender) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.smallPadding),
-                child: ChoiceChip(
-                  label: Text(gender),
-                  selected: _selectedGender == gender,
-                  onSelected: (bool selected) {
-                    setState(() {
-                      _selectedGender = selected ? gender : "";
-                    });
-                  },
+
+          const SizedBox(height: 24),
+
+          // Gender Selection
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, bottom: 8),
+                  child: Text(
+                    "Gender",
+                    style: TextStyle(
+                      color: primaryColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
-              );
-            }).toList(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: ["Male", "Female", "Other"].map((gender) {
+                    final isSelected = _selectedGender == gender;
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedGender = gender;
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? primaryColor
+                              : isDark
+                                  ? Colors.black.withOpacity(0.2)
+                                  : Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isSelected
+                                ? primaryColor
+                                : isDark
+                                    ? Colors.white.withOpacity(0.1)
+                                    : Colors.grey.shade300,
+                          ),
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                    color: primaryColor.withOpacity(0.4),
+                                    blurRadius: 8,
+                                    spreadRadius: 0,
+                                  )
+                                ]
+                              : null,
+                        ),
+                        child: Text(
+                          gender,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            color: isSelected
+                                ? Colors.white
+                                : isDark
+                                    ? Colors.white.withOpacity(0.8)
+                                    : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -305,14 +640,14 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
 
   // Step 2: Password & Confirm Password
   Widget _buildStep2() {
-   double strength = _calculatePasswordStrength(_password);
+    double strength = _calculatePasswordStrength(_password);
     return Column(
       children: [
         const Text("Set Your Password", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
         TextFormField(
           controller: _passwordController, // Use controller
-            onChanged: (value) {
+          onChanged: (value) {
             setState(() {
               _password = value;
             });
@@ -369,7 +704,7 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
   }
 
   // Step 3: Select College
-   Widget _buildStep3() {
+  Widget _buildStep3() {
     return Column(
       children: [
         const Text("Select Your College", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -436,7 +771,7 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
 
   // Step 4: Select Interests
   Widget _buildStep4() {
-     return Column(
+    return Column(
       children: [
         const Text("Select Your Interests", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
@@ -484,21 +819,21 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
     );
   }
 
- // Updated Signup function (connects to ApiService)
- void _signUp() async {
+  // Updated Signup function (connects to ApiService)
+  void _signUp() async {
     setState(() => _isLoading = true);
     final apiService = context.read<ApiService>();
     final authProvider = context.read<AuthProvider>();  // Not used in this example, but good practice to keep
 
     try {
       String? imageFileName;
-        if (_profileImage != null) {
-          // Get original file name from picked file (if available).
-          final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-          if (pickedFile != null) {
-            imageFileName = pickedFile.name;  // Get the file NAME
-          }
+      if (_profileImage != null) {
+        // Get original file name from picked file (if available).
+        final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+        if (pickedFile != null) {
+          imageFileName = pickedFile.name;  // Get the file NAME
         }
+      }
 
       // Call your ApiService signup method with imageBytes and fileName
       final result = await apiService.signup(
