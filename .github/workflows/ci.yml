@@ -7,11 +7,9 @@ on:
     branches: [ main ]
 
 jobs:
-  # ───────────────────────────────────────────────────────────────────────
-  # Backend job
   backend:
-    name: Backend Tests & Startup
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:14
@@ -19,9 +17,6 @@ jobs:
           POSTGRES_USER: connections
           POSTGRES_PASSWORD: change_me
           POSTGRES_DB: connections
-        ports:
-          - 5432:5432
-        # wait for Postgres to be ready
         options: >-
           --health-cmd "pg_isready -U connections -d connections"
           --health-interval 5s
@@ -34,13 +29,12 @@ jobs:
       DB_NAME: connections
       DB_HOST: localhost
       DB_PORT: 5432
-      JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
@@ -55,54 +49,59 @@ jobs:
 
       - name: Initialize database schema
         working-directory: backend
+        # inject the password so psql can authenticate non‑interactively
+        env:
+          PGPASSWORD: ${{ env.DB_PASSWORD }}
         run: |
-          # wait for postgres
-          until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do echo 'Waiting for Postgres…'; sleep 1; done
+          # wait until Postgres is accepting connections
+          until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do
+            echo "Waiting for Postgres…"
+            sleep 1
+          done
+
+          # run your SQL scripts in order
           psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f create_tables_and_keys.sql
           psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f insert_mock_data.sql
           psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f update_schema_for_frontend.sql
 
-      - name: Start FastAPI (in background)
+      - name: Launch backend and smoke‑test
         working-directory: backend
         run: |
           source .venv/bin/activate
+          # run in background so the job can proceed
           nohup uvicorn main:app --host 0.0.0.0 --port 8000 &
 
-      - name: Smoke‑test backend docs endpoint
-        run: |
+          # give it a moment to start
           sleep 5
+
+          # simple health check
           curl --fail http://localhost:8000/docs
 
-  # ───────────────────────────────────────────────────────────────────────
-  # Frontend job
   frontend:
-    name: Flutter Web Build
-    runs-on: ubuntu-latest
     needs: backend
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - name: Set up PNPM
+        uses: pnpm/action-setup@v2
         with:
-          flutter-version: 'stable'
+          version: 7
 
-      - name: Enable web
-        run: flutter config --enable-web
-
-      - name: Install Flutter packages
+      - name: Install frontend dependencies
         working-directory: frontend
-        run: flutter pub get
+        run: pnpm install --frozen-lockfile
 
-      - name: Build Flutter web
+      - name: Lint frontend
         working-directory: frontend
-        run: flutter build web --release --web-renderer html
+        run: pnpm lint
 
-      - name: Upload web build artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: flutter-web
-          path: frontend/build/web
+      - name: Test frontend
+        working-directory: frontend
+        run: pnpm test
 
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm build
