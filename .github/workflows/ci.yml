@@ -22,14 +22,14 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U connections -d connections"
+          --health-cmd "pg_isready -U divansh -d connections"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     env:
       # These are available to all steps in the job
-      DB_USER: connections
+      DB_USER: divansh
       DB_PASSWORD: change_me # Ensure this matches POSTGRES_PASSWORD
       DB_NAME: connections
       DB_HOST: localhost # Service is accessible via localhost inside the runner
