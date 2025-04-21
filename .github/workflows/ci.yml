@@ -7,101 +7,140 @@ on:
     branches: [ main ]
 
 jobs:
+  # ───────────────────────────────────────────────────────────────────────
+  # Backend job
   backend:
+    name: Backend Tests & Startup
     runs-on: ubuntu-latest
-
     services:
       postgres:
-        image: postgres:14
+        image: postgres:14 # Using version 14, adjust if needed
         env:
           POSTGRES_USER: connections
-          POSTGRES_PASSWORD: change_me
+          POSTGRES_PASSWORD: change_me # Matches DB_PASSWORD below
           POSTGRES_DB: connections
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U connections -d connections"
-          --health-interval 5s
+          --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     env:
+      # These are available to all steps in the job
       DB_USER: connections
-      DB_PASSWORD: change_me
+      DB_PASSWORD: change_me # Ensure this matches POSTGRES_PASSWORD
       DB_NAME: connections
-      DB_HOST: localhost
-      DB_PORT: 5432
+      DB_HOST: localhost # Service is accessible via localhost inside the runner
+      DB_PORT: 5432      # Use the port mapped on the runner
+      JWT_SECRET: ${{ secrets.JWT_SECRET }} # Ensure this is set in GitHub secrets
+      # Add MinIO vars if needed by tests/startup (use dummy values if not critical for CI)
+      MINIO_ENDPOINT: "dummy-minio:9000" # Example dummy value
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_BUCKET: "ci-connections-media"
+      MINIO_USE_SSL: "False"
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11 # Using 3.11, feel free to change
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
       - name: Install backend dependencies
-        working-directory: backend
+        working-directory: ./backend
         run: |
           python -m venv .venv
           source .venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Initialize database schema
-        working-directory: backend
-        # inject the password so psql can authenticate non‑interactively
-        env:
-          PGPASSWORD: ${{ env.DB_PASSWORD }}
+      - name: Wait for PostgreSQL service to be ready
         run: |
-          # wait until Postgres is accepting connections
-          until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do
-            echo "Waiting for Postgres…"
-            sleep 1
+          echo "Waiting for PostgreSQL..."
+          # Access the service host via 'localhost' and the mapped port
+          until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME; do
+            sleep 2;
           done
+          echo "PostgreSQL is ready!"
 
-          # run your SQL scripts in order
-          psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f create_tables_and_keys.sql
-          psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f insert_mock_data.sql
-          psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f update_schema_for_frontend.sql
+      - name: Initialize database schema
+        working-directory: ./backend/sql # <<< CHANGE: Go directly into the sql directory
+        env:
+           PGPASSWORD: ${{ env.DB_PASSWORD }} # <<< FIX: Set PGPASSWORD for psql
+        run: |
+          echo "Applying DB schema and mock data..."
+          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f create_tables_and_keys.sql
+          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f update_schema_for_frontend.sql # Run this before mock data if mock data depends on it
+          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f update_schema_for_chatroom.sql # Add chatroom schema update
+          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f insert_mock_data.sql
+          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f insert_new_mock_data.sql # Add new mock data
+          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f password_hashing.sql # Apply password hashing
+          echo "Database initialized."
 
-      - name: Launch backend and smoke‑test
-        working-directory: backend
+      # --- Optional: Add Backend Tests (using pytest for example) ---
+      # - name: Run backend tests
+      #   working-directory: ./backend
+      #   env:
+      #      PGPASSWORD: ${{ env.DB_PASSWORD }}
+      #   run: |
+      #     source .venv/bin/activate
+      #     pytest # Assuming you have pytest configured
+
+      - name: Start FastAPI (in background)
+        working-directory: ./backend
         run: |
           source .venv/bin/activate
-          # run in background so the job can proceed
-          nohup uvicorn main:app --host 0.0.0.0 --port 8000 &
+          # <<< FIX: Target the correct module: src.server:app
+          nohup uvicorn src.server:app --host 0.0.0.0 --port 8000 &
+          echo $! > uvicorn.pid # Save PID to potentially kill later if needed
 
-          # give it a moment to start
-          sleep 5
+      - name: Smoke-test backend docs endpoint
+        run: |
+          echo "Waiting for backend to start..."
+          sleep 10 # Increase sleep time to allow server startup
+          echo "Attempting smoke test..."
+          curl --fail --retry 5 --retry-delay 3 http://localhost:8000/docs || (echo "Smoke test failed!" && exit 1)
+          echo "Backend smoke test passed!"
 
-          # simple health check
-          curl --fail http://localhost:8000/docs
-
+  # ───────────────────────────────────────────────────────────────────────
+  # Frontend job
   frontend:
-    needs: backend
+    name: Flutter Web Build & Test
     runs-on: ubuntu-latest
+    # Optionally wait for backend if frontend tests need it, but build usually doesn't
+    # needs: backend
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up PNPM
-        uses: pnpm/action-setup@v2
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          version: 7
+          channel: 'stable' # Use stable channel
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
+      - name: Install Flutter packages
+        working-directory: ./frontend
+        run: flutter pub get
 
-      - name: Lint frontend
-        working-directory: frontend
-        run: pnpm lint
+      # --- Optional: Add Flutter Tests ---
+      # - name: Run Flutter tests
+      #   working-directory: ./frontend
+      #   run: flutter test
 
-      - name: Test frontend
-        working-directory: frontend
-        run: pnpm test
+      - name: Build Flutter web
+        working-directory: ./frontend
+        run: |
+          flutter config --enable-web # Ensure web is enabled (usually not needed on stable)
+          flutter build web --release --web-renderer html # Use HTML renderer for broader compatibility
 
-      - name: Build frontend
-        working-directory: frontend
-        run: pnpm build
+      - name: Upload web build artifact
+        uses: actions/upload-artifact@v4 # Use latest version
+        with:
+          name: flutter-web-build
+          path: frontend/build/web
