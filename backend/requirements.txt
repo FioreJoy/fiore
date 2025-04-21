@@ -4,9 +4,11 @@ psycopg2-binary
 SQLAlchemy
 python-dotenv
 pydantic
+pydantic[email]
 passlib[bcrypt]
 bcrypt
 Pillow
 PyJWT
 python-multipart
 websockets
+minio
