@@ -16,7 +16,7 @@ jobs:
       postgres:
         image: postgres:14 # Using version 14, adjust if needed
         env:
-          POSTGRES_USER: connections
+          POSTGRES_USER: divansh
           POSTGRES_PASSWORD: change_me # Matches DB_PASSWORD below
           POSTGRES_DB: connections
         ports:
@@ -74,12 +74,7 @@ jobs:
            PGPASSWORD: ${{ env.DB_PASSWORD }} # <<< FIX: Set PGPASSWORD for psql
         run: |
           echo "Applying DB schema and mock data..."
-          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f create_tables_and_keys.sql
-          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f update_schema_for_frontend.sql # Run this before mock data if mock data depends on it
-          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f update_schema_for_chatroom.sql # Add chatroom schema update
-          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f insert_mock_data.sql
-          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f insert_new_mock_data.sql # Add new mock data
-          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f password_hashing.sql # Apply password hashing
+          psql -v ON_ERROR_STOP=1 -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f latest.sql
           echo "Database initialized."
 
       # --- Optional: Add Backend Tests (using pytest for example) ---
