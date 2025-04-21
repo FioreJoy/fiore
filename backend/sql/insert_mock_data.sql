@@ -1,10 +1,10 @@
 -- Insert Users
 INSERT INTO users (name, username, gender, email, password_hash, current_location, created_at) VALUES
-('Alice Johnson', 'alicej', FALSE, 'alice@example.com', 'hash123', POINT(28.7041, 77.1025), NOW()),
-('Bob Smith', 'bobsmith', TRUE, 'bob@example.com', 'hash456', POINT(37.7749, -122.4194), NOW()),
-('Charlie Brown', 'charlieb', TRUE, 'charlie@example.com', 'hash789', POINT(51.5074, -0.1278), NOW()),
-('Divansh Prasad', 'divansh', TRUE, 'divanshthebest@gmail.com', 'xxxxxxx', POINT(28.7041, 77.1025), NOW()),
-('Kanishk Prasad', 'kanishk', TRUE, 'kanishk.0030@gmail.com', 'xxxxxxx', POINT(28.7041, 77.1025), NOW());
+('Alice Johnson', 'alicej', 'Female', 'alice@example.com', 'hash123', POINT(28.7041, 77.1025), NOW()),
+('Bob Smith', 'bobsmith', 'Male', 'bob@example.com', 'hash456', POINT(37.7749, -122.4194), NOW()),
+('Charlie Brown', 'charlieb', 'Male', 'charlie@example.com', 'hash789', POINT(51.5074, -0.1278), NOW()),
+('Divansh Prasad', 'divansh', 'Male', 'divanshthebest@gmail.com', 'lol', POINT(28.7041, 77.1025), NOW()),
+('Kanishk Prasad', 'kanishk', 'Male', 'kanishk.0030@gmail.com', 'x', POINT(28.7041, 77.1025), NOW());
 
 -- Insert Communities
 INSERT INTO communities (name, description, created_by, created_at, primary_location) VALUES
