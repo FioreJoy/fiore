@@ -137,7 +137,7 @@ jobs:
         working-directory: ./frontend
         run: |
           flutter config --enable-web # Ensure web is enabled (usually not needed on stable)
-          flutter build web --release --web-renderer html # Use HTML renderer for broader compatibility
+          flutter build web --release 
 
       - name: Upload web build artifact
         uses: actions/upload-artifact@v4 # Use latest version
