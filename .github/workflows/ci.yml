@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────
+  # Backend job
+  backend:
+    name: Backend Tests & Startup
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: connections
+          POSTGRES_PASSWORD: change_me
+          POSTGRES_DB: connections
+        ports:
+          - 5432:5432
+        # wait for Postgres to be ready
+        options: >-
+          --health-cmd "pg_isready -U connections -d connections"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_USER: connections
+      DB_PASSWORD: change_me
+      DB_NAME: connections
+      DB_HOST: localhost
+      DB_PORT: 5432
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Initialize database schema
+        working-directory: backend
+        run: |
+          # wait for postgres
+          until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do echo 'Waiting for Postgres…'; sleep 1; done
+          psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f create_tables_and_keys.sql
+          psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f insert_mock_data.sql
+          psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f update_schema_for_frontend.sql
+
+      - name: Start FastAPI (in background)
+        working-directory: backend
+        run: |
+          source .venv/bin/activate
+          nohup uvicorn main:app --host 0.0.0.0 --port 8000 &
+
+      - name: Smoke‑test backend docs endpoint
+        run: |
+          sleep 5
+          curl --fail http://localhost:8000/docs
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Frontend job
+  frontend:
+    name: Flutter Web Build
+    runs-on: ubuntu-latest
+    needs: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Enable web
+        run: flutter config --enable-web
+
+      - name: Install Flutter packages
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Build Flutter web
+        working-directory: frontend
+        run: flutter build web --release --web-renderer html
+
+      - name: Upload web build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: flutter-web
+          path: frontend/build/web
+
