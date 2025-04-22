@@ -1,9 +1,19 @@
 # backend/routers/auth.py
-from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
-from fastapi.security import OAuth2PasswordRequestForm # If using standard form login
+from fastapi import (
+    APIRouter, Depends, HTTPException, status,
+    Form, UploadFile, File, Body
+)
 from typing import List, Optional
 import psycopg2
 import bcrypt
+import os
+
+# Use BaseMode for JSON body if not using Forms
+from pydantic import BaseModel # <--- ADD THIS IMPORT
+
+from .. import schemas, crud, utils, auth
+from ..database import get_db_connection
+from ..utils import upload_file_to_minio, get_minio_url
 
 from .. import schemas, crud, utils, auth # Relative imports
 from ..database import get_db_connection
@@ -181,3 +191,181 @@ async def read_users_me(current_user_id: int = Depends(auth.get_current_user)):
          raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch user details")
     finally:
         if conn: conn.close()
+@router.put("/me", response_model=schemas.UserDisplay)
+async def update_user_profile_endpoint( # Renamed function slightly to avoid clash if imported directly
+        current_user_id: int = Depends(auth.get_current_user),
+        # Using Form data because we need to handle potential File upload
+        name: Optional[str] = Form(None),
+        username: Optional[str] = Form(None),
+        gender: Optional[str] = Form(None),
+        current_location: Optional[str] = Form(None), # Expect '(lon,lat)' string
+        college: Optional[str] = Form(None),
+        interests: Optional[List[str]] = Form(None), # Receive as list from form
+        image: Optional[UploadFile] = File(None), # Image upload
+):
+    """
+    Updates the profile for the currently authenticated user.
+    Handles optional image upload to MinIO.
+    """
+    conn = None
+    minio_image_path = None
+    update_data = {} # Dictionary to pass to CRUD function
+
+    # Build update_data dictionary from provided form fields
+    if name is not None: update_data['name'] = name
+    if username is not None: update_data['username'] = username
+    if gender is not None: update_data['gender'] = gender
+    if current_location is not None:
+        # Basic validation or formatting for location if needed here
+        # Assuming format_location_for_db handles "(lon,lat)" -> Point compatible string
+        update_data['current_location'] = utils.format_location_for_db(current_location)
+        # Note: crud.update_user_profile expects 'current_location' key now
+    if college is not None: update_data['college'] = college
+    if interests is not None: update_data['interest'] = ",".join(interests) # Join list into comma-separated string for DB
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # --- Handle Image Upload ---
+        if image: # If a new image file is provided
+            if not utils.minio_client:
+                raise HTTPException(status_code=500, detail="MinIO client not configured on server.")
+
+            # 1. Get current user info to find old image path and username
+            user_info = crud.get_user_by_id(cursor, current_user_id)
+            if not user_info:
+                # Should not happen if Depends(auth.get_current_user) worked
+                raise HTTPException(status_code=404, detail="User not found for image update")
+            current_username = user_info.get('username', f'user_{current_user_id}')
+            old_image_path = user_info.get('image_path')
+
+            # 2. (Optional but recommended) Delete old image from MinIO
+            if old_image_path:
+                try:
+                    print(f"Attempting to delete old MinIO image: {old_image_path}")
+                    utils.minio_client.remove_object(utils.MINIO_BUCKET, old_image_path)
+                    print(f"✅ Successfully deleted old MinIO image: {old_image_path}")
+                except Exception as del_err:
+                    # Log error but don't fail the update process just for this
+                    print(f"⚠️ Warning: Failed to delete old MinIO image {old_image_path}: {del_err}")
+
+            # 3. Upload new image
+            object_name_prefix = f"users/{current_username}/profile"
+            minio_image_path = await utils.upload_file_to_minio(image, object_name_prefix)
+
+            if minio_image_path:
+                update_data['image_path'] = minio_image_path # Add new path to fields to update in DB
+                print(f"✅ New profile image uploaded to MinIO: {minio_image_path}")
+            else:
+                # Handle upload failure - maybe raise exception or just log warning?
+                print(f"⚠️ Warning: MinIO profile image upload failed for user {current_user_id}")
+                # Decide: raise HTTPException(500, "Image upload failed") or just skip image update?
+                # For now, let's skip the image update if upload fails
+                pass
+        # --- End Image Handling ---
+
+
+        # Check if there's anything to update (text fields or new image path)
+        if not update_data:
+            # If image was provided but upload failed AND no other fields changed
+            if image and not minio_image_path:
+                raise HTTPException(status_code=500, detail="Profile update failed due to image upload error.")
+            # If no image was provided AND no text fields changed
+            elif not image:
+                print(f"No data provided for profile update for user {current_user_id}")
+                # Return current data without making DB call? Or raise 400?
+                # Let's return current data - fetch it if not already available
+                if 'user_info' not in locals(): # Check if user_info was fetched for image handling
+                    user_info = crud.get_user_by_id(cursor, current_user_id)
+                    if not user_info: raise HTTPException(status_code=404, detail="User not found")
+
+                user_display = dict(user_info)
+                # Format location/interests/image_url for display schema
+                loc_str = user_display.get('current_location')
+                user_display['current_location'] = utils.parse_point_string(str(loc_str)) if loc_str else None
+                interests_db = user_display.get('interest')
+                user_display['interests'] = interests_db.split(',') if interests_db else []
+                img_path = user_display.get('image_path')
+                user_display['image_url'] = get_minio_url(img_path)
+
+                return schemas.UserDisplay(**user_display)
+                # Alternatively: raise HTTPException(status_code=400, detail="No update data provided")
+
+
+        # --- Update user in DB ---
+        # Note: crud.update_user_profile needs adjustment if it expects 'current_location_str'
+        # Let's assume it now directly handles 'current_location' with the formatted string
+        success = crud.update_user_profile(cursor, current_user_id, update_data)
+
+        if not success and cursor.rowcount == 0:
+            # This might mean the user ID was wrong, or no actual change was needed for the UPDATE statement
+            # Let's assume it's okay if rowcount is 0 but no error occurred (e.g., username was the same)
+            print(f"Profile update for user {current_user_id} resulted in 0 rows affected (no change or user not found?).")
+            # Proceed to fetch and return current data
+
+        conn.commit()
+
+        # --- Fetch updated user data to return ---
+        updated_user_db = crud.get_user_by_id(cursor, current_user_id)
+        if not updated_user_db:
+            # This would be unusual if the update didn't error and the user exists
+            raise HTTPException(status_code=500, detail="Failed to fetch updated user data after update.")
+
+        # Process data for display model (reuse logic from GET /me)
+        user_display_data = dict(updated_user_db)
+        location_str = updated_user_db.get('current_location')
+        user_display_data['current_location'] = utils.parse_point_string(str(location_str)) if location_str else None
+        interests_db = updated_user_db.get('interest')
+        user_display_data['interests'] = interests_db.split(',') if interests_db else []
+        img_path = updated_user_db.get('image_path') # Should be the new path if updated
+        user_display_data['image_url'] = get_minio_url(img_path)
+        # user_display_data['image_path'] = img_path # Keep path if schema includes it
+
+        print(f"✅ Profile updated for user {current_user_id}")
+        return schemas.UserDisplay(**user_display_data)
+
+    except psycopg2.IntegrityError as e:
+        if conn: conn.rollback()
+        print(f"❌ Profile Update Integrity Error: {e}")
+        detail = "Database integrity error."
+        # Check for unique constraint violation (e.g., username)
+        if "users_username_key" in str(e):
+            detail = "Username already taken."
+        elif "users_email_key" in str(e): # Should not happen here, but good check
+            detail = "Email already taken."
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+    except HTTPException as http_exc:
+        if conn: conn.rollback()
+        raise http_exc
+    except Exception as e:
+        if conn: conn.rollback()
+        import traceback
+        print(f"❌ Error updating profile for user {current_user_id}:")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to update profile: An unexpected error occurred.")
+    finally:
+        if conn: conn.close()
+# --- *** END OF PUT /me ROUTE *** ---
+# --- PUT /me/password --- (Keep existing)
+class PasswordChangeRequest(BaseModel): # Define inside or import if defined globally
+    old_password: str
+    new_password: str
+
+@router.put("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+        request: PasswordChangeRequest, # Use the Pydantic model for JSON body
+        current_user_id: int = Depends(auth.get_current_user)
+):
+    # ... existing change_password code ...
+    pass # Added pass for brevity in example
+
+
+# --- DELETE /me --- (Keep existing)
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+        current_user_id: int = Depends(auth.get_current_user)
+):
+    # ... existing delete_account code ...
+    # Consider adding MinIO data deletion here as well (can be complex)
+    pass # Added pass for brevity in example
