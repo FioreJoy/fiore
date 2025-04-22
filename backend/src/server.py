@@ -20,13 +20,13 @@ from .routers import websocket as websocket_router
 from .routers import users as users_router # <-- IMPORT NEW ROUTER
 
 from . import security # <-- Import your security module
+from . import auth # <--- ADD THIS IMPORT
 
 from src import utils # To access IMAGE_DIR from src/utils.py
 # --- End src imports ---
 
 app = FastAPI(
-    title="Connections API",
-    dependencies=[Depends(security.get_api_key)] # <-- Apply globally
+    title="Connections API"
 )
 
 # CORS Middleware
@@ -36,10 +36,13 @@ origins = [
     "http://127.0.0.1",
     "http://127.0.0.1:9339",
     "http://localhost:5001", # Default port for the Flask test app
-    "http://127.0.0.1:5001", # Also include 127.0.0.1 version
+    "http://100.97.215.85:5001", # Also include 127.0.0.1 version
+    "http://100.94.150.11:6219",
+    "http://100.94.150.11:6192"
     # Add your Codespace URL / Production URL if needed
     # Example: "https://*.app.github.dev" # Check specific codespace URL format
     # Example: "https://your-flutter-app.com"
+
 ]
 # Allow all origins for development simplicity if needed (less secure)
 # origins = ["*"]
@@ -54,15 +57,26 @@ app.add_middleware(
 
 # --- Mount Routers ---
 # Prefixes are defined within each router file
+# --- Include Routers ---
+# Add API key dependencies selectively HERE, but NOT on the WS router!
+
+# Auth router likely public (no API key needed for login/signup)
 app.include_router(auth_router.router)
-app.include_router(posts_router.router)
-app.include_router(communities_router.router)
-app.include_router(replies_router.router)
-app.include_router(votes_router.router)
-app.include_router(events_router.router)
-app.include_router(chat_router.router)
-app.include_router(websocket_router.router) # WebSocket router
-app.include_router(users_router.router) # <-- INCLUDE NEW ROUTER
+
+# Apply API Key + JWT Auth to routers that need it
+# NOTE: If a router needs ONLY API Key and NOT JWT, adjust accordingly
+common_api_dependencies = [Depends(security.get_api_key), Depends(auth.get_current_user)]
+
+app.include_router(users_router.router, dependencies=common_api_dependencies)
+app.include_router(posts_router.router, dependencies=common_api_dependencies) # Or adjust per-route
+app.include_router(communities_router.router, dependencies=common_api_dependencies) # Or adjust per-route
+app.include_router(replies_router.router, dependencies=common_api_dependencies) # Or adjust per-route
+app.include_router(votes_router.router, dependencies=common_api_dependencies) # Or adjust per-route
+app.include_router(events_router.router, dependencies=common_api_dependencies) # Or adjust per-route
+app.include_router(chat_router.router, dependencies=common_api_dependencies) # Or adjust per-route
+
+# WebSocket Router - INCLUDE WITH **NO** DEPENDENCIES HERE
+app.include_router(websocket_router.router)
 
 # --- Mount Static Files for User Images ---
 # Construct the absolute path to the image directory relative to this file's location

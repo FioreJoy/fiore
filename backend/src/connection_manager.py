@@ -1,60 +1,58 @@
 # backend/src/connection_manager.py
 from typing import Dict, Set, Tuple, Optional
 from fastapi import WebSocket
+import traceback # <--- Import traceback
 
 class ConnectionManager:
     def __init__(self):
-        # Structure: { "room_key": {websocket: user_id} }
         self.active_connections: Dict[str, Dict[WebSocket, Optional[int]]] = {}
-        # Alternatively { "room_key": Set[Tuple[WebSocket, Optional[int]]]}
 
-    async def connect(self, websocket: WebSocket, room_key: str, user_id: Optional[int]): # Add user_id
-        await websocket.accept()
-        if room_key not in self.active_connections:
-            self.active_connections[room_key] = {}
-        self.active_connections[room_key][websocket] = user_id # Store user_id
-        count = len(self.active_connections[room_key])
-        print(f"WebSocket connected for User {user_id} to room: {room_key}. Total in room: {count}")
+    async def connect(self, websocket: WebSocket, room_key: str, user_id: Optional[int]):
+        # --- ADD LOGGING INSIDE CONNECT ---
+        print(f"--- Manager DEBUG --- Inside connect for User {user_id} / Room {room_key}")
+        try:
+            # await websocket.accept() # Accept is now done BEFORE calling connect
+            if room_key not in self.active_connections:
+                print(f"--- Manager DEBUG --- Creating new room entry for {room_key}")
+                self.active_connections[room_key] = {}
+            self.active_connections[room_key][websocket] = user_id
+            count = len(self.active_connections[room_key])
+            print(f"--- Manager SUCCESS --- WebSocket stored for User {user_id} in room {room_key}. Total: {count}")
+        except Exception as e:
+            print(f"--- !!! Manager ERROR during connect !!! ---")
+            print(f"Error Type: {type(e).__name__}")
+            print(f"Error Details: {e}")
+            print("Traceback:")
+            print(traceback.format_exc())
+            print(f"------------------------------------------")
+            # Re-raise the exception so the main endpoint handler catches it
+            raise
 
     def disconnect(self, websocket: WebSocket, room_key: str):
+        print(f"--- Manager DEBUG --- disconnect called for room {room_key}")
         if room_key in self.active_connections:
             if websocket in self.active_connections[room_key]:
                 user_id = self.active_connections[room_key].get(websocket, 'Unknown')
                 del self.active_connections[room_key][websocket]
                 count = len(self.active_connections[room_key])
-                print(f"WebSocket disconnected for User {user_id} from room: {room_key}. Remaining: {count}")
+                print(f"--- Manager DEBUG --- WebSocket removed for User {user_id} from {room_key}. Remaining: {count}")
                 if not self.active_connections[room_key]:
-                    del self.active_connections[room_key] # Clean up empty room
-            else:
-                print(f"WebSocket disconnect: Socket not found in room {room_key}.")
-        else:
-            print(f"WebSocket disconnect: Room {room_key} not found.")
+                    del self.active_connections[room_key]
+                    print(f"--- Manager DEBUG --- Room {room_key} cleaned up.")
+            # else: print(f"--- Manager DEBUG --- Socket not found in room {room_key} during disconnect.") # Can be noisy
+        # else: print(f"--- Manager DEBUG --- Room {room_key} not found during disconnect.") # Can be noisy
 
-
-    def get_user_id(self, websocket: WebSocket, room_key: str) -> Optional[int]:
-        """ Helper to get user_id associated with a websocket in a room """
-        if room_key in self.active_connections:
-            return self.active_connections[room_key].get(websocket)
-        return None
 
     async def broadcast(self, message: str, room_key: str):
+        # ...(Keep existing broadcast logic)...
         if room_key in self.active_connections:
-            # Use list comprehension to avoid modifying dict during iteration
             current_connections = list(self.active_connections[room_key].keys())
-            print(f"Broadcasting to {len(current_connections)} connections in room {room_key}: {message[:50]}...") # Log truncated message
-
+            print(f"--- Manager DEBUG --- Broadcasting to {len(current_connections)} in {room_key}...")
             disconnected_websockets = []
             for connection in current_connections:
-                try:
-                    await connection.send_text(message)
-                except Exception as e:
-                    print(f"Error sending message to a websocket in room {room_key}: {e} - marking for disconnection")
-                    disconnected_websockets.append(connection)
+                try: await connection.send_text(message)
+                except Exception as e: print(f"WS Broadcast Error sending to one client: {e}"); disconnected_websockets.append(connection)
+            for ws in disconnected_websockets: self.disconnect(ws, room_key)
 
-            # Remove disconnected sockets after iterating
-            for ws in disconnected_websockets:
-                # Pass room_key to disconnect method
-                self.disconnect(ws, room_key)
 
-# Instantiate a single manager for the application
 manager = ConnectionManager()
