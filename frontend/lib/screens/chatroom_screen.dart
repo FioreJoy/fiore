@@ -1,28 +1,27 @@
 // frontend/lib/screens/chatroom_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'dart:io'; // <--- ADDED Import for File (needed if event creation includes image)
-import 'dart:async'; // For StreamSubscription, Timer
-import 'dart:convert'; // For jsonEncode
-
 import '../services/api_service.dart';
 import '../services/auth_provider.dart';
 import '../theme/theme_constants.dart';
+// Removed unused MessageModel import
+// import '../models/message_model.dart';
 import '../models/event_model.dart';
 import '../models/chat_message_data.dart';
-import '../models/message_model.dart'; // Used for ChatMessageBubble
 import '../widgets/chat_message_bubble.dart';
 import '../widgets/chat_event_card.dart';
 import '../widgets/create_event_dialog.dart';
-// import 'dart:math' as math; // Was unused, removed
-
+import 'dart:math' as math;
+import 'dart:async';
+import 'dart:convert'; // For jsonEncode in sendMessage
+import '../models/message_model.dart'; // <--- ADD THIS IMPORT
 
 // Define placeholder outside the State class
 class _EventModelPlaceholder extends EventModel {
   _EventModelPlaceholder() : super(
-      id: '0', title: 'Event not found', description: '', location: '',
-      dateTime: DateTime.now(), maxParticipants: 0, participants: [],
-      creatorId: '', communityId: '', imageUrl: null
+    id: '0', title: 'Event not found', description: '', location: '',
+    dateTime: DateTime.now(), maxParticipants: 0, participants: [],
+    creatorId: '', communityId: '',
   );
 }
 
@@ -36,7 +35,7 @@ class ChatroomScreen extends StatefulWidget {
 
 class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   @override
-  bool get wantKeepAlive => true; // Keep state when switching tabs
+  bool get wantKeepAlive => true;
 
   // --- State Variables ---
   late TabController _tabController;
@@ -45,22 +44,20 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
   bool _isDrawerOpen = false;
   late AnimationController _fabAnimationController;
 
-  int? _currentCommunityId; // ID of the community whose chat/events are being viewed
-  int? _selectedEventId; // ID of the specific event chat being viewed (null for community chat)
+  int? _currentCommunityId; // Start with null, set after fetching
+  int? _selectedEventId; // Can be null if viewing community chat
 
   List<ChatMessageData> _messages = [];
   List<EventModel> _events = [];
-  List<Map<String, dynamic>> _userCommunities = []; // Stores user's joined communities {id, name, logo_url?, ...}
+  List<Map<String, dynamic>> _userCommunities = []; // Stores fetched community data {id, name, ...}
 
-  bool _isLoadingMessages = false;
-  bool _isLoadingEvents = false;
-  bool _isLoadingCommunities = true; // Start loading communities initially
-  bool _isSendingMessage = false;
+  bool _isLoadingMessages = false; // Separate loading for messages
+  bool _isLoadingEvents = false;   // Separate loading for events
+  bool _isLoadingCommunities = true; // Initial loading state for communities
+  bool _isSendingMessage = false; // State for message sending progress
 
-  StreamSubscription? _messageSubscription; // Subscription to ApiService message stream
+  StreamSubscription? _messageSubscription;
   Timer? _reconnectTimer; // Timer for WebSocket reconnection attempts
-  File? _pickedEventImage; // Variable to hold image picked for event creation
-
 
   // --- Lifecycle Methods ---
   @override
@@ -72,11 +69,9 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
       duration: ThemeConstants.shortAnimation,
     );
 
-    // Load user's communities first when the screen initializes
-    // Use addPostFrameCallback to ensure context is available
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _loadUserCommunities();
+        _loadUserCommunities(); // Load communities first
       }
     });
 
@@ -93,50 +88,42 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
     _messageSubscription?.cancel();
-    _reconnectTimer?.cancel();
-    // Safely dispose WebSocket resources
+    _reconnectTimer?.cancel(); // Cancel any pending reconnection timer
+    // Access ApiService safely before calling disconnect
     try {
-      // Use the disposeWebSocket method in ApiService
-      Provider.of<ApiService>(context, listen: false).disposeWebSocket();
+      Provider.of<ApiService>(context, listen: false).disconnectWebSocket();
     } catch (e) {
-      print("Error disposing WebSocket via ApiService: $e");
+      print("Error accessing ApiService during dispose: $e");
     }
     super.dispose();
   }
 
-  // --- Scroll Listener ---
+  // --- Scroll Listener for potential pagination ---
   void _scrollListener() {
     // Example: Load older messages when reaching the top
-    if (_scrollController.position.atEdge && _scrollController.position.pixels == 0 && !_isLoadingMessages) {
-      // Check if there are older messages to load based on the oldest message ID currently displayed
-      final oldestMessageId = _messages.isNotEmpty ? _messages.first.message_id : null;
-      if (oldestMessageId != null) {
-        print("Reached top, loading older messages before ID: $oldestMessageId");
-        _loadOlderMessages(oldestMessageId);
-      }
+    if (_scrollController.position.pixels == _scrollController.position.minScrollExtent && !_isLoadingMessages) {
+      print("Reached top, potentially load older messages");
+      // _loadOlderMessages(); // Implement this method if pagination is needed
     }
   }
 
-  // --- Tab Change Listener ---
   void _handleTabChange() {
-    if (!mounted) return;
-    // If switching away from the Chat tab AND an event is selected, keep the event context
-    // If switching back TO Chat tab from Events tab, reset event selection ONLY IF no event is selected
-    if (_tabController.index == 0 && _selectedEventId != null) {
-      // Still viewing event chat, no change needed immediately, WS should stay connected
-    } else if (_tabController.index == 1) {
-      // Switched to Events tab, disconnect WS ONLY IF viewing community chat
-      if (_selectedEventId == null) {
-        print("Switched to Events tab (no event selected), disconnecting WebSocket.");
-        Provider.of<ApiService>(context, listen: false).disconnectWebSocket();
+    if (mounted) {
+      // Reset selected event when switching tabs
+      if (_tabController.index == 0 && _selectedEventId != null) {
+        _switchEvent(null); // Switch back to community chat
       }
-    } else if (_tabController.index == 0 && _selectedEventId == null) {
-      // Switched back to community chat view on Chat tab
-      print("Switched back to community chat view, setting up WebSocket.");
-      _setupWebSocket(); // Ensure WS is connected for the community
+      // Re-evaluate WebSocket connection if needed (e.g., switching from Events tab back to Chat tab)
+      if (_tabController.index == 0) {
+        _setupWebSocket();
+      } else {
+        // When switching to Events tab, disconnect WS unless an event is selected
+        if (_selectedEventId == null) {
+          Provider.of<ApiService>(context, listen: false).disconnectWebSocket();
+        }
+      }
+      setState(() {}); // Update UI based on tab index
     }
-    // Force rebuild to update UI based on tab (e.g., show/hide FAB)
-    setState(() {});
   }
 
   // --- Data Loading ---
@@ -152,38 +139,30 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     }
 
     try {
-      // Assuming fetchCommunities returns List<Map<String, dynamic>>
       final communitiesData = await apiService.fetchCommunities(authProvider.token);
       if (!mounted) return;
 
-      _userCommunities = List<Map<String, dynamic>>.from(communitiesData);
-
-      // Determine initial community to display
+      _userCommunities = (communitiesData as List).map((c) => Map<String, dynamic>.from(c)).toList();
       int? initialCommunityId = _currentCommunityId;
+
       if (_userCommunities.isNotEmpty && (initialCommunityId == null || !_userCommunities.any((c) => c['id'] == initialCommunityId))) {
-        // Default to the first community if none is selected or the selected one is gone
         initialCommunityId = _userCommunities.first['id'] as int?;
       } else if (_userCommunities.isEmpty) {
-        initialCommunityId = null; // No communities
+        initialCommunityId = null;
       }
 
-      // Use setState only once at the end if possible
       setState(() {
         _currentCommunityId = initialCommunityId;
         _isLoadingCommunities = false;
-        // Reset messages/events/event selection when communities reload
-        _messages = [];
-        _events = [];
-        _selectedEventId = null;
       });
 
       // Load messages/events for the determined community (if any)
       if (_currentCommunityId != null) {
-        _loadMessagesAndEvents(); // This will also setup WebSocket
+        _loadMessagesAndEvents();
       } else {
-        // Ensure WS is disconnected if there are no communities
-        Provider.of<ApiService>(context, listen: false).disconnectWebSocket();
-        setState(() { _isLoadingMessages = false; _isLoadingEvents = false; }); // Reset loading states
+        // No communities, clear messages/events and ensure WS is disconnected
+        setState(() { _messages = []; _events = []; _isLoadingMessages = false; _isLoadingEvents = false; });
+        apiService.disconnectWebSocket();
       }
 
     } catch (e) {
@@ -194,83 +173,49 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     }
   }
 
-  Future<void> _loadMessagesAndEvents({bool loadOlder = false, int? beforeId}) async {
-    if (!mounted || (_currentCommunityId == null && _selectedEventId == null)) {
-      print("Skipping load: No community or event selected.");
-      return; // Need at least one context
-    }
-
-    // Don't show full loading indicator when fetching older messages
-    if (!loadOlder) {
-      setState(() { _isLoadingMessages = true; _isLoadingEvents = true; });
-    } else {
-      // Optionally show a small indicator at the top while loading older
-    }
-
+  Future<void> _loadMessagesAndEvents() async {
+    if (!mounted || _currentCommunityId == null) return;
+    setState(() { _isLoadingMessages = true; _isLoadingEvents = true; });
     final apiService = Provider.of<ApiService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    if (!authProvider.isAuthenticated || authProvider.token == null) {
+    if (!authProvider.isAuthenticated) {
       setState(() { _isLoadingMessages = false; _isLoadingEvents = false; _messages = []; _events = []; });
       return;
     }
 
     try {
-      // Determine context for fetching messages
-      int? fetchCommunityId = _selectedEventId == null ? _currentCommunityId : null;
-      int? fetchEventId = _selectedEventId;
-
-      // Fetch messages
+      // Fetch messages based on whether an event is selected or not
       final messagesData = await apiService.fetchChatMessages(
-        communityId: fetchCommunityId,
-        eventId: fetchEventId,
+        communityId: _selectedEventId == null ? _currentCommunityId : null,
+        eventId: _selectedEventId,
         token: authProvider.token!,
-        limit: 30, // Fetch a reasonable number of messages
-        beforeId: beforeId, // Pass cursor for pagination
+        limit: 50, // Or more if needed
       );
 
-      // Fetch events only if loading initial data for a community view
-      List<EventModel> fetchedEvents = _events; // Keep existing events if loading older messages or event chat
-      if (!loadOlder && _selectedEventId == null && _currentCommunityId != null) {
+      // Fetch events only if we are loading data for a community (not just an event)
+      List<EventModel> fetchedEvents = _events; // Keep existing events if loading for selected event
+      if (_selectedEventId == null) {
         fetchedEvents = await apiService.fetchCommunityEvents(_currentCommunityId!, authProvider.token!);
       }
 
       if (!mounted) return;
 
-      // Process fetched messages
-      final newMessages = messagesData
+      // Sort messages by timestamp ascending (API returns newest first)
+      final sortedMessages = (messagesData as List)
           .map((m) => ChatMessageData.fromJson(m as Map<String, dynamic>))
-          .toList();
-
-      // Sort new messages (API might already return sorted, but ensure consistency)
-      newMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp)); // Oldest first
+          .toList()
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp)); // Sort oldest first
 
       setState(() {
-        if (loadOlder) {
-          // Prepend older messages to the existing list
-          _messages.insertAll(0, newMessages);
-        } else {
-          // Replace existing messages with the newly fetched initial set
-          _messages = newMessages;
-        }
-
-        _events = fetchedEvents; // Update events list if fetched
-        _isLoadingMessages = false; // Loading complete
-        _isLoadingEvents = false; // Loading complete
+        _messages = sortedMessages;
+        _events = fetchedEvents; // Update events list
+        _isLoadingMessages = false;
+        _isLoadingEvents = false;
       });
 
-      // Scroll control
-      if (!loadOlder) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(true)); // Jump to bottom on initial load
-      } else if (newMessages.isNotEmpty) {
-        // Keep scroll position relative to the older messages loaded (more complex, needs specific implementation)
-        print("Older messages loaded, scroll position maintained (approx).");
-      }
-
-      // Setup WebSocket only on initial load, not when fetching older messages
-      if (!loadOlder) {
-        _setupWebSocket();
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(true)); // Jump to bottom on load
+      _setupWebSocket(); // Setup WebSocket connection for the current context
 
     } catch (e) {
       if (!mounted) return;
@@ -278,11 +223,6 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error loading data: $e')));
       setState(() { _isLoadingMessages = false; _isLoadingEvents = false; });
     }
-  }
-
-  // Function to trigger loading older messages
-  Future<void> _loadOlderMessages(int beforeMessageId) async {
-    await _loadMessagesAndEvents(loadOlder: true, beforeId: beforeMessageId);
   }
 
 
@@ -293,6 +233,9 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     final apiService = Provider.of<ApiService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
+    _messageSubscription?.cancel(); // Cancel previous subscription
+    _reconnectTimer?.cancel(); // Cancel any pending reconnect timer
+
     // Determine the correct room to connect to
     String? roomType;
     int? roomId;
@@ -300,63 +243,59 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     if (_selectedEventId != null) {
       roomType = "event";
       roomId = _selectedEventId;
-    } else if (_currentCommunityId != null) {
-      // Connect to community room regardless of tab,
-      // disconnect happens explicitly in tab handler if needed
+    } else if (_currentCommunityId != null && _tabController.index == 0) { // Only connect to community room if on Chat tab
       roomType = "community";
       roomId = _currentCommunityId;
     }
 
     // Proceed only if authenticated and a valid room is determined
     if (authProvider.isAuthenticated && roomType != null && roomId != null) {
-      // Call connectWebSocket from ApiService
+      print("Setting up WebSocket for $roomType $roomId");
       apiService.connectWebSocket(roomType, roomId, authProvider.token);
 
-      // Cancel previous subscription if exists
-      _messageSubscription?.cancel();
-
-      // Subscribe to the message stream from ApiService
       _messageSubscription = apiService.messages.listen(
               (chatMessage) {
             if (!mounted) return;
             setState(() {
-              // Avoid duplicates if message is received via WS after optimistic UI or HTTP fallback
-              final index = _messages.indexWhere((m) => m.message_id == chatMessage.message_id);
-              if (index == -1) {
-                _messages.add(chatMessage); // Add new message
-                // Sort just in case messages arrive slightly out of order via WS
-                _messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+              // Check if message already exists (by ID) to avoid duplicates
+              if (!_messages.any((m) => m.message_id == chatMessage.message_id)) {
+                _messages.add(chatMessage);
+                // Only scroll if near the bottom
                 WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-              } else {
-                // Optional: Update existing message if needed (e.g., replace temp ID)
-                // _messages[index] = chatMessage;
-                print("Duplicate message ignored/updated: ${chatMessage.message_id}");
               }
             });
           },
           onError: (error) {
             if (!mounted) return;
             print("Error on WebSocket message stream: $error");
-            // Don't schedule reconnection here, ApiService might handle it or provide status
-            // You could show a visual indicator of connection status based on ApiService state
-            // _scheduleReconnection(); // Remove direct scheduling here
+            // Optionally show error to user
+            // ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chat connection error: $error'), backgroundColor: Colors.red));
+            // Implement reconnection logic
+            _scheduleReconnection();
           },
           onDone: () {
             if (!mounted) return;
-            print("WebSocket stream closed by ApiService/Server.");
-            // Don't schedule reconnection here, ApiService might handle it
-            // _scheduleReconnection(); // Remove direct scheduling here
+            print("WebSocket stream closed by server.");
+            // Implement reconnection logic if closure was unexpected
+            _scheduleReconnection();
           }
       );
     } else {
-      print("WebSocket setup skipped: Conditions not met (Auth: ${authProvider.isAuthenticated}, Room: $roomType/$roomId)");
+      print("WebSocket setup skipped: Conditions not met (Auth: ${authProvider.isAuthenticated}, Room: $roomType/$roomId, Tab: ${_tabController.index})");
       apiService.disconnectWebSocket(); // Ensure WS is disconnected if conditions aren't met
     }
   }
 
-  // Keep this function if you want manual reconnection logic triggered by UI,
-  // but rely on ApiService internal reconnection first if it has it.
-  // void _scheduleReconnection() { ... }
+  void _scheduleReconnection() {
+    if (!mounted || (_reconnectTimer?.isActive ?? false)) return; // Don't schedule if already scheduled or unmounted
+    print("Scheduling WebSocket reconnection in 5 seconds...");
+    _reconnectTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) {
+        print("Attempting WebSocket reconnection...");
+        _setupWebSocket(); // Try to reconnect
+      }
+    });
+  }
 
   // --- UI Actions ---
   void _toggleDrawer() {
@@ -364,51 +303,36 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
   }
 
   void _switchCommunity(int id) {
-    if (_currentCommunityId == id) {
-      if (mounted) setState(() => _isDrawerOpen = false); // Close drawer
+    if (_currentCommunityId == id || !mounted) {
+      if (mounted) setState(() => _isDrawerOpen = false); // Close drawer even if same community tapped
       return;
     }
-    if (!mounted) return;
-
     setState(() {
       _currentCommunityId = id;
-      _selectedEventId = null; // Reset event selection
+      _selectedEventId = null; // Reset event selection when community changes
       _isDrawerOpen = false;
-      _messages = []; // Clear immediately for responsiveness
-      _events = [];
-      _isLoadingMessages = true; // Show loading states
+      _messages = []; // Clear messages immediately
+      _events = [];   // Clear events immediately
+      _isLoadingMessages = true; // Show loading indicators
       _isLoadingEvents = true;
-      // Ensure Chat tab is selected when switching community
+      // Ensure correct tab is selected if needed (e.g., switch to Chat tab)
       if (_tabController.index != 0) {
         _tabController.animateTo(0);
-      } else {
-        // If already on chat tab, trigger load immediately
-        _loadMessagesAndEvents();
       }
-      // Note: _loadMessagesAndEvents will be called by the tab listener if animateTo was used
     });
-    // If already on the Chat tab, the listener won't fire, so call explicitly:
-    // if (_tabController.index == 0) {
-    //    _loadMessagesAndEvents(); // This also calls _setupWebSocket
-    // } // -> Redundant now handled in the setState logic above
+    _loadMessagesAndEvents(); // Load data for the new community
   }
 
   // Switch between viewing community chat and a specific event chat
   void _switchEvent(int? eventId) {
-    if (_selectedEventId == eventId || !mounted) return; // No change or not mounted
-    print("Switching event view to: $eventId");
+    if (_selectedEventId == eventId || !mounted) return;
     setState(() {
       _selectedEventId = eventId;
-      _messages = []; // Clear messages for the new context
+      _messages = []; // Clear messages when switching event/community view
       _isLoadingMessages = true;
-      // If switching TO an event, ensure Chat tab is active
-      if (eventId != null && _tabController.index != 0) {
-        _tabController.animateTo(0);
-      }
     });
-    // Reload messages (and potentially events if logic required)
-    // _loadMessagesAndEvents will setup the correct WebSocket connection
-    _loadMessagesAndEvents();
+    _loadMessagesAndEvents(); // Reload messages for the new context (event or community)
+    // WebSocket connection is handled by _loadMessagesAndEvents -> _setupWebSocket
   }
 
   Future<void> _sendMessage() async {
@@ -416,14 +340,36 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     if (messageText.isEmpty || !mounted || _isSendingMessage) return;
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (!authProvider.isAuthenticated || authProvider.token == null) {
+    if (!authProvider.isAuthenticated || authProvider.userId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please log in to send messages')));
       return;
     }
 
     final apiService = Provider.of<ApiService>(context, listen: false);
-    // final int currentUserId = int.parse(authProvider.userId!); // Assume userId is available and int
+    final int currentUserId = int.parse(authProvider.userId!); // Assume userId is parsable int
 
+    // Optimistic UI update (optional but recommended for responsiveness)
+    /* // Temporarily disable optimistic update via WebSocket only for now
+    final tempId = -(DateTime.now().millisecondsSinceEpoch); // Negative ID for temp messages
+    final optimisticMessage = ChatMessageData(
+      message_id: tempId,
+      community_id: _selectedEventId == null ? _currentCommunityId : null,
+      event_id: _selectedEventId,
+      user_id: currentUserId,
+      username: "Me", // Placeholder username
+      content: messageText,
+      timestamp: DateTime.now().toLocal(), // Use local time for display
+    );
+
+    if (mounted) {
+      setState(() {
+        _messages.add(optimisticMessage);
+        _messageController.clear();
+        _isSendingMessage = true; // Indicate sending
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
+    */
     // Clear input and set loading immediately
     if (mounted) {
       setState(() {
@@ -432,55 +378,44 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
       });
     }
 
-    // Primary method: Send via WebSocket using ApiService method
+    // Send via WebSocket if connected, otherwise fallback to HTTP POST
     try {
-      final messagePayload = jsonEncode({"content": messageText});
-      apiService.sendWebSocketMessage(messagePayload); // ApiService handles WS connection check
-      print("Message sent via WebSocket channel.");
-      // We don't add optimistic message here anymore, rely on WS echo/broadcast
-      // If WS fails, ApiService might internally fallback to HTTP POST,
-      // or we could explicitly call the HTTP method here on specific errors.
+      // ---- REMOVE THIS BLOCK ----
+      // Option 1: Send via WebSocket
+      // Original: if (apiService._channel != null && apiService._channel?.closeCode == null) {
+      //    final messagePayload = jsonEncode({"content": messageText}); // Backend expects JSON
+      //    apiService.sendWebSocketMessage(messagePayload);
+      //    print("Message sent via WebSocket.");
+      // }
+      // ---- END REMOVAL ----
+      // Directly try sending - the method handles the check
+      final messagePayload = jsonEncode({"content": messageText}); // Backend expects JSON
+      apiService.sendWebSocketMessage(messagePayload);
+      print("Attempted to send message via WebSocket.");
+      // The fallback to HTTP might need rethinking - usually you want WS *or* HTTP, not fallback.
+      // If you *do* want fallback, check the WS status differently or let sendWebSocketMessage throw.
 
-      // Reset sending state after attempting send (WS is async, success isn't guaranteed yet)
-      // A slight delay might feel better if WS echo is fast
-      // await Future.delayed(Duration(milliseconds: 100));
+      // Example: Assuming sendWebSocketMessage throws if not connected
+      // try {
+      //   apiService.sendWebSocketMessage(messagePayload);
+      //   print("Message sent via WebSocket.");
+      // } catch (wsError) {
+      //   print("WebSocket send failed ($wsError). Sending message via HTTP POST...");
+      //   await apiService.sendChatMessageHttp( /* ... */ );
+      //   print("Message sent via HTTP POST.");
+      // }
+
+
       if (mounted) setState(() => _isSendingMessage = false);
 
     } catch (e) {
-      // This catch block might be hit if sendWebSocketMessage throws synchronously (e.g., WS not connected)
       if (mounted) {
-        print("Error sending message (WebSocket likely disconnected): $e");
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send message: Connection issue?'), backgroundColor: Colors.orange));
-        // Attempt HTTP fallback?
-        // await _sendViaHttpFallback(messageText, authProvider.token!); // Example
+        print("Error sending message: $e");
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send message: $e'), backgroundColor: Colors.red));
         setState(() => _isSendingMessage = false); // Reset sending state on error
       }
     }
   }
-
-  // Example HTTP fallback function (call from _sendMessage catch block if needed)
-  Future<void> _sendViaHttpFallback(String messageText, String token) async {
-    print("Attempting HTTP fallback for message...");
-    final apiService = Provider.of<ApiService>(context, listen: false);
-    try {
-      await apiService.sendChatMessageHttp(
-        content: messageText,
-        communityId: _selectedEventId == null ? _currentCommunityId : null,
-        eventId: _selectedEventId,
-        token: token,
-      );
-      print("Message sent via HTTP fallback.");
-      // Note: Message will appear twice if WS echo eventually arrives.
-      // Need careful duplicate handling based on message_id in _setupWebSocket listener.
-    } catch (httpError) {
-      print("HTTP fallback also failed: $httpError");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send message: ${httpError.toString()}'), backgroundColor: Colors.red));
-        // Optionally restore text to input field: _messageController.text = messageText;
-      }
-    }
-  }
-
 
   void _showFabMenu() {
     if (!mounted) return;
@@ -488,21 +423,6 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
       _fabAnimationController.reverse();
     } else {
       _fabAnimationController.forward();
-    }
-  }
-
-  // Add image picking logic for event creation dialog
-  Future<void> _pickEventImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      setState(() {
-        _pickedEventImage = File(pickedFile.path);
-      });
-      // Re-show dialog or update existing one if possible? Complex.
-      // Better to pick image *within* the dialog itself.
-      // This state variable might be better managed within the CreateEventDialog state.
-      print("Event image picked, path: ${pickedFile.path}");
     }
   }
 
@@ -521,24 +441,15 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     showDialog(
       context: context,
       builder: (context) => CreateEventDialog(
-        // Pass community ID
-        communityId: _currentCommunityId!, // Use ! because we checked for null
-        onSubmit: _createEvent, // Pass the callback function
+        // Pass community ID as String or Int based on dialog expectation
+        communityId: _currentCommunityId!.toString(),
+        onSubmit: _createEvent,
       ),
-    ).then((_) {
-      // Reset picked image after dialog closes, regardless of submission
-      setState(() {
-        _pickedEventImage = null;
-      });
-    });
+    );
     _fabAnimationController.reverse(); // Close FAB menu
   }
 
-  // Updated _createEvent to accept the image file from the dialog
-  Future<void> _createEvent(
-      String title, String description, String location,
-      DateTime dateTime, int maxParticipants, File? imageFile // Accept File?
-      ) async {
+  Future<void> _createEvent(String title, String description, String location, DateTime dateTime, int maxParticipants) async {
     if (!mounted || _currentCommunityId == null) return;
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final apiService = Provider.of<ApiService>(context, listen: false);
@@ -546,26 +457,18 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     setState(() => _isLoadingEvents = true); // Indicate loading
 
     try {
-      // --- FIX IS HERE: Use named parameters AND pass imageFile ---
       final newEvent = await apiService.createEvent(
-        communityId: _currentCommunityId!,
-        title: title,
-        description: description.isNotEmpty ? description : null,
-        location: location,
-        eventTimestamp: dateTime,
-        maxParticipants: maxParticipants,
-        image: imageFile, // Pass the image File object from dialog
-        token: authProvider.token!,
+        _currentCommunityId!, title, description, location, dateTime, maxParticipants, authProvider.token!,
       );
-      // --- END FIX ---
 
       if (!mounted) return;
 
       setState(() {
         _events.add(newEvent); // Add to local list
-        _events.sort((a, b) => a.dateTime.compareTo(b.dateTime)); // Keep sorted
         _isLoadingEvents = false;
         _tabController.animateTo(1); // Switch to Events tab
+        // Optionally select the newly created event
+        // _switchEvent(int.tryParse(newEvent.id));
       });
 
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Event "${newEvent.title}" created successfully')));
@@ -578,42 +481,27 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     }
   }
 
-
   Future<void> _joinOrLeaveEvent(EventModel event) async {
     if (!mounted) return;
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (!authProvider.isAuthenticated || authProvider.userId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please log in to join/leave events')));
-      return;
-    }
+    if (!authProvider.isAuthenticated || authProvider.userId == null) return;
     final apiService = Provider.of<ApiService>(context, listen: false);
 
     final String currentUserId = authProvider.userId!;
     final bool currentlyJoined = event.participants.contains(currentUserId);
 
-    // Prevent action if event is full and user tries to join
-    if (!currentlyJoined && event.isFull) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cannot join, event is full.'), backgroundColor: Colors.orange));
-      return;
-    }
-
-
     // Optimistic UI update
     setState(() {
       final index = _events.indexWhere((e) => e.id == event.id);
       if (index != -1) {
-        final updatedParticipants = List<String>.from(event.participants); // Create mutable copy
-        if (currentlyJoined) {
-          updatedParticipants.remove(currentUserId);
-        } else {
-          updatedParticipants.add(currentUserId); // Add current user ID
-        }
-        // Create a new EventModel instance with updated participants
+        final updatedParticipants = currentlyJoined
+            ? event.participants.where((id) => id != currentUserId).toList()
+            : [...event.participants, currentUserId]; // Add current user ID
         _events[index] = EventModel(
           id: event.id, title: event.title, description: event.description, location: event.location,
           dateTime: event.dateTime, maxParticipants: event.maxParticipants, creatorId: event.creatorId,
           communityId: event.communityId, imageUrl: event.imageUrl,
-          participants: updatedParticipants, // Use the updated list
+          participants: updatedParticipants, // Update participants list
         );
       }
     });
@@ -623,20 +511,21 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
         await apiService.leaveEvent(event.id, authProvider.token!);
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('You left "${event.title}"')));
       } else {
-        // API call already includes check for 'full' potentially, but client-side check is good too
+        // Check if event is full before attempting to join
+        if (event.isFull) {
+          throw Exception("Event is full");
+        }
         await apiService.joinEvent(event.id, authProvider.token!);
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('You joined "${event.title}"')));
       }
-      // Optionally refresh full event list or details after successful action
-      // _loadMessagesAndEvents(); // Could reload everything
     } catch (e) {
       if (!mounted) return;
       print('Error joining/leaving event: $e');
-      // Revert optimistic update on error
+      // Revert optimistic update
       setState(() {
-        final index = _events.indexWhere((ev) => ev.id == event.id); // Find index again
+        final index = _events.indexWhere((e) => e.id == event.id);
         if (index != -1) {
-          _events[index] = event; // Put original event object back
+          _events[index] = event; // Put original event back
         }
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to ${currentlyJoined ? 'leave' : 'join'} event: ${e.toString()}'), backgroundColor: Colors.red));
@@ -648,7 +537,7 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     if (_currentCommunityId == null) return "Chat";
     final community = _userCommunities.firstWhere(
           (c) => c['id'] == _currentCommunityId,
-      orElse: () => {'name': 'Community'}, // Default if not found
+      orElse: () => {'name': 'Community'}, // Default if not found (shouldn't happen ideally)
     );
     return community['name'] as String? ?? 'Community';
   }
@@ -666,15 +555,15 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
 
   // --- UI Build Methods ---
 
+  // Scroll to bottom helper
   void _scrollToBottom([bool jump = false]) {
     if (!_scrollController.hasClients) return;
-    // Delay slightly to allow layout to settle after adding messages
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         final maxScroll = _scrollController.position.maxScrollExtent;
         final currentScroll = _scrollController.position.pixels;
-        // Only auto-scroll if user is already near the bottom or jumping
-        if (jump || (maxScroll - currentScroll < 150)) {
+        // Only auto-scroll if user is already near the bottom
+        if (jump || maxScroll - currentScroll < 150) {
           _scrollController.animateTo(
             maxScroll,
             duration: jump ? Duration.zero : const Duration(milliseconds: 300),
@@ -692,7 +581,7 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final size = MediaQuery.of(context).size;
-    final authProvider = Provider.of<AuthProvider>(context); // Listen for auth changes for logged-in view
+    final authProvider = Provider.of<AuthProvider>(context); // Listen for auth changes
 
     final String currentTitle = _selectedEventId != null
         ? (_getCurrentEventTitle() ?? "Event Chat") // Use event title if selected
@@ -700,7 +589,7 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(currentTitle, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+        title: Text(currentTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         leading: IconButton(
             icon: Icon(_isDrawerOpen ? Icons.close : Icons.menu),
             tooltip: _isDrawerOpen ? "Close Communities" : "Open Communities",
@@ -709,21 +598,16 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
         bottom: TabBar(
           controller: _tabController,
           tabs: const [Tab(text: 'Chat'), Tab(text: 'Events')],
-          indicatorColor: ThemeConstants.accentColor, // Use accent color for indicator
-          labelColor: ThemeConstants.accentColor,
-          unselectedLabelColor: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+          indicatorColor: ThemeConstants.highlightColor,
+          labelColor: Colors.white, // Keep labels white
+          unselectedLabelColor: Colors.white70,
           labelStyle: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
-          // Show event details button only when an event is selected
+          // TODO: Add relevant actions, e.g., view event details if an event is selected
           if (_selectedEventId != null)
             IconButton(icon: const Icon(Icons.info_outline), tooltip: "Event Details", onPressed: () {
-              // TODO: Implement navigation to a dedicated Event Detail Screen or show a modal
-              final selectedEvent = _events.firstWhere((e) => int.tryParse(e.id) == _selectedEventId, orElse: () => _EventModelPlaceholder());
-              if (selectedEvent.id != '0') { // Check if a valid event was found
-                // Show details...
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Show details for: ${selectedEvent.title}')));
-              }
+              // Navigate to event detail screen or show modal
             }),
         ],
       ),
@@ -734,20 +618,22 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
           // Main Content Area
           Column(
             children: [
-              // Event Chips Row (Only visible on Events tab AND if events exist and are not loading)
+              // Event Chips Row (Only visible on Events tab if events exist)
               if (_tabController.index == 1 && _events.isNotEmpty && !_isLoadingEvents)
                 _buildEventChips(isDark),
 
-              // Selected Event Card (Visible if an event is selected, regardless of tab)
+              // Selected Event Card (Only visible if an event is selected)
+              // We show this card regardless of the tab to provide context for the chat
               if (_selectedEventId != null)
-                _buildSelectedEventCardContainer(isDark, authProvider.userId),
-
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: _buildSelectedEventCard(isDark, authProvider.userId),
+                ),
 
               // Chat Messages or Events List
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
-                  physics: const NeverScrollableScrollPhysics(), // Prevent swiping between tabs
                   children: [
                     // Chat Tab View
                     _buildMessagesList(isDark, authProvider.userId ?? ''),
@@ -757,17 +643,16 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
                 ),
               ),
 
-              // Message Input Area (Show ONLY if on Chat tab OR if an Event chat is selected)
-              if (_tabController.index == 0) // Simplified: Show only on Chat tab now
+              // Message Input Area (Show if on Chat tab OR if an Event is selected)
+              if (_tabController.index == 0 || _selectedEventId != null)
                 _buildMessageInput(isDark),
             ],
           ),
-          // Drawer for community selection
+          // Drawer (Always present but positioned off-screen)
           _buildDrawer(isDark, size),
         ],
       ),
-      // Show FAB only on Events tab
-      floatingActionButton: _tabController.index == 1 && _currentCommunityId != null
+      floatingActionButton: _tabController.index == 1 // Show FAB only on Events tab
           ? _buildFloatingActionButton()
           : null,
     );
@@ -775,19 +660,19 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
 
   // --- Helper Build Methods ---
 
-  // Build Event Chips Row
   Widget _buildEventChips(bool isDark) {
-    // Added loading indicator check within the chips row container
+    // Added loading indicator within the chips row container
     if (_isLoadingEvents) {
       return Container(
-          height: 60, // Match height
+          height: 60,
           alignment: Alignment.center,
           color: isDark ? ThemeConstants.backgroundDarker : Colors.grey.shade100,
           child: const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
       );
     }
-    // No need for SizedBox if empty, let the parent Column handle layout
-
+    if (_events.isEmpty) {
+      return const SizedBox(height: 60); // Keep space if no events, prevents layout jump
+    }
     return Container(
       height: 60,
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -806,17 +691,15 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
               label: Text(event.title, maxLines: 1, overflow: TextOverflow.ellipsis),
               avatar: Icon(Icons.event, size: 16, color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.white70 : Colors.black54)),
               selected: isSelected,
-              onSelected: (selected) => _switchEvent(selected ? eventIdInt : null), // Pass null to deselect
+              onSelected: (selected) => _switchEvent(selected ? eventIdInt : null),
               backgroundColor: isDark ? ThemeConstants.backgroundDark : Colors.white,
-              selectedColor: ThemeConstants.accentColor.withOpacity(0.9), // Use accent color
+              selectedColor: ThemeConstants.accentColor,
               labelStyle: TextStyle(
                 color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.white : Colors.black87),
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              visualDensity: VisualDensity.compact,
-              side: isDark ? BorderSide(color: Colors.grey.shade700) : BorderSide(color: Colors.grey.shade300),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), // Rounded shape
+              visualDensity: VisualDensity.compact, // Make chips a bit smaller
             ),
           );
         },
@@ -824,23 +707,22 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     );
   }
 
-
-  // Build Community Selection Drawer
   Widget _buildDrawer(bool isDark, Size size) {
-    // Same implementation as before, ensure it uses _isLoadingCommunities
-    return Stack(
+    return Stack( // Use Stack for overlay + drawer
         children: [
+          // Semi-transparent overlay when drawer is open
           if (_isDrawerOpen)
             Positioned.fill(
               child: GestureDetector(
                 onTap: _toggleDrawer,
-                child: Container(color: Colors.black.withOpacity(0.6)), // Darker overlay
+                child: Container(color: Colors.black.withOpacity(0.5)), // Darker overlay
               ),
             ),
+          // Animated Drawer Content
           AnimatedPositioned(
             duration: ThemeConstants.mediumAnimation,
-            curve: Curves.easeInOutCubic,
-            left: _isDrawerOpen ? 0 : -size.width * 0.8,
+            curve: Curves.easeInOutCubic, // Smoother curve
+            left: _isDrawerOpen ? 0 : -size.width * 0.8, // Adjust width
             top: 0, bottom: 0, width: size.width * 0.8,
             child: Material(
               elevation: 16.0,
@@ -850,50 +732,47 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Drawer Header
                       Padding(
                         padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-                        child: Text('My Communities', style: Theme.of(context).textTheme.headlineSmall),
+                        child: Text('My Communities', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: isDark ? Colors.white : Colors.black87)),
                       ),
                       const Divider(height: 1),
+                      // Communities List
                       Expanded(
                         child: _isLoadingCommunities
                             ? const Center(child: CircularProgressIndicator())
                             : _userCommunities.isEmpty
-                            ? Center(child: Text('No communities joined yet.', style: TextStyle(color: Colors.grey.shade500)))
+                            ? Center(child: Text('No communities joined yet.', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)))
                             : ListView.builder(
                           itemCount: _userCommunities.length,
                           itemBuilder: (context, index) {
                             final community = _userCommunities[index];
                             final communityIdInt = community['id'] as int;
                             final isSelected = _currentCommunityId == communityIdInt;
-                            // TODO: Fetch or use logo_url from community data
-                            final String? logoUrl = community['logo_url'];
-
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: isSelected ? ThemeConstants.accentColor : (isDark ? ThemeConstants.backgroundDarker : Colors.grey.shade200),
-                                backgroundImage: logoUrl != null ? NetworkImage(logoUrl) : null, // Use logo URL
-                                child: logoUrl == null ? Text( // Show initial only if no logo
-                                    (community['name'] as String)[0].toUpperCase(),
-                                    style: TextStyle(color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.white : Colors.black87), fontWeight: FontWeight.bold))
-                                    : null,
+                                child: Text((community['name'] as String)[0].toUpperCase(), style: TextStyle(color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.white : Colors.black87), fontWeight: FontWeight.bold)),
                               ),
-                              title: Text(community['name'] as String, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                              title: Text(community['name'] as String, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, color: isDark ? Colors.white : Colors.black87)),
+                              // TODO: Add unread message count if available from API
+                              // trailing: (community['unread'] as int? ?? 0) > 0 ? ... : null,
                               selected: isSelected,
-                              selectedTileColor: ThemeConstants.accentColor.withOpacity(0.1),
+                              selectedTileColor: isDark ? ThemeConstants.backgroundDarker.withOpacity(0.5) : Colors.grey.shade100,
                               onTap: () => _switchCommunity(communityIdInt),
                             );
                           },
                         ),
                       ),
                       const Divider(height: 1),
+                      // Add Community Button
                       ListTile(
                         leading: const Icon(Icons.add_circle_outline, color: ThemeConstants.accentColor),
                         title: const Text('Create/Find Communities', style: TextStyle(color: ThemeConstants.accentColor)),
                         onTap: () {
-                          _toggleDrawer();
                           // TODO: Navigate to Communities Screen or Create Community Screen
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Navigate to Communities Screen')));
+                          _toggleDrawer(); // Close drawer first
                           // Example: Navigator.push(context, MaterialPageRoute(builder: (_) => CommunitiesScreen()));
                         },
                       ),
@@ -907,19 +786,18 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     );
   }
 
-  // Build Floating Action Button Menu
   Widget _buildFloatingActionButton() {
-    // Same implementation as before
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.end, // Align items to the right
       children: [
+        // Create Event FAB (only shows when menu is open)
         ScaleTransition(
-          scale: CurvedAnimation(parent: _fabAnimationController, curve: Curves.easeOutBack),
+          scale: CurvedAnimation(parent: _fabAnimationController, curve: Curves.easeOutBack), // Bouncy effect
           child: Padding(
             padding: const EdgeInsets.only(bottom: 12.0),
             child: FloatingActionButton.small(
-              heroTag: 'event_fab',
+              heroTag: 'event_fab', // Unique heroTag
               onPressed: _showCreateEventDialog,
               backgroundColor: ThemeConstants.accentColor,
               tooltip: 'Create Event',
@@ -927,16 +805,17 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
             ),
           ),
         ),
+        // Main Add/Toggle FAB
         FloatingActionButton(
-          heroTag: 'main_fab',
+          heroTag: 'main_fab', // Unique heroTag
           onPressed: _showFabMenu,
-          backgroundColor: ThemeConstants.highlightColor,
+          backgroundColor: ThemeConstants.highlightColor, // Use highlight color for main FAB
           tooltip: _fabAnimationController.isCompleted ? 'Close Menu' : 'Create Event',
           child: AnimatedRotation(
-            turns: _fabAnimationController.value * 0.125,
+            turns: _fabAnimationController.value * 0.125, // Rotate 45 degrees
             duration: ThemeConstants.shortAnimation,
             child: Icon(
-                _fabAnimationController.isCompleted ? Icons.close : Icons.add,
+                _fabAnimationController.isCompleted ? Icons.close : Icons.add, // Change icon based on state
                 color: ThemeConstants.primaryColor),
           ),
         ),
@@ -944,19 +823,19 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     );
   }
 
-  // Build Message Input Row
   Widget _buildMessageInput(bool isDark) {
-    // Same implementation as before
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Adjusted padding
       decoration: BoxDecoration(
           color: isDark ? ThemeConstants.backgroundDarker : Colors.white,
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 5, offset: const Offset(0, -2))]
       ),
-      child: SafeArea(
+      child: SafeArea( // Ensure input is above system intrusions
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.end, // Align items to bottom for multi-line text field
           children: [
+            // Optional: Add Attach/Emoji buttons
+            // IconButton(icon: Icon(Icons.add_photo_alternate_outlined), color: ThemeConstants.accentColor, onPressed: () {}),
             Expanded(
               child: TextField(
                 controller: _messageController,
@@ -965,18 +844,20 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                   filled: true,
                   fillColor: isDark ? ThemeConstants.backgroundDark : Colors.grey.shade100,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), // Adjusted content padding
+                  isDense: true, // Reduces intrinsic height
                 ),
                 minLines: 1,
-                maxLines: 5,
+                maxLines: 5, // Allow multi-line input
                 textCapitalization: TextCapitalization.sentences,
+                // Send on keyboard action or button press
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _sendMessage(),
-                enabled: !_isSendingMessage,
+                enabled: !_isSendingMessage, // Disable while sending
               ),
             ),
             const SizedBox(width: 8),
+            // Send Button with Loading Indicator
             CircleAvatar(
               radius: 22,
               backgroundColor: ThemeConstants.accentColor,
@@ -995,9 +876,8 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
     );
   }
 
-  // Build Not Logged In View
   Widget _buildNotLoggedInView(bool isDark) {
-    // Same implementation as before
+    // Identical to the one in me_screen.dart - Consider extracting to a common widget
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1024,35 +904,28 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
       return const Center(child: CircularProgressIndicator());
     }
     if (!_isLoadingMessages && _messages.isEmpty) {
-      final contextMessage = _selectedEventId != null
-          ? 'No messages in this event yet.'
-          : 'No messages in this community yet.\nStart the conversation!';
-      return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(contextMessage, textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
-          )
-      );
+      return Center(child: Text('No messages yet. Start the conversation!', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)));
     }
 
     return ListView.builder(
       controller: _scrollController,
-      reverse: false, // Keep false as we load older messages at the top
-      padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.smallPadding, vertical: 8.0),
+      padding: const EdgeInsets.all(ThemeConstants.smallPadding), // Reduced padding
       itemCount: _messages.length,
       itemBuilder: (context, index) {
         final messageData = _messages[index];
-        // Ensure currentUserId is not empty before comparing
-        final bool isCurrentUserMessage = currentUserId.isNotEmpty && (messageData.user_id.toString() == currentUserId);
+        final bool isCurrentUserMessage = messageData.user_id.toString() == currentUserId;
 
         // Adapt ChatMessageData to MessageModel for the bubble widget
+        // In a real app, you might pass ChatMessageData directly or have a unified model
         final displayMessage = MessageModel(
           id: messageData.message_id.toString(),
           userId: messageData.user_id.toString(),
-          username: isCurrentUserMessage ? "Me" : messageData.username,
+          username: isCurrentUserMessage ? "Me" : messageData.username, // Use fetched username
           content: messageData.content,
           timestamp: messageData.timestamp,
           isCurrentUser: isCurrentUserMessage,
+          // reactions: null, // Add reactions if fetched/supported
+          // imageUrl: null, // Add image URL if fetched/supported
         );
         return ChatMessageBubble(message: displayMessage);
       },
@@ -1061,79 +934,62 @@ class _ChatroomScreenState extends State<ChatroomScreen> with TickerProviderStat
 
   // Builds the list of events for the Events tab
   Widget _buildEventsList(bool isDark, String? currentUserId) {
-    if (_isLoadingEvents && _events.isEmpty) {
+    if (_isLoadingEvents && _events.isEmpty) { // Check loading state for events
       return const Center(child: CircularProgressIndicator());
     }
     if (!_isLoadingEvents && _events.isEmpty) {
       return Center(child: Text('No events scheduled for this community.', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)));
     }
 
-    // Sort events by date (newest first for example)
-    final sortedEvents = List<EventModel>.from(_events)
-      ..sort((a, b) => b.dateTime.compareTo(a.dateTime)); // Newest first
-
-
     return ListView.builder(
       padding: const EdgeInsets.only(top: 8, bottom: 80), // Add padding for FAB
-      itemCount: sortedEvents.length,
+      itemCount: _events.length,
       itemBuilder: (context, index) {
-        final event = sortedEvents[index];
+        final event = _events[index];
         // Check if the current user has joined this event
         final bool isJoined = currentUserId != null && event.participants.contains(currentUserId);
-        final eventIdInt = int.tryParse(event.id); // Parse ID for comparison
-        final bool isSelected = _selectedEventId == eventIdInt;
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-          child: ChatEventCard(
-            event: event,
-            isJoined: isJoined,
-            isSelected: isSelected, // Pass selection state
-            onTap: () => _switchEvent(eventIdInt), // Tap to view event chat
-            onJoin: () => _joinOrLeaveEvent(event),
-            showJoinButton: true,
-          ),
+        return ChatEventCard(
+          event: event,
+          isJoined: isJoined,
+          onTap: () => _switchEvent(int.tryParse(event.id)), // Tap to view event chat
+          onJoin: () => _joinOrLeaveEvent(event),
+          showJoinButton: true,
         );
       },
     );
   }
 
-  // Container wrapper for the Selected Event Card to handle padding/margin
-  Widget _buildSelectedEventCardContainer(bool isDark, String? currentUserId) {
-    if (_selectedEventId == null) return const SizedBox.shrink();
+  // Builds the card displayed when a specific event chat is selected
+  Widget _buildSelectedEventCard(bool isDark, String? currentUserId) {
+    if (_selectedEventId == null) return const SizedBox.shrink(); // Hide if no event selected
 
     EventModel? event;
     try {
       event = _events.firstWhere((e) => int.tryParse(e.id) == _selectedEventId);
     } catch (e) {
-      print("Selected event ID $_selectedEventId not found in local list for card.");
-      // Optionally show a loading/error state for the card
-      return Container(
-          padding: const EdgeInsets.all(16),
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          decoration: BoxDecoration(
-              color: isDark ? ThemeConstants.backgroundDarker : Colors.white,
-              borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius),
-              border: Border.all(color: Colors.orange)
-          ),
-          child: const Text("Event details not available.", style: TextStyle(color: Colors.orange))
-      );
+      event = null; // Event not found in the current list
+      print("Selected event ID $_selectedEventId not found in local list.");
     }
 
-    // Event found
+    if (event == null) {
+      // Optionally show a placeholder or loading state if event details are being fetched separately
+      print("Selected event card not built because event data is null.");
+      return const SizedBox.shrink();
+    }
+
+    // Now we know 'event' is not null
     final bool isJoined = currentUserId != null && event.participants.contains(currentUserId);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-      child: ChatEventCard(
-        event: event,
-        isJoined: isJoined,
-        isSelected: true, // It's the selected one
-        onTap: () { /* Maybe show full event details */ },
-        onJoin: () => _joinOrLeaveEvent(event),
-        showJoinButton: true,
-      ),
+    // Use ChatEventCard to display details consistently
+    return ChatEventCard(
+      event: event, // OK here, event is non-null
+      isJoined: isJoined,
+      onTap: () { /* Maybe show full event details */ },
+      // ---- FIX IS HERE ----
+      onJoin: () => _joinOrLeaveEvent(event!), // Assert non-null when passing to the callback
+      // ---- END FIX ----
+      showJoinButton: true, // Show join/leave button on the card
     );
   }
-
-} // End of _ChatroomScreenState class
+}

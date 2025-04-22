@@ -1,15 +1,14 @@
+// frontend/lib/screens/me_screen.dart
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // For network images
-import 'package:shimmer/shimmer.dart'; // For loading shimmer
-
 import '../services/api_service.dart';
 import '../services/auth_provider.dart';
-import '../widgets/custom_card.dart';
-import '../widgets/custom_button.dart';
 import '../theme/theme_constants.dart';
-import '../app_constants.dart'; // For default avatar
-import 'settings.dart'; // To navigate to settings screen
+import '../app_constants.dart'; // For default avatar (though not used if initial is fetched)
+import 'login_screen.dart';
+import 'settings.dart'; // Import settings page
+import 'settings_feature/account/edit_profile.dart'; // Import edit profile
 
 class MeScreen extends StatefulWidget {
   const MeScreen({Key? key}) : super(key: key);
@@ -20,373 +19,476 @@ class MeScreen extends StatefulWidget {
 
 class _MeScreenState extends State<MeScreen> with AutomaticKeepAliveClientMixin {
   @override
-  bool get wantKeepAlive => true; // Keep state when switching tabs
+  bool get wantKeepAlive => true;
 
-  bool _isLoading = false;
-  Map<String, dynamic>? _userData; // Store fetched user data
+  // Mock user data - Keep for now as backend /me might not return all stats
+  final Map<String, dynamic> _mockUserStats = {
+    'joinedCommunities': 8,
+    'eventsParticipated': 15,
+    'posts': 27,
+    'replies': 42,
+  };
 
-  @override
-  void initState() {
-    super.initState();
-    // Use addPostFrameCallback to ensure context is ready for Provider
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Load data only if authenticated, otherwise AuthProvider listener will trigger rebuild
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      if (authProvider.isAuthenticated && _userData == null) { // Load only if logged in and data isn't already loaded
-        _loadUserData();
-      }
-    });
+  // Mock recent events - Keep for now
+  final List<Map<String, dynamic>> _mockRecentEvents = [
+    {'name': 'Tech Conference 2023', 'date': '2 days ago', 'communityName': 'Tech Enthusiasts'},
+    {'name': 'Book Club Discussion', 'date': '1 week ago', 'communityName': 'Book Club'},
+    {'name': 'Morning Fitness Session', 'date': '2 weeks ago', 'communityName': 'Fitness Freaks'},
+  ];
+
+  // --- Helper Functions ---
+  List<Color> _getAvatarGradient(String? seed) {
+    if (seed == null || seed.isEmpty) {
+      return [ThemeConstants.primaryColor, ThemeConstants.accentColor];
+    }
+    final seedValue = seed.toLowerCase().codeUnitAt(0);
+    final random = math.Random(seedValue);
+    final hue1 = random.nextDouble() * 360;
+    final hue2 = (hue1 + 40 + random.nextDouble() * 40) % 360;
+    return [
+      HSLColor.fromAHSL(1, hue1, 0.7, 0.5).toColor(),
+      HSLColor.fromAHSL(1, hue2, 0.8, 0.4).toColor(),
+    ];
   }
 
-  Future<void> _loadUserData() async {
-    if (!mounted) return;
-    // Avoid reload if already loading
-    if (_isLoading) return;
-
-    setState(() => _isLoading = true);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final apiService = Provider.of<ApiService>(context, listen: false);
-
-    // Ensure token exists before proceeding
-    if (authProvider.token == null) {
-      print("MeScreen: Cannot load user data, token is null.");
-      if (mounted) setState(() => _isLoading = false);
-      // Optionally trigger logout or show error
-      // authProvider.logout();
-      return;
-    }
-
-    try {
-      // Corrected method name
-      final data = await apiService.fetchUserData(authProvider.token);
-      if (mounted) {
-        setState(() {
-          _userData = data;
-          _isLoading = false;
-        });
-        // Update AuthProvider with the latest data if needed
-        // authProvider.updateUserData(data); // You might need a method like this in AuthProvider
-      }
-    } catch (e) {
-      print("Error loading user data in MeScreen: $e");
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load profile: ${e.toString()}')),
-        );
-      }
-    }
+  String _getInitial(String? name) {
+    if (name == null || name.isEmpty) return '?';
+    return name[0].toUpperCase();
   }
 
-  // Function to handle navigation to settings
-  void _navigateToSettings() {
+  void _navigateToEditProfile() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+      MaterialPageRoute(builder: (context) => const EditProfilePage()),
     ).then((_) {
-      // Refresh data when returning from settings in case profile was updated
-      _loadUserData();
+      // Refresh profile data after returning from edit screen
+      if (mounted) {
+        setState(() {}); // Trigger FutureBuilder rebuild
+      }
     });
   }
+
+  void _logout(AuthProvider authProvider) {
+    // Show confirmation dialog maybe?
+    authProvider.logout();
+    // Navigate to login screen after logout
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+          (Route<dynamic> route) => false, // Remove all previous routes
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
     super.build(context); // Keep state
 
-    // Listen to AuthProvider changes
-    final authProvider = Provider.of<AuthProvider>(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // If authentication state changes to false, clear user data
-    if (!authProvider.isAuthenticated && _userData != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() { _userData = null; });
+    // Use Consumer for AuthProvider to react to login/logout state changes
+    return Consumer<AuthProvider>(
+      builder: (context, authProvider, child) {
+        if (!authProvider.isAuthenticated || authProvider.token == null) {
+          return _buildNotLoggedIn(isDark); // Show login prompt
         }
-      });
-    }
-    // If authentication state changes to true and data is missing, trigger load
-    else if (authProvider.isAuthenticated && _userData == null && !_isLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _loadUserData();
-        }
-      });
-    }
 
+        // Use FutureBuilder to fetch user details only when logged in
+        final apiService = Provider.of<ApiService>(context, listen: false);
+        return FutureBuilder<Map<String, dynamic>>(
+          // Key the FutureBuilder with the token to refetch if token changes (e.g., re-login)
+          key: ValueKey(authProvider.token),
+          future: apiService.fetchUserDetails(authProvider.token!),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return _buildLoadingScreen(isDark);
+            }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Profile'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Settings',
-            onPressed: _navigateToSettings,
-          ),
-        ],
-        elevation: 1, // Slight elevation
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadUserData, // Allow pull-to-refresh
-        child: _isLoading && _userData == null // Show shimmer only on initial load
-            ? _buildLoadingShimmer(isDark)
-            : !authProvider.isAuthenticated // Show login prompt if not logged in
-            ? _buildNotLoggedInView(isDark)
-            : _buildProfileView(isDark), // Show profile if logged in
-      ),
-    );
-  }
+            if (snapshot.hasError) {
+              print("Error fetching user details: ${snapshot.error}");
+              // Handle specific errors, e.g., token expiry -> logout
+              if (snapshot.error.toString().contains("Token expired")) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _logout(authProvider);
+                });
+                return _buildNotLoggedIn(isDark); // Show login prompt immediately
+              }
+              return _buildErrorScreen(snapshot.error.toString(), isDark);
+            }
 
-  Widget _buildProfileView(bool isDark) {
-    if (_userData == null) {
-      // This case might happen briefly if loading fails after being authenticated
-      return _buildErrorView("Could not load profile data.", isDark);
-    }
+            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return _buildErrorScreen("No user data received.", isDark); // Handle empty data case
+            }
 
-    // Safely access user data with defaults
-    final String name = _userData!['name'] ?? 'N/A';
-    final String username = _userData!['username'] ?? 'N/A';
-    final String email = _userData!['email'] ?? 'N/A';
-    final String gender = _userData!['gender'] ?? 'N/A';
-    final String college = _userData!['college'] ?? 'N/A';
-    final String? imageUrl = _userData!['image_url']; // Use image_url from API response
-    final List<String> interests = List<String>.from(_userData!['interests'] ?? []);
-    final String joinedDate = _userData!['created_at'] != null
-        ? ThemeConstants.formatDateTime(_userData!['created_at']) // Use formatter
-        : 'N/A';
-    // final location = _userData!['current_location']; // This is a Map<String, double>?
+            final user = snapshot.data!;
+            final avatarGradient = _getAvatarGradient(user['name']);
+            final String? imagePath = user['image_path']; // Get image path from user data
+            final String? avatarUrl = imagePath != null ? '${AppConstants.baseUrl}/$imagePath' : null; // Construct URL - Adjust if backend serves differently
 
-
-    return ListView( // Use ListView for scrollable content
-      padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-      children: [
-        // Profile Header
-        Row(
-          children: [
-            CircleAvatar(
-              radius: 45,
-              backgroundColor: Colors.grey.shade300,
-              backgroundImage: imageUrl != null
-                  ? CachedNetworkImageProvider(imageUrl) // Use CachedNetworkImageProvider
-                  : const NetworkImage(AppConstants.defaultAvatar) as ImageProvider,
-            ),
-            const SizedBox(width: ThemeConstants.mediumPadding),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '@$username',
-                    style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey.shade600),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Joined: $joinedDate', // Display formatted date
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade500),
+            return Scaffold(
+              appBar: AppBar(
+                title: const Text('Profile'),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.settings),
+                    tooltip: 'Settings',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const SettingsPage()),
+                      );
+                    },
                   ),
                 ],
               ),
-            ),
-            // Optional: Edit Profile Button (can also be in settings)
-            // IconButton(
-            //   icon: Icon(Icons.edit_outlined, color: ThemeConstants.accentColor),
-            //   tooltip: 'Edit Profile',
-            //   onPressed: () { /* Navigate to EditProfileScreen */ },
-            // ),
-          ],
-        ),
-        const SizedBox(height: ThemeConstants.largePadding),
-        const Divider(),
-        const SizedBox(height: ThemeConstants.mediumPadding),
+              body: RefreshIndicator(
+                onRefresh: () async {
+                  // Trigger a rebuild of the FutureBuilder by changing state
+                  setState(() {});
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Column(
+                    children: [
+                      // Profile Header
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(ThemeConstants.largePadding),
+                        decoration: BoxDecoration(
+                          color: isDark ? ThemeConstants.backgroundDarker : Colors.white,
+                          boxShadow: ThemeConstants.softShadow(),
+                        ),
+                        child: Column(
+                          children: [
+                            // Avatar with initial or image
+                            Hero(
+                              tag: 'profile_avatar',
+                              child: CircleAvatar(
+                                radius: 50,
+                                backgroundColor: Colors.grey.shade300, // Fallback color
+                                backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null, // Load network image
+                                // Fallback to gradient/initial if no image
+                                child: avatarUrl == null
+                                    ? Container(
+                                  width: 100,
+                                  height: 100,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: LinearGradient(
+                                      colors: avatarGradient,
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      _getInitial(user['name']),
+                                      style: const TextStyle(
+                                        color: Colors.white, fontSize: 40, fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                    : null, // Don't show initial if image is loading/present
+                              ),
+                            ),
+                            const SizedBox(height: ThemeConstants.mediumPadding),
+                            Text(
+                              user['name'] ?? 'User Name',
+                              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '@${user['username'] ?? 'username'}',
+                              style: TextStyle(fontSize: 16, color: isDark ? Colors.white70 : Colors.grey.shade700),
+                            ),
+                            const SizedBox(height: 4),
+                            Text( // Display College
+                              user['college'] ?? 'College not specified',
+                              style: TextStyle(fontSize: 14, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                            ),
+                            const SizedBox(height: ThemeConstants.mediumPadding),
+                            OutlinedButton.icon(
+                              onPressed: _navigateToEditProfile, // Navigate to edit
+                              icon: const Icon(Icons.edit, size: 18),
+                              label: const Text('Edit Profile'),
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(color: ThemeConstants.accentColor, width: 1.5),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeConstants.buttonBorderRadius)),
+                                padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.mediumPadding, vertical: ThemeConstants.smallPadding / 1.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
-        // Profile Details Section
-        _buildSectionTitle('About Me', isDark),
-        _buildDetailItem(Icons.email_outlined, 'Email', email, isDark),
-        _buildDetailItem(Icons.wc_outlined, 'Gender', gender, isDark),
-        _buildDetailItem(Icons.school_outlined, 'College', college, isDark),
-        // TODO: Add location display if needed
-        // _buildDetailItem(Icons.location_on_outlined, 'Location', formatLocation(location), isDark),
+                      // Stats Section (Using Mock Data For Now)
+                      // TODO: Fetch actual stats from backend if available
+                      Padding(
+                        padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+                        child: Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius)),
+                          child: Padding(
+                            padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Stats', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                                const SizedBox(height: ThemeConstants.mediumPadding),
+                                GridView.count(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  crossAxisCount: 2, childAspectRatio: 2.5, // Adjust aspect ratio
+                                  crossAxisSpacing: ThemeConstants.smallPadding, mainAxisSpacing: ThemeConstants.smallPadding,
+                                  children: [
+                                    _buildStatCard('Communities', _mockUserStats['joinedCommunities'].toString(), Icons.people, ThemeConstants.accentColor, isDark),
+                                    _buildStatCard('Events', _mockUserStats['eventsParticipated'].toString(), Icons.event, ThemeConstants.highlightColor, isDark),
+                                    _buildStatCard('Posts', _mockUserStats['posts'].toString(), Icons.article, Colors.orangeAccent, isDark),
+                                    _buildStatCard('Replies', _mockUserStats['replies'].toString(), Icons.chat_bubble, Colors.purpleAccent, isDark),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
 
-        const SizedBox(height: ThemeConstants.mediumPadding),
+                      // Recent Activity Section (Using Mock Data For Now)
+                      // TODO: Fetch actual activity from backend if available
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.mediumPadding),
+                        child: Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius)),
+                          child: Padding(
+                            padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text('Recent Activity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                                    TextButton(onPressed: () { /* Navigate to full activity */ }, child: const Text('View All')),
+                                  ],
+                                ),
+                                const SizedBox(height: ThemeConstants.smallPadding),
+                                ..._mockRecentEvents.map((event) => _buildActivityItem(event['name'], event['date'], event['communityName'], isDark)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
 
-        // Interests Section
-        _buildSectionTitle('Interests', isDark),
-        interests.isEmpty
-            ? Padding(
-          padding: const EdgeInsets.only(left: 16.0, top: 8.0),
-          child: Text('No interests added yet.', style: TextStyle(color: Colors.grey.shade500)),
-        )
-            : Wrap(
-          spacing: 8.0,
-          runSpacing: 4.0,
-          children: interests.map((interest) => Chip(
-            label: Text(interest),
-            backgroundColor: ThemeConstants.accentColor.withOpacity(0.1),
-            labelStyle: TextStyle(color: ThemeConstants.accentColor, fontSize: 12),
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            side: BorderSide(color: ThemeConstants.accentColor.withOpacity(0.3)),
-          )).toList(),
-        ),
+                      // Account Actions Card
+                      Padding(
+                        padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+                        child: Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius)),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: ThemeConstants.smallPadding), // Vertical padding for list items
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding( // Header padding
+                                  padding: const EdgeInsets.only(left: ThemeConstants.mediumPadding, top: ThemeConstants.smallPadding, bottom: 4),
+                                  child: Text('Account', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)),
+                                ),
+                                // Use ListTile for better alignment and tap area
+                                _buildAccountActionTile('Settings', Icons.settings_outlined, ThemeConstants.accentColor, isDark, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()))),
+                                _buildAccountActionTile('Logout', Icons.exit_to_app, ThemeConstants.errorColor, isDark, onTap: () => _logout(authProvider)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
 
-        const SizedBox(height: ThemeConstants.largePadding),
-        const Divider(),
-        const SizedBox(height: ThemeConstants.mediumPadding),
-
-        // Links to other profile sections (Posts, Communities, etc.) - Optional
-        // _buildProfileLinkItem(Icons.article_outlined, 'My Posts', () { /* Navigate */ }),
-        // _buildProfileLinkItem(Icons.people_outline, 'My Communities', () { /* Navigate */ }),
-        // _buildProfileLinkItem(Icons.event_note, 'My Events', () { /* Navigate */ }),
-
-      ],
+                      // App version info
+                      Padding(
+                        padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+                        child: Text(
+                          'Connections v${AppConstants.appVersion}', // Use constant
+                          style: TextStyle(color: isDark ? Colors.grey.shade500 : Colors.grey.shade600, fontSize: 12),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const SizedBox(height: ThemeConstants.largePadding), // Bottom padding
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
-  // Helper for Section Titles
-  Widget _buildSectionTitle(String title, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: Text(
+  // --- Helper Build Methods --- (Keep _buildStatCard, _buildActivityItem, _buildNotLoggedIn, _buildLoadingScreen, _buildErrorScreen)
+
+  // Updated Account Action builder using ListTile
+  Widget _buildAccountActionTile(
+      String title,
+      IconData icon,
+      Color color,
+      bool isDark, {
+        required VoidCallback onTap,
+      }) {
+    return ListTile(
+      leading: Icon(icon, color: color, size: 24),
+      title: Text(
         title,
-        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: isDark ? ThemeConstants.accentColor : ThemeConstants.primaryColor,
+        style: TextStyle(
+          fontWeight: FontWeight.w500,
+          color: isDark ? Colors.white : Colors.black87,
         ),
       ),
+      trailing: Icon(Icons.chevron_right, color: isDark ? Colors.white54 : Colors.grey.shade600),
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: ThemeConstants.mediumPadding, vertical: 4),
+      dense: true, // Make it slightly smaller vertically
     );
   }
 
-  // Helper for Detail Items
-  Widget _buildDetailItem(IconData icon, String label, String value, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+
+  Widget _buildStatCard(String title, String value, IconData icon, Color color, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(ThemeConstants.smallPadding),
+      decoration: BoxDecoration(
+        color: isDark ? ThemeConstants.backgroundDark : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(ThemeConstants.borderRadius),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
+      ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
-          const SizedBox(width: 16),
-          Text('$label:', style: TextStyle(fontWeight: FontWeight.w500, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(ThemeConstants.borderRadius)),
+            child: Icon(icon, color: color, size: 24),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: Text(value, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                Text(title, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey.shade700)),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // Helper for Profile Link Items (Optional)
-  Widget _buildProfileLinkItem(IconData icon, String title, VoidCallback onTap) {
-    return ListTile(
-      leading: Icon(icon, color: ThemeConstants.accentColor),
-      title: Text(title),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
+  Widget _buildActivityItem(String title, String date, String community, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: ThemeConstants.smallPadding),
+      child: Row(
+        children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(color: ThemeConstants.primaryColor.withOpacity(0.8), borderRadius: BorderRadius.circular(8)),
+            child: const Icon(Icons.event_note, color: Colors.white, size: 20), // Changed icon
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                const SizedBox(height: 2),
+                Text('In $community • $date', style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey.shade700)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-
-  // Loading Shimmer Widget
-  Widget _buildLoadingShimmer(bool isDark) {
-    final baseColor = isDark ? Colors.grey.shade800 : Colors.grey.shade300;
-    final highlightColor = isDark ? Colors.grey.shade700 : Colors.grey.shade100;
-
-    return Shimmer.fromColors(
-      baseColor: baseColor,
-      highlightColor: highlightColor,
-      child: ListView( // Use ListView structure for shimmer
-        padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-        children: [
-          Row(
+  Widget _buildNotLoggedIn(bool isDark) {
+    return Scaffold( // Needs Scaffold parent
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(ThemeConstants.largePadding),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const CircleAvatar(radius: 45),
-              const SizedBox(width: ThemeConstants.mediumPadding),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(width: 150, height: 20, color: Colors.white), // Name shimmer
-                    const SizedBox(height: 8),
-                    Container(width: 100, height: 16, color: Colors.white), // Username shimmer
-                    const SizedBox(height: 8),
-                    Container(width: 120, height: 14, color: Colors.white), // Joined date shimmer
-                  ],
+              Container(
+                width: 100, height: 100,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: isDark ? ThemeConstants.backgroundDarker : Colors.grey.shade200),
+                child: Icon(Icons.person_off_outlined, size: 60, color: isDark ? Colors.grey.shade700 : Colors.grey.shade400),
+              ),
+              const SizedBox(height: ThemeConstants.largePadding),
+              Text('You are not logged in', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87), textAlign: TextAlign.center),
+              const SizedBox(height: ThemeConstants.smallPadding),
+              Text('Log in to view your profile and access all features', style: TextStyle(fontSize: 16, color: isDark ? Colors.white70 : Colors.grey.shade700), textAlign: TextAlign.center),
+              const SizedBox(height: ThemeConstants.largePadding),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    // Use pushAndRemoveUntil to clear navigation stack
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (context) => const LoginScreen()),
+                          (Route<dynamic> route) => false,
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: ThemeConstants.mediumPadding)),
+                  child: const Text('Log In / Sign Up'),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: ThemeConstants.largePadding),
-          const Divider(),
-          const SizedBox(height: ThemeConstants.mediumPadding),
-          // Shimmer for details section
-          Container(width: double.infinity, height: 20, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)),
-          Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)),
-          Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)),
-          Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)),
-          const SizedBox(height: ThemeConstants.mediumPadding),
-          Container(width: double.infinity, height: 20, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)),
-          Wrap(
-            spacing: 8.0, runSpacing: 4.0,
-            children: List.generate(5, (_) => Chip(label: Container(width: 60, height: 14, color: Colors.white))),
-          ),
-          const SizedBox(height: ThemeConstants.largePadding),
-          const Divider(),
-        ],
+        ),
       ),
     );
   }
 
-  // Not Logged In View
-  Widget _buildNotLoggedInView(bool isDark) {
-    // Identical to the one in chatroom_screen - Consider extracting to a common widget
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.person_off_outlined, size: 80, color: isDark ? Colors.grey.shade700 : Colors.grey.shade400),
-          const SizedBox(height: 20),
-          Text('Please log in to view your profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade500 : Colors.grey.shade700)),
-          const SizedBox(height: 8),
-          Text('Manage your communities, posts, and settings', style: TextStyle(fontSize: 14, color: isDark ? Colors.grey.shade600 : Colors.grey.shade600)),
-          const SizedBox(height: 24),
-          ElevatedButton(
-            // Use context.pushReplacementNamed or similar if using named routes
-            onPressed: () => Navigator.of(context).pushReplacementNamed('/'), // Navigate to root (Login)
-            style: ElevatedButton.styleFrom(backgroundColor: ThemeConstants.accentColor, foregroundColor: ThemeConstants.primaryColor, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
-            child: const Text('Log In'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Error View
-  Widget _buildErrorView(String message, bool isDark) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
+  Widget _buildLoadingScreen(bool isDark) {
+    return Scaffold( // Needs Scaffold parent
+      appBar: AppBar(title: const Text('Profile')),
+      body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 60),
-            const SizedBox(height: 16),
-            Text(message, textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)),
-            const SizedBox(height: 24),
-            CustomButton(
-              text: 'Retry',
-              icon: Icons.refresh,
-              onPressed: _loadUserData,
-              type: ButtonType.secondary,
-            ),
+            const CircularProgressIndicator(color: ThemeConstants.accentColor),
+            const SizedBox(height: ThemeConstants.mediumPadding),
+            Text('Loading profile...', style: TextStyle(color: isDark ? Colors.white70 : Colors.grey.shade700)),
           ],
         ),
       ),
     );
   }
 
-} // End of _MeScreenState class
+  Widget _buildErrorScreen(String error, bool isDark) {
+    return Scaffold( // Needs Scaffold parent
+      appBar: AppBar(title: const Text('Profile')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(ThemeConstants.largePadding),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 64, color: ThemeConstants.errorColor),
+              const SizedBox(height: ThemeConstants.mediumPadding),
+              Text('Error loading profile', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87), textAlign: TextAlign.center),
+              const SizedBox(height: ThemeConstants.smallPadding),
+              Text(error, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.grey.shade700), textAlign: TextAlign.center),
+              const SizedBox(height: ThemeConstants.largePadding),
+              ElevatedButton.icon( // Added icon to retry button
+                onPressed: () => setState(() {}), // Trigger rebuild
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
