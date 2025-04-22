@@ -1,6 +1,7 @@
 // app_constants.dart
 class AppConstants {
   // static const String baseUrl = 'http://100.97.215.85:1163';
+
   static const String baseUrl = 'http://localhost:8000';
   static const String appName = 'Connect';
   static const String appVersion = '1.0.0';

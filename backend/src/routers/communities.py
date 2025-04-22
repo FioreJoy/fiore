@@ -1,10 +1,13 @@
-# backend/routers/communities.py
-from fastapi import APIRouter, Depends, HTTPException, status
+# backend/src/routers/communities.py
+
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from typing import List, Optional
 import psycopg2
+from datetime import datetime
 
 from .. import schemas, crud, auth, utils
 from ..database import get_db_connection
+from ..utils import upload_file_to_minio, get_minio_url
 
 router = APIRouter(
     prefix="/communities",
@@ -13,50 +16,74 @@ router = APIRouter(
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=schemas.CommunityDisplay)
 async def create_community(
-    community_data: schemas.CommunityCreate,
-    current_user_id: int = Depends(auth.get_current_user)
+        current_user_id: int = Depends(auth.get_current_user),
+        name: str = Form(...),
+        description: Optional[str] = Form(None),
+        primary_location: str = Form("(0,0)"), # Expecting "(lon,lat)" string
+        interest: Optional[str] = Form(None),
+        logo: Optional[UploadFile] = File(None)
 ):
-    """Creates a new community."""
+    """
+    Creates a new community, optionally with a logo uploaded to MinIO.
+    """
     conn = None
+    minio_logo_path = None
     try:
+        # Handle Logo Upload to MinIO
+        if logo and utils.minio_client:
+            # Define a prefix for community logos
+            object_name_prefix = f"communities/{name.replace(' ', '_').lower()}/logo" # Sanitize name for path
+            minio_logo_path = await upload_file_to_minio(logo, object_name_prefix)
+            if minio_logo_path is None:
+                print(f"⚠️ Warning: MinIO community logo upload failed for {name}")
+                # Continue without logo path
+            else:
+                print(f"✅ Community logo uploaded to MinIO: {minio_logo_path}")
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Format location string if needed, assume input is "(lon,lat)"
-        # db_location_str = utils.format_location_for_db(community_data.primary_location)
-        db_location_str = community_data.primary_location # Use directly if format is correct
+        # Format location string if needed (assuming CRUD handles 'POINT(lon lat)' or similar)
+        db_location_str = utils.format_location_for_db(primary_location) # Use helper
 
         community_id = crud.create_community_db(
             cursor,
-            name=community_data.name,
-            description=community_data.description,
+            name=name,
+            description=description,
             created_by=current_user_id,
             primary_location_str=db_location_str,
-            interest=community_data.interest
+            interest=interest,
+            logo_path=minio_logo_path # Pass MinIO path
         )
         if community_id is None:
-            # This might happen if ON CONFLICT DO NOTHING occurred, but RETURNING id should still work.
-            # More likely indicates an unexpected DB issue.
-            raise HTTPException(status_code=500, detail="Community creation failed")
+            raise HTTPException(status_code=500, detail="Community creation failed in database")
 
         # Fetch the created community details to return
-        created_community_db = crud.get_community_details_db(cursor, community_id) # Use details query
-        conn.commit()
+        created_community_db = crud.get_community_details_db(cursor, community_id)
+        conn.commit() # Commit after successful insert and fetch
 
         if not created_community_db:
-             raise HTTPException(status_code=500, detail="Could not retrieve created community details")
+            conn.rollback() # Rollback if fetch failed
+            raise HTTPException(status_code=500, detail="Could not retrieve created community details")
 
-        # Process location for display
-        location_str = created_community_db.get('primary_location')
+        # Prepare response data
         processed_data = dict(created_community_db)
-        processed_data['primary_location'] = str(location_str) if location_str else None # Return as string
+        processed_data['primary_location'] = str(created_community_db.get('primary_location')) # Return as string
+        processed_data['logo_url'] = get_minio_url(created_community_db.get('logo_path'))
 
-        print(f"✅ Community '{community_data.name}' (ID: {community_id}) created by User {current_user_id}")
+        print(f"✅ Community '{name}' (ID: {community_id}) created by User {current_user_id}")
         return schemas.CommunityDisplay(**processed_data)
 
-    except psycopg2.IntegrityError:
+    except psycopg2.IntegrityError as e:
         if conn: conn.rollback()
-        # Could be unique name violation or FK violation (if user doesn't exist)
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Community name may already exist or invalid data provided.")
+        # Consider deleting uploaded MinIO logo on DB error?
+        print(f"❌ Community Creation Integrity Error: {e}")
+        detail="Community name may already exist or invalid data provided."
+        if 'communities_created_by_fkey' in str(e):
+            detail = "Creator user not found."
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+    except HTTPException as http_exc:
+        if conn: conn.rollback()
+        raise http_exc
     except Exception as e:
         if conn: conn.rollback()
         print(f"❌ Error creating community: {e}")
@@ -66,7 +93,7 @@ async def create_community(
 
 @router.get("", response_model=List[schemas.CommunityDisplay])
 async def get_communities():
-    """Fetches a list of all communities."""
+    """ Fetches a list of all communities with logo URLs. """
     conn = None
     try:
         conn = get_db_connection()
@@ -78,12 +105,13 @@ async def get_communities():
             data = dict(comm)
             loc_str = comm.get('primary_location')
             data['primary_location'] = str(loc_str) if loc_str else None
+            data['logo_url'] = get_minio_url(comm.get('logo_path'))
             # Add online_count (defaults to 0 if not present in this query)
             data['online_count'] = data.get('online_count', 0)
-            processed_communities.append(data)
+            processed_communities.append(schemas.CommunityDisplay(**data)) # Validate
 
         print(f"✅ Fetched {len(processed_communities)} communities")
-        return processed_communities # FastAPI validates list items
+        return processed_communities
     except Exception as e:
         print(f"❌ Error fetching communities: {e}")
         raise HTTPException(status_code=500, detail="Error fetching communities")
@@ -92,20 +120,22 @@ async def get_communities():
 
 @router.get("/trending", response_model=List[schemas.CommunityDisplay])
 async def get_trending_communities():
-    """Fetches trending communities."""
+    """ Fetches trending communities with logo URLs. """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         communities_db = crud.get_trending_communities_db(cursor)
+
         processed_communities = []
         for comm in communities_db:
-             data = dict(comm)
-             loc_str = comm.get('primary_location')
-             data['primary_location'] = str(loc_str) if loc_str else None
-             # Add online_count (defaults to 0 if not present in this query)
-             data['online_count'] = data.get('online_count', 0)
-             processed_communities.append(data)
+            data = dict(comm)
+            loc_str = comm.get('primary_location')
+            data['primary_location'] = str(loc_str) if loc_str else None
+            data['logo_url'] = get_minio_url(comm.get('logo_path'))
+            # Add online_count (defaults to 0 if not present in this query)
+            data['online_count'] = data.get('online_count', 0)
+            processed_communities.append(schemas.CommunityDisplay(**data)) # Validate
 
         print(f"✅ Fetched {len(processed_communities)} trending communities")
         return processed_communities
@@ -115,21 +145,21 @@ async def get_trending_communities():
     finally:
         if conn: conn.close()
 
-
 @router.get("/{community_id}/details", response_model=schemas.CommunityDisplay)
 async def get_community_details(community_id: int):
-    """Fetches details for a specific community."""
+    """ Fetches details for a specific community with logo URL. """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         community_db = crud.get_community_details_db(cursor, community_id)
         if not community_db:
-             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
 
         data = dict(community_db)
         loc_str = community_db.get('primary_location')
         data['primary_location'] = str(loc_str) if loc_str else None
+        data['logo_url'] = get_minio_url(community_db.get('logo_path'))
 
         print(f"✅ Details fetched for community {community_id}")
         return schemas.CommunityDisplay(**data)
@@ -139,37 +169,47 @@ async def get_community_details(community_id: int):
     finally:
         if conn: conn.close()
 
-
 @router.delete("/{community_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_community(
-    community_id: int,
-    current_user_id: int = Depends(auth.get_current_user)
+        community_id: int,
+        current_user_id: int = Depends(auth.get_current_user)
 ):
-    """Deletes a community (only creator can delete)."""
+    """ Deletes a community (only creator can delete). Optionally deletes logo. """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Check ownership
-        community = crud.get_community_by_id(cursor, community_id)
+        # Check ownership and get logo path
+        community = crud.get_community_by_id(cursor, community_id) # Basic info is enough
         if not community:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
         if community["created_by"] != current_user_id:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this community")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this community")
 
+        minio_logo_path_to_delete = community.get("logo_path")
+
+        # Delete from DB first
         rows_deleted = crud.delete_community_db(cursor, community_id)
         conn.commit()
 
         if rows_deleted == 0:
             print(f"⚠️ Community {community_id} not found during delete (race condition?).")
-            # Already checked owner, so 404 is appropriate if it disappeared
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
+
+        # Attempt to delete logo from MinIO
+        if minio_logo_path_to_delete and utils.minio_client:
+            try:
+                utils.minio_client.remove_object(utils.MINIO_BUCKET, minio_logo_path_to_delete)
+                print(f"🗑️ Deleted MinIO object: {minio_logo_path_to_delete}")
+            except Exception as minio_del_err:
+                print(f"⚠️ Warning: Failed to delete MinIO object {minio_logo_path_to_delete}: {minio_del_err}")
+
 
         print(f"✅ Community {community_id} deleted by User {current_user_id}")
         return None
     except HTTPException as http_exc:
-         if conn: conn.rollback()
-         raise http_exc
+        if conn: conn.rollback()
+        raise http_exc
     except Exception as e:
         if conn: conn.rollback()
         print(f"❌ Error deleting community {community_id}: {e}")
@@ -177,12 +217,13 @@ async def delete_community(
     finally:
         if conn: conn.close()
 
+# --- Membership ---
 @router.post("/{community_id}/join", status_code=status.HTTP_200_OK)
 async def join_community(
-    community_id: int,
-    current_user_id: int = Depends(auth.get_current_user)
+        community_id: int,
+        current_user_id: int = Depends(auth.get_current_user)
 ):
-    """Allows the current user to join a community."""
+    """ Allows the current user to join a community. """
     conn = None
     try:
         conn = get_db_connection()
@@ -190,24 +231,34 @@ async def join_community(
         member_id = crud.join_community_db(cursor, current_user_id, community_id)
         conn.commit()
         if member_id:
+            print(f"✅ User {current_user_id} joined community {community_id}")
             return {"message": "Joined community successfully"}
         else:
             # User was already a member (ON CONFLICT DO NOTHING)
+            print(f"ℹ️ User {current_user_id} already member of community {community_id}")
             return {"message": "Already a member"}
+    except psycopg2.IntegrityError as e:
+        if conn: conn.rollback()
+        print(f"❌ Join Community Integrity Error: {e}")
+        detail = "Could not join community."
+        if 'community_members_community_id_fkey' in str(e):
+            detail = "Community not found."
+        elif 'community_members_user_id_fkey' in str(e):
+            detail = "User not found." # Should not happen if token is valid
+        raise HTTPException(status_code=400, detail=detail)
     except Exception as e:
         if conn: conn.rollback()
         print(f"❌ Error joining community {community_id} for user {current_user_id}: {e}")
-        # Could be FK violation if community_id is invalid
-        raise HTTPException(status_code=400, detail=f"Could not join community: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not join community: {e}")
     finally:
         if conn: conn.close()
 
 @router.delete("/{community_id}/leave", status_code=status.HTTP_200_OK)
 async def leave_community(
-    community_id: int,
-    current_user_id: int = Depends(auth.get_current_user)
+        community_id: int,
+        current_user_id: int = Depends(auth.get_current_user)
 ):
-    """Allows the current user to leave a community."""
+    """ Allows the current user to leave a community. """
     conn = None
     try:
         conn = get_db_connection()
@@ -215,10 +266,12 @@ async def leave_community(
         deleted_id = crud.leave_community_db(cursor, current_user_id, community_id)
         conn.commit()
         if deleted_id:
+            print(f"✅ User {current_user_id} left community {community_id}")
             return {"message": "Left community successfully"}
         else:
             # User was not a member
-            return {"message": "Not a member of this community"}
+            print(f"ℹ️ User {current_user_id} not member of community {community_id}")
+        return {"message": "Not a member of this community"}
     except Exception as e:
         if conn: conn.rollback()
         print(f"❌ Error leaving community {community_id} for user {current_user_id}: {e}")
@@ -226,16 +279,13 @@ async def leave_community(
     finally:
         if conn: conn.close()
 
-
-# --- Community Post Management (TODO: Add permission checks) ---
-
+# --- Community Post Management (Remains the same, doesn't involve images directly) ---
 @router.post("/{community_id}/add_post/{post_id}", status_code=status.HTTP_201_CREATED)
 async def add_post_to_community(
-    community_id: int,
-    post_id: int,
-    current_user_id: int = Depends(auth.get_current_user)
+        community_id: int,
+        post_id: int,
+        current_user_id: int = Depends(auth.get_current_user) # Added auth dependency
 ):
-    """Links an existing post to a community."""
     # TODO: Add permission check (e.g., is user a member/moderator?)
     conn = None
     try:
@@ -246,10 +296,11 @@ async def add_post_to_community(
         if link_id:
             return {"message": "Post added to community"}
         else:
+            # Could be duplicate or invalid IDs
             return {"message": "Post already in community or invalid IDs"}
     except psycopg2.IntegrityError:
-         if conn: conn.rollback()
-         raise HTTPException(status_code=404, detail="Community or Post not found")
+        if conn: conn.rollback()
+        raise HTTPException(status_code=404, detail="Community or Post not found")
     except Exception as e:
         if conn: conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -258,11 +309,10 @@ async def add_post_to_community(
 
 @router.delete("/{community_id}/remove_post/{post_id}", status_code=status.HTTP_200_OK)
 async def remove_post_from_community(
-    community_id: int,
-    post_id: int,
-    current_user_id: int = Depends(auth.get_current_user)
+        community_id: int,
+        post_id: int,
+        current_user_id: int = Depends(auth.get_current_user) # Added auth dependency
 ):
-    """Unlinks a post from a community."""
     # TODO: Add permission check (e.g., is user moderator or post author?)
     conn = None
     try:
@@ -282,51 +332,93 @@ async def remove_post_from_community(
 
 
 # --- Event routes scoped under community ---
-
+# Moved event creation here for better context, includes image upload
 @router.post("/{community_id}/events", status_code=status.HTTP_201_CREATED, response_model=schemas.EventDisplay)
 async def create_event_in_community(
-    community_id: int,
-    event_data: schemas.EventCreate,
-    current_user_id: int = Depends(auth.get_current_user)
+        community_id: int,
+        current_user_id: int = Depends(auth.get_current_user),
+        title: str = Form(...),
+        description: Optional[str] = Form(None),
+        location: str = Form(...),
+        event_timestamp: datetime = Form(...), # FastAPI handles parsing ISO string from form
+        max_participants: int = Form(100),
+        image: Optional[UploadFile] = File(None)
 ):
-    """Creates a new event within a specific community."""
+    """
+    Creates a new event within a specific community, optionally with an image.
+    Stores the full image URL in the database.
+    """
     conn = None
+    minio_image_path = None
+    minio_image_url = None
     try:
+        # Handle Image Upload to MinIO
+        if image and utils.minio_client:
+            # Fetch community name for path prefix (optional)
+            temp_conn_comm = get_db_connection()
+            temp_cursor_comm = temp_conn_comm.cursor()
+            community_info = crud.get_community_by_id(temp_cursor_comm, community_id)
+            community_name = community_info.get('name', f'community_{community_id}') if community_info else f'community_{community_id}'
+            temp_cursor_comm.close()
+            temp_conn_comm.close()
+
+            object_name_prefix = f"communities/{community_name.replace(' ', '_').lower()}/events/"
+            minio_image_path = await upload_file_to_minio(image, object_name_prefix)
+            if minio_image_path is None:
+                print(f"⚠️ Warning: MinIO event image upload failed for community {community_id}")
+            else:
+                # Generate the full URL immediately for storing in DB
+                minio_image_url = get_minio_url(minio_image_path)
+                print(f"✅ Event image uploaded to MinIO: {minio_image_path}, URL: {minio_image_url}")
+
         conn = get_db_connection()
         cursor = conn.cursor()
         # TODO: Optional: Check if user is member/admin of the community before allowing creation
+
         event_info = crud.create_event_db(
             cursor,
             community_id=community_id,
             creator_id=current_user_id,
-            title=event_data.title,
-            description=event_data.description,
-            location=event_data.location,
-            event_timestamp=event_data.event_timestamp,
-            max_participants=event_data.max_participants,
-            image_url=event_data.image_url
+            title=title,
+            description=description,
+            location=location,
+            event_timestamp=event_timestamp,
+            max_participants=max_participants,
+            image_url=minio_image_url # Pass the generated URL to CRUD
         )
         if not event_info:
-             raise HTTPException(status_code=500, detail="Event creation failed")
+            raise HTTPException(status_code=500, detail="Event creation failed in database")
 
         conn.commit()
         event_id = event_info['id']
         created_at = event_info['created_at']
         print(f"✅ Event {event_id} created in community {community_id} by user {current_user_id}")
 
-        # Return the full EventDisplay structure
-        return schemas.EventDisplay(
-            id=event_id,
-            community_id=community_id,
-            creator_id=current_user_id,
-            created_at=created_at,
-            participant_count=1, # Creator is the first participant
-            **event_data.dict() # Include fields from EventCreate
-        )
+        # Fetch full details for response (including participant count)
+        event_details_db = crud.get_event_details_db(cursor, event_id)
+        if not event_details_db:
+            # This could happen if the create_event_db logic doesn't add the creator
+            # or if the details fetch fails for some reason.
+            print(f"⚠️ Warning: Could not fetch details for newly created event {event_id}")
+            # Return basic info based on creation data as fallback
+            return schemas.EventDisplay(
+                id=event_id, community_id=community_id, creator_id=current_user_id,
+                created_at=created_at, title=title, description=description, location=location,
+                event_timestamp=event_timestamp, max_participants=max_participants,
+                image_url=minio_image_url, participant_count=1 # Assume creator joined
+            )
+
+        # Return the full EventDisplay structure using fetched details
+        # Ensure image_url is handled correctly (it should be in event_details_db)
+        return schemas.EventDisplay(**event_details_db)
+
     except psycopg2.Error as e:
         if conn: conn.rollback()
         print(f"❌ DB Error creating event: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {e.pgerror}")
+    except HTTPException as http_exc:
+        if conn: conn.rollback()
+        raise http_exc
     except Exception as e:
         if conn: conn.rollback()
         print(f"❌ Error creating event: {e}")
@@ -336,15 +428,15 @@ async def create_event_in_community(
 
 @router.get("/{community_id}/events", response_model=List[schemas.EventDisplay])
 async def list_community_events(community_id: int):
-    """Lists events for a specific community."""
+    """ Lists events for a specific community. Image URLs are included directly. """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         events_db = crud.get_events_for_community_db(cursor, community_id)
         print(f"✅ Fetched {len(events_db)} events for community {community_id}")
-        # FastAPI validates list items against EventDisplay
-        return events_db
+        # EventDisplay schema expects image_url, which is directly in events_db
+        return [schemas.EventDisplay(**event) for event in events_db] # Validate list items
     except Exception as e:
         print(f"❌ Error fetching community events {community_id}: {e}")
         raise HTTPException(status_code=500, detail="Error fetching events")

@@ -1,98 +1,146 @@
-# backend/routers/posts.py
-from fastapi import APIRouter, Depends, HTTPException, status
+# backend/src/routers/posts.py
+
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from typing import List, Optional
 import psycopg2
+import os # For path manipulation if needed
 
-from .. import schemas, crud, auth # Relative imports
+from .. import schemas, crud, auth, utils # Relative imports
 from ..database import get_db_connection
+from ..utils import upload_file_to_minio, get_minio_url # MinIO specific imports
 
 router = APIRouter(
     prefix="/posts",
     tags=["Posts"],
 )
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=schemas.PostDisplay) # Use PostDisplay for response
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=schemas.PostDisplay)
 async def create_post(
-    post_data: schemas.PostCreate,
-    current_user_id: int = Depends(auth.get_current_user)
+        current_user_id: int = Depends(auth.get_current_user),
+        title: str = Form(...),
+        content: str = Form(...),
+        community_id: Optional[int] = Form(None),
+        image: Optional[UploadFile] = File(None)
 ):
+    """
+    Creates a new post, optionally with an image and linked to a community.
+    The image is uploaded to MinIO.
+    """
     conn = None
+    minio_image_path = None
     try:
+        # Handle Image Upload to MinIO
+        if image and utils.minio_client:
+            # Fetch username for path prefix (optional, could use user_id)
+            temp_conn_user = get_db_connection()
+            temp_cursor_user = temp_conn_user.cursor()
+            user_info = crud.get_user_by_id(temp_cursor_user, current_user_id)
+            username = user_info.get('username', f'user_{current_user_id}') if user_info else f'user_{current_user_id}'
+            temp_cursor_user.close()
+            temp_conn_user.close()
+
+            object_name_prefix = f"users/{username}/posts/"
+            minio_image_path = await upload_file_to_minio(image, object_name_prefix)
+            if minio_image_path is None:
+                print(f"⚠️ Warning: MinIO post image upload failed for user {current_user_id}")
+                # Continue without image path if upload failed
+
+        # Proceed with DB insertion
         conn = get_db_connection()
         cursor = conn.cursor()
         post_id = crud.create_post_db(
             cursor,
             user_id=current_user_id,
-            title=post_data.title,
-            content=post_data.content,
-            community_id=post_data.community_id
+            title=title,
+            content=content,
+            image_path=minio_image_path, # Pass MinIO path to CRUD
+            community_id=community_id
         )
         if post_id is None:
-             raise HTTPException(status_code=500, detail="Post creation failed")
+            raise HTTPException(status_code=500, detail="Post creation failed in database")
 
-        # Fetch the created post to return details matching PostDisplay
-        # This might involve another query or refining create_post_db
-        created_post_db = crud.get_post_by_id(cursor, post_id) # Need a get_post_by_id in crud
+        # Fetch the created post details including necessary joins for response
+        # (Assuming get_posts_db can fetch a single post with joins by modifying it or using a specific function)
+        # For simplicity, let's fetch again with the detailed query structure
+        cursor.execute("""
+            SELECT
+                p.id, p.user_id, p.content, p.title, p.created_at, p.image_path,
+                u.username AS author_name, u.image_path AS author_avatar,
+                COALESCE(v_counts.upvotes, 0) AS upvotes,
+                COALESCE(v_counts.downvotes, 0) AS downvotes,
+                COALESCE(r_counts.reply_count, 0) AS reply_count,
+                c.id as community_id, c.name as community_name
+            FROM posts p
+            JOIN users u ON p.user_id = u.id
+            LEFT JOIN community_posts cp ON p.id = cp.post_id
+            LEFT JOIN communities c ON cp.community_id = c.id
+            LEFT JOIN (
+                SELECT post_id, COUNT(*) FILTER (WHERE vote_type = TRUE) AS upvotes, COUNT(*) FILTER (WHERE vote_type = FALSE) AS downvotes
+                FROM votes WHERE post_id IS NOT NULL GROUP BY post_id
+            ) AS v_counts ON p.id = v_counts.post_id
+            LEFT JOIN ( SELECT post_id, COUNT(*) AS reply_count FROM replies GROUP BY post_id ) AS r_counts ON p.id = r_counts.post_id
+            WHERE p.id = %s;
+        """, (post_id,))
+        created_post_db = cursor.fetchone()
+
         if not created_post_db:
-             # This shouldn't happen if insert succeeded, but handle defensively
-             raise HTTPException(status_code=500, detail="Could not retrieve created post")
+            # This shouldn't happen if insert succeeded, but handle defensively
+            conn.rollback() # Rollback the insert if fetch failed
+            raise HTTPException(status_code=500, detail="Could not retrieve created post after insertion")
 
-        conn.commit()
+        conn.commit() # Commit only after successful insert and fetch
 
-         # Fetch user info for author details (or join in get_post_by_id)
-        user_info = crud.get_user_by_id(cursor, current_user_id)
-        author_name = user_info['username'] if user_info else 'Unknown'
-        author_avatar = user_info['image_path'] if user_info else None
+        # Prepare response data with full URLs
+        response_data = dict(created_post_db)
+        response_data['image_url'] = get_minio_url(created_post_db.get('image_path'))
+        response_data['author_avatar_url'] = get_minio_url(created_post_db.get('author_avatar')) # author_avatar contains path
 
-
-        # Manually construct the response object if get_post_by_id doesn't have all fields
-        response_data = {
-             **created_post_db, # Include fields from the post table
-             "author_name": author_name,
-             "author_avatar": author_avatar,
-             "upvotes": 0, # Default values for a new post
-             "downvotes": 0,
-             "reply_count": 0,
-             "community_id": post_data.community_id, # Add community ID back
-             # "community_name": ... # Need to fetch community name if community_id exists
-        }
-
-
-        print(f"✅ Post created with ID: {post_id}, linked to community: {post_data.community_id}")
-        # Return data conforming to PostDisplay
+        print(f"✅ Post created with ID: {post_id}, Image Path: {minio_image_path}, Community: {community_id}")
         return schemas.PostDisplay(**response_data)
 
     except psycopg2.Error as e:
         if conn: conn.rollback()
         print(f"❌ SQL Error creating post: {e.pgcode} - {e.pgerror}")
+        # Consider deleting uploaded MinIO image on DB error?
+        # if minio_image_path and utils.minio_client: utils.delete_from_minio(minio_image_path) # Need delete helper
         raise HTTPException(status_code=400, detail=f"Database error: {e.pgerror}")
+    except HTTPException as http_exc:
+        if conn: conn.rollback()
+        # Consider deleting uploaded MinIO image on specific HTTP errors?
+        raise http_exc
     except Exception as e:
         if conn: conn.rollback()
         print(f"❌ Unexpected Error creating post: {repr(e)}")
+        # Consider deleting uploaded MinIO image on general error?
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn: conn.close()
 
 
-@router.get("", response_model=List[schemas.PostDisplay]) # Response is a list of posts
+@router.get("", response_model=List[schemas.PostDisplay])
 async def get_posts(
-    community_id: Optional[int] = None,
-    user_id: Optional[int] = None
-    # Add pagination params: skip: int = 0, limit: int = 20
+        community_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+        limit: int = 20,
+        offset: int = 0
 ):
+    """ Fetches posts, optionally filtered by community or user, with image URLs. """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        posts_db = crud.get_posts_db(cursor, community_id=community_id, user_id=user_id) # Add skip, limit
-        # Convert POINT strings if necessary before validation
-        # posts_processed = []
-        # for post in posts_db:
-        #     # Add processing if needed, e.g., formatting location
-        #     posts_processed.append(post)
-        print(f"✅ Fetched {len(posts_db)} posts")
-        # Pydantic will validate each item in the list against PostDisplay
-        return posts_db
+        # Modify crud.get_posts_db to accept limit/offset if needed, or do it here
+        posts_db = crud.get_posts_db(cursor, community_id=community_id, user_id=user_id) # Add limit/offset later
+
+        processed_posts = []
+        for post in posts_db:
+            post_data = dict(post)
+            post_data['image_url'] = get_minio_url(post.get('image_path'))
+            post_data['author_avatar_url'] = get_minio_url(post.get('author_avatar'))
+            processed_posts.append(schemas.PostDisplay(**post_data)) # Validate each item
+
+        print(f"✅ Fetched {len(processed_posts)} posts")
+        return processed_posts
     except Exception as e:
         print(f"❌ Error fetching posts: {e}")
         raise HTTPException(status_code=500, detail="Error fetching posts")
@@ -102,50 +150,73 @@ async def get_posts(
 
 @router.get("/trending", response_model=List[schemas.PostDisplay])
 async def get_trending_posts():
+    """ Fetches trending posts with image URLs. """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         posts_db = crud.get_trending_posts_db(cursor)
-        print(f"✅ Fetched {len(posts_db)} trending posts")
-        return posts_db # Pydantic validates list items
+
+        processed_posts = []
+        for post in posts_db:
+            post_data = dict(post)
+            post_data['image_url'] = get_minio_url(post.get('image_path'))
+            post_data['author_avatar_url'] = get_minio_url(post.get('author_avatar'))
+            processed_posts.append(schemas.PostDisplay(**post_data)) # Validate
+
+        print(f"✅ Fetched {len(processed_posts)} trending posts")
+        return processed_posts
     except Exception as e:
         print(f"❌ Error fetching trending posts: {e}")
         raise HTTPException(status_code=500, detail="Error fetching trending posts")
     finally:
         if conn: conn.close()
 
+
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
-    post_id: int,
-    current_user_id: int = Depends(auth.get_current_user)
+        post_id: int,
+        current_user_id: int = Depends(auth.get_current_user)
 ):
+    """ Deletes a post (only author can delete). Optionally deletes MinIO image. """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Check ownership before deleting
-        post = crud.get_post_by_id(cursor, post_id) # Fetch the post first
+        # Check ownership and get image path before deleting from DB
+        post = crud.get_post_by_id(cursor, post_id)
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
         if post["user_id"] != current_user_id:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this post")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this post")
 
+        minio_image_path_to_delete = post.get("image_path")
+
+        # Delete from DB first
         rows_deleted = crud.delete_post_db(cursor, post_id)
-        conn.commit()
+        conn.commit() # Commit DB change
 
         if rows_deleted == 0:
-             # This case should be caught by the check above, but good to have
-             print(f"⚠️ Post {post_id} not found for deletion (already checked).")
-             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+            # This case should be caught by the check above, but good to have
+            print(f"⚠️ Post {post_id} not found for deletion (already checked).")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found during delete step")
 
-        print(f"✅ Post {post_id} deleted successfully")
+        # Attempt to delete from MinIO AFTER successful DB deletion
+        if minio_image_path_to_delete and utils.minio_client:
+            try:
+                utils.minio_client.remove_object(utils.MINIO_BUCKET, minio_image_path_to_delete)
+                print(f"🗑️ Deleted MinIO object: {minio_image_path_to_delete}")
+            except Exception as minio_del_err:
+                # Log error but don't fail the request, DB delete was successful
+                print(f"⚠️ Warning: Failed to delete MinIO object {minio_image_path_to_delete}: {minio_del_err}")
+
+        print(f"✅ Post {post_id} deleted successfully from DB")
         return None # Return None for 204 No Content
 
     except HTTPException as http_exc:
-         if conn: conn.rollback()
-         raise http_exc
+        if conn: conn.rollback()
+        raise http_exc
     except psycopg2.Error as e:
         if conn: conn.rollback()
         print(f"❌ SQL Error deleting post {post_id}: {e}")
@@ -157,30 +228,4 @@ async def delete_post(
     finally:
         if conn: conn.close()
 
-
-# --- TODO: Implement routers/communities.py, routers/replies.py etc. similarly ---
-# --- Example: routers/communities.py (Partial) ---
-# from fastapi import APIRouter, Depends, HTTPException, status
-# from typing import List, Optional
-# import psycopg2
-# from .. import schemas, crud, auth, utils
-# from ..database import get_db_connection
-
-# router = APIRouter(prefix="/communities", tags=["Communities"])
-
-# @router.post("", status_code=status.HTTP_201_CREATED, response_model=schemas.CommunityDisplay)
-# async def create_community(...):
-#      conn=get_db_connection(); cursor=conn.cursor()
-#      try:
-#          # db_location_str = utils.format_location_for_db(community_data.primary_location)
-#          community_id = crud.create_community_db(cursor, ..., created_by=current_user_id, ...)
-#          # fetch created community details for response
-#          # ... handle errors ... commit ... return ...
-#      finally: conn.close()
-
-# @router.get("", response_model=List[schemas.CommunityDisplay])
-# async def get_communities(...):
-#      # ... fetch using crud.get_communities_db ...
-#      # ... process location point string ... return ...
-
-# ... other community routes ...
+# --- TODO: Add post favorites endpoints if needed ---

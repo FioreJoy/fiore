@@ -17,6 +17,8 @@ from .routers import votes as votes_router
 from .routers import events as events_router
 from .routers import chat as chat_router
 from .routers import websocket as websocket_router
+from .routers import users as users_router # <-- IMPORT NEW ROUTER
+
 from src import utils # To access IMAGE_DIR from src/utils.py
 # --- End src imports ---
 
@@ -28,6 +30,8 @@ origins = [
     "http://localhost:9339", # Default Flutter web port from README
     "http://127.0.0.1",
     "http://127.0.0.1:9339",
+    "http://localhost:5001", # Default port for the Flask test app
+    "http://127.0.0.1:5001", # Also include 127.0.0.1 version
     # Add your Codespace URL / Production URL if needed
     # Example: "https://*.app.github.dev" # Check specific codespace URL format
     # Example: "https://your-flutter-app.com"
@@ -53,6 +57,7 @@ app.include_router(votes_router.router)
 app.include_router(events_router.router)
 app.include_router(chat_router.router)
 app.include_router(websocket_router.router) # WebSocket router
+app.include_router(users_router.router) # <-- INCLUDE NEW ROUTER
 
 # --- Mount Static Files for User Images ---
 # Construct the absolute path to the image directory relative to this file's location

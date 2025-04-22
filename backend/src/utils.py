@@ -7,60 +7,169 @@ import io
 from PIL import Image
 from fastapi import UploadFile
 from typing import Optional, Dict
+from minio import Minio # <-- Add import
+from minio.error import S3Error # <-- Add import
+from dotenv import load_dotenv
 
-IMAGE_DIR = "user_images" # Define image directory constant
+load_dotenv() # Ensure env vars are loaded
 
-def save_image_from_base64(base64_string: str, username: str) -> Optional[str]:
-    """Decodes a Base64 string, saves it as an image, and returns the relative file path."""
-    if not base64_string:
-        return None
+IMAGE_DIR = "user_images" # Keep for potential fallback or local caching if needed
+
+# --- MinIO Configuration ---
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "connections-media")
+MINIO_USE_SSL = os.getenv("MINIO_USE_SSL", "False").lower() == "true"
+
+minio_client = None
+if MINIO_ENDPOINT and MINIO_ACCESS_KEY and MINIO_SECRET_KEY:
     try:
-        # Ensure the string is pure Base64 data without prefixes like "data:image/jpeg;base64,"
-        if ',' in base64_string:
-             base64_string = base64_string.split(',')[1]
-
-        image_data = base64.b64decode(base64_string)
-        image = Image.open(io.BytesIO(image_data))
-
-        # Create the directory if it doesn't exist
-        os.makedirs(IMAGE_DIR, exist_ok=True)
-
-        file_extension = image.format.lower() if image.format else 'jpeg' # Default extension
-        filename = f"{username}_{uuid.uuid4()}.{file_extension}"
-        # Save relative path for database storage
-        relative_path = os.path.join(IMAGE_DIR, filename)
-        image.save(relative_path) # Save using the relative path
-        print(f"Image saved via base64: {relative_path}")
-        return relative_path
+        minio_client = Minio(
+            MINIO_ENDPOINT,
+            access_key=MINIO_ACCESS_KEY,
+            secret_key=MINIO_SECRET_KEY,
+            secure=MINIO_USE_SSL
+        )
+        # Check if bucket exists, create if not
+        found = minio_client.bucket_exists(MINIO_BUCKET)
+        if not found:
+            minio_client.make_bucket(MINIO_BUCKET)
+            print(f"MinIO Bucket '{MINIO_BUCKET}' created.")
+            # Optional: Set public read policy (use with caution!)
+            # from minio.commonconfig import Policy
+            # minio_client.set_bucket_policy(MINIO_BUCKET, Policy.READ_ONLY)
+            # print(f"Bucket '{MINIO_BUCKET}' policy set to public read.")
+        else:
+            print(f"MinIO Bucket '{MINIO_BUCKET}' already exists.")
+        print(f"✅ MinIO client initialized for endpoint: {MINIO_ENDPOINT}")
     except Exception as e:
-        print(f"Error saving base64 image for {username}: {e}")
+        print(f"❌ Failed to initialize MinIO client: {e}")
+        minio_client = None
+else:
+    print("⚠️ MinIO environment variables not fully set. MinIO integration disabled.")
+
+# --- MinIO Upload Utility ---
+async def upload_file_to_minio(
+        file: UploadFile,
+        object_name_prefix: str = "uploads/"
+) -> Optional[str]:
+    """Uploads an UploadFile object to MinIO and returns the object name."""
+    if not minio_client or not file or not file.filename:
+        print("MinIO client not available or invalid file.")
         return None
 
-
-async def save_image_multipart(image: UploadFile, username: str) -> Optional[str]:
-    """Saves an uploaded image and returns the relative file path."""
-    if not image or not image.filename:
-        return None
     try:
-        # Create the directory if it doesn't exist
-        os.makedirs(IMAGE_DIR, exist_ok=True)
+        # Generate a unique filename
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        object_name = os.path.join(object_name_prefix, unique_filename).replace("\\", "/") # Ensure forward slashes
 
-        # Sanitize filename and create unique name
-        file_extension = image.filename.split(".")[-1].lower()
-        if not file_extension: file_extension = 'jpeg' # Default
-        filename = f"{username}_{uuid.uuid4()}.{file_extension}"
-        relative_path = os.path.join(IMAGE_DIR, filename)
+        # Read file content
+        contents = await file.read()
+        file_size = len(contents)
+        content_type = file.content_type
 
-        # Use shutil for efficient saving
-        with open(relative_path, "wb") as buffer:
-            shutil.copyfileobj(image.file, buffer)
-        print(f"Image saved via multipart: {relative_path}")
-        return relative_path
+        # Use put_object with BytesIO
+        minio_client.put_object(
+            MINIO_BUCKET,
+            object_name,
+            io.BytesIO(contents),
+            length=file_size,
+            content_type=content_type
+        )
+        print(f"✅ Successfully uploaded {object_name} to MinIO bucket {MINIO_BUCKET}")
+        # Return the object name (path within the bucket)
+        return object_name
+    except S3Error as e:
+        print(f"❌ MinIO S3 Error during upload: {e}")
+        return None
     except Exception as e:
-        print(f"Error saving multipart image for {username}: {e}")
+        print(f"❌ General error during MinIO upload: {e}")
         return None
     finally:
-        await image.close() # Ensure file is closed
+        await file.close()
+
+# --- MinIO URL Generation ---
+def get_minio_url(object_name: Optional[str]) -> Optional[str]:
+    """Generates a publicly accessible URL for a MinIO object."""
+    if not minio_client or not object_name:
+        return None
+
+    # Construct the URL based on endpoint, bucket, and object name
+    # This assumes the bucket is publicly readable or you handle signed URLs elsewhere
+    protocol = "https" if MINIO_USE_SSL else "http"
+    # Basic URL construction - adjust if your MinIO setup needs different pathing
+    url = f"{protocol}://{MINIO_ENDPOINT}/{MINIO_BUCKET}/{object_name}"
+    # print(f"Generated MinIO URL: {url}") # Debugging
+    return url
+
+    # --- Alternative: Pre-signed URL (more secure if bucket isn't public) ---
+    # try:
+    #     presigned_url = minio_client.presigned_get_object(
+    #         MINIO_BUCKET,
+    #         object_name,
+    #         expires=timedelta(hours=1) # Example: URL valid for 1 hour
+    #     )
+    #     return presigned_url
+    # except S3Error as e:
+    #     print(f"❌ MinIO S3 Error generating presigned URL: {e}")
+    #     return None
+    # except Exception as e:
+    #      print(f"❌ General error generating presigned URL: {e}")
+    #      return None
+
+# def save_image_from_base64(base64_string: str, username: str) -> Optional[str]:
+#     """Decodes a Base64 string, saves it as an image, and returns the relative file path."""
+#     if not base64_string:
+#         return None
+#     try:
+#         # Ensure the string is pure Base64 data without prefixes like "data:image/jpeg;base64,"
+#         if ',' in base64_string:
+#              base64_string = base64_string.split(',')[1]
+#
+#         image_data = base64.b64decode(base64_string)
+#         image = Image.open(io.BytesIO(image_data))
+#
+#         # Create the directory if it doesn't exist
+#         os.makedirs(IMAGE_DIR, exist_ok=True)
+#
+#         file_extension = image.format.lower() if image.format else 'jpeg' # Default extension
+#         filename = f"{username}_{uuid.uuid4()}.{file_extension}"
+#         # Save relative path for database storage
+#         relative_path = os.path.join(IMAGE_DIR, filename)
+#         image.save(relative_path) # Save using the relative path
+#         print(f"Image saved via base64: {relative_path}")
+#         return relative_path
+#     except Exception as e:
+#         print(f"Error saving base64 image for {username}: {e}")
+#         return None
+#
+#
+# async def save_image_multipart(image: UploadFile, username: str) -> Optional[str]:
+#     """Saves an uploaded image and returns the relative file path."""
+#     if not image or not image.filename:
+#         return None
+#     try:
+#         # Create the directory if it doesn't exist
+#         os.makedirs(IMAGE_DIR, exist_ok=True)
+#
+#         # Sanitize filename and create unique name
+#         file_extension = image.filename.split(".")[-1].lower()
+#         if not file_extension: file_extension = 'jpeg' # Default
+#         filename = f"{username}_{uuid.uuid4()}.{file_extension}"
+#         relative_path = os.path.join(IMAGE_DIR, filename)
+#
+#         # Use shutil for efficient saving
+#         with open(relative_path, "wb") as buffer:
+#             shutil.copyfileobj(image.file, buffer)
+#         print(f"Image saved via multipart: {relative_path}")
+#         return relative_path
+#     except Exception as e:
+#         print(f"Error saving multipart image for {username}: {e}")
+#         return None
+#     finally:
+#         await image.close() # Ensure file is closed
 
 def parse_point_string(point_str: str) -> Optional[Dict[str, float]]:
     """Parses POINT '(lon,lat)' string to dict."""
