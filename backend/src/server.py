@@ -1,6 +1,6 @@
 # backend/server.py
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv # Make sure dotenv is loaded early
@@ -19,10 +19,15 @@ from .routers import chat as chat_router
 from .routers import websocket as websocket_router
 from .routers import users as users_router # <-- IMPORT NEW ROUTER
 
+from . import security # <-- Import your security module
+
 from src import utils # To access IMAGE_DIR from src/utils.py
 # --- End src imports ---
 
-app = FastAPI(title="Connections API")
+app = FastAPI(
+    title="Connections API",
+    dependencies=[Depends(security.get_api_key)] # <-- Apply globally
+)
 
 # CORS Middleware
 origins = [
