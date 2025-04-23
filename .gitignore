@@ -4,7 +4,9 @@ backend/bin/
 backend/lib/
 backend/include/
 backend/lib64/
+backend/__pycache__/
 backend/pycache/
+backend/lib64/
 backend/src/__pycache__/
 backend/src/routers/__pycache__/
 backend/share/

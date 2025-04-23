@@ -5,7 +5,7 @@ import '../../services/auth_provider.dart';
 import '../../theme/theme_constants.dart';
 import 'explore_screen.dart';
 import 'communities_screen.dart';
-import 'chatroom_screen.dart';
+import 'chat_screen.dart';
 import 'me_screen.dart';
 
 class HomeScreen extends StatefulWidget {
