@@ -2,6 +2,7 @@
 class AppConstants {
   // static const String baseUrl = 'http://100.97.215.85:1163';
   static const String baseUrl = 'https://conn.avignatattva.com';
+  static const String wsUrl = 'wss://conn.avignatattva.com';
   static const String appName = 'Connect';
   static const String appVersion = '1.0.0';
   static const String appDescription = 'A social network for communities';
