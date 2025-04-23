@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io'; // Required for WebSocketException
 import 'dart:math'; // Required for pow
+import '../app_constants.dart';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
@@ -15,7 +16,7 @@ import 'api_endpoints.dart'; // For WS path structure
 // Define API Key and WS Base URL as constants (load from environment ideally)
 // Compile using: flutter run --dart-define=API_KEY=YOUR_KEY --dart-define=WS_BASE_URL=ws://your-url
 const String _apiKey = String.fromEnvironment('API_KEY');
-const String _wsBaseUrlFromEnv = String.fromEnvironment('WS_BASE_URL');
+const String _wsBaseUrlFromEnv = AppConstants.wsUrl;
 
 /// Manages the WebSocket connection, message stream, and presence updates.
 class WebSocketService {
