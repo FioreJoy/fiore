@@ -129,6 +129,14 @@ class CommunityBase(BaseModel):
 class CommunityCreate(CommunityBase): # For internal logic if needed
     logo_path: Optional[str] = None # Path from MinIO upload
 
+class CommunityUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=3)
+    description: Optional[str] = None # Allow setting description to null/empty
+    primary_location: Optional[str] = None # Allow updating location, expect "(lon,lat)"
+    interest: Optional[str] = None # Allow updating interest
+
+    # Note: logo is handled by a separate endpoint/file upload
+
 class CommunityDisplay(CommunityBase):
     id: int
     created_by: int # Consider nesting UserDisplay for creator info?

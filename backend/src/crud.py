@@ -5,7 +5,8 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 import bcrypt # Import bcrypt here for password check
 from .utils import get_minio_url # Import the URL generator
-
+from .utils import format_location_for_db # Ensure this is imported
+from . import schemas
 # --- User CRUD ---
 
 def get_user_by_email(cursor: psycopg2.extensions.cursor, email: str) -> Optional[Dict[str, Any]]:
@@ -236,6 +237,55 @@ def get_communities_db(cursor: psycopg2.extensions.cursor) -> List[Dict[str, Any
     """
     cursor.execute(query)
     return cursor.fetchall()
+def update_community_details_db(cursor: psycopg2.extensions.cursor, community_id: int, update_data: schemas.CommunityUpdate) -> bool:
+    """ Updates community details based on provided data. Returns True if updated, False otherwise. """
+    set_clauses = []
+    params = []
+
+    # Use model_dump(exclude_unset=True) for Pydantic v2 or .dict(exclude_unset=True) for v1
+    update_dict = update_data.model_dump(exclude_unset=True) # Pydantic v2
+    # update_dict = update_data.dict(exclude_unset=True) # Pydantic v1
+
+    for key, value in update_dict.items():
+        if key == 'primary_location' and value:
+            # Format the location string if provided
+            formatted_location = format_location_for_db(value)
+            set_clauses.append("primary_location = %s::point")
+            params.append(formatted_location)
+        elif key in ['name', 'description', 'interest']: # Allowed fields
+            set_clauses.append(f"{key} = %s")
+            params.append(value)
+        # Add other updatable fields here if necessary
+
+    if not set_clauses:
+        return False # Nothing to update
+
+    params.append(community_id)
+    query = f"UPDATE communities SET {', '.join(set_clauses)} WHERE id = %s;"
+
+    try:
+        cursor.execute(query, tuple(params))
+        # rowcount > 0 indicates the update happened (row was found and potentially changed)
+        return cursor.rowcount > 0
+    except psycopg2.Error as e:
+        print(f"Error updating community details (ID: {community_id}): {e}")
+        raise # Re-raise for the endpoint handler to catch (e.g., name conflict)
+    except Exception as e:
+         print(f"Unexpected error updating community details (ID: {community_id}): {e}")
+         raise
+
+# --- NEW: Function to Update Community Logo Path ---
+def update_community_logo_path_db(cursor: psycopg2.extensions.cursor, community_id: int, logo_path: Optional[str]) -> bool:
+    """ Updates only the logo_path for a community. Returns True if updated. """
+    try:
+        cursor.execute(
+            "UPDATE communities SET logo_path = %s WHERE id = %s;",
+            (logo_path, community_id)
+        )
+        return cursor.rowcount > 0
+    except Exception as e:
+         print(f"Error updating community logo path (ID: {community_id}): {e}")
+         raise
 
 def get_trending_communities_db(cursor: psycopg2.extensions.cursor) -> List[Dict[str, Any]]:
      """Fetches trending communities based on recent activity."""

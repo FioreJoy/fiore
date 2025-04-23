@@ -38,7 +38,9 @@ origins = [
     "http://localhost:5001", # Default port for the Flask test app
     "http://100.97.215.85:5001", # Also include 127.0.0.1 version
     "http://100.94.150.11:6219",
-    "http://100.94.150.11:6192"
+    "http://100.94.150.11:6192",
+    "https://connections-flutter-fastapi.github.io",
+    "http://100.97.215.85:3000"
     # Add your Codespace URL / Production URL if needed
     # Example: "https://*.app.github.dev" # Check specific codespace URL format
     # Example: "https://your-flutter-app.com"

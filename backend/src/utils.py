@@ -201,3 +201,24 @@ def format_location_for_db(location_str: str) -> str:
     except Exception as e:
          print(f"Warning: Error parsing location string '{location_str}': {e}. Using default.")
          return '(0,0)' # Default point
+
+def delete_from_minio(object_name: str) -> bool:
+    """Deletes an object from the configured MinIO bucket."""
+    if not minio_client or not object_name:
+        print(f"MinIO delete skipped: Client not ready or no object name provided ({object_name}).")
+        return False
+    try:
+        print(f"Attempting to delete MinIO object: {object_name} from bucket {MINIO_BUCKET}")
+        minio_client.remove_object(MINIO_BUCKET, object_name)
+        print(f"✅ Successfully deleted MinIO object: {object_name}")
+        return True
+    except S3Error as e:
+        print(f"❌ MinIO S3 Error during delete of {object_name}: {e}")
+        # Depending on error (e.g., NoSuchKey), you might still return True or log differently
+        if "NoSuchKey" in str(e):
+             print(f"  (Object {object_name} not found in MinIO, possibly already deleted)")
+             return True # Treat as success if already gone
+        return False
+    except Exception as e:
+        print(f"❌ General error during MinIO delete of {object_name}: {e}")
+        return False

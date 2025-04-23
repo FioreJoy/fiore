@@ -7,7 +7,7 @@ from datetime import datetime
 
 from .. import schemas, crud, auth, utils
 from ..database import get_db_connection
-from ..utils import upload_file_to_minio, get_minio_url
+from ..utils import upload_file_to_minio, get_minio_url, delete_from_minio # Import delete helper
 
 router = APIRouter(
     prefix="/communities",
@@ -168,6 +168,144 @@ async def get_community_details(community_id: int):
         raise HTTPException(status_code=500, detail="Error fetching community details")
     finally:
         if conn: conn.close()
+
+@router.put("/{community_id}", response_model=schemas.CommunityDisplay)
+async def update_community_details(
+    community_id: int,
+    update_data: schemas.CommunityUpdate, # Expect JSON body for text updates
+    current_user_id: int = Depends(auth.get_current_user) # Still need user_id for permission check
+    # API Key dependency is handled by the router
+):
+    """ Updates a community's details (name, description, interest, location). Requires creator permission. """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # 1. Check Permissions: Verify current user is the creator
+        community = crud.get_community_by_id(cursor, community_id)
+        if not community:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
+        if community['created_by'] != current_user_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this community")
+
+        # 2. Attempt Update
+        updated = crud.update_community_details_db(cursor, community_id, update_data)
+        if not updated and cursor.rowcount == 0:
+             # This could happen if the ID was valid but nothing changed, or update failed silently
+             print(f"Community {community_id} update resulted in 0 rows affected.")
+             # Proceed to fetch current data as if update succeeded (no change needed)
+
+        conn.commit()
+
+        # 3. Fetch and return updated data
+        updated_community_db = crud.get_community_details_db(cursor, community_id)
+        if not updated_community_db:
+             raise HTTPException(status_code=500, detail="Could not retrieve updated community details")
+
+        # Format response
+        response_data = dict(updated_community_db)
+        response_data['primary_location'] = str(updated_community_db.get('primary_location'))
+        response_data['logo_url'] = get_minio_url(updated_community_db.get('logo_path'))
+        return schemas.CommunityDisplay(**response_data)
+
+    except psycopg2.IntegrityError as e: # Catch potential duplicate name error
+        if conn: conn.rollback()
+        print(f"❌ Community Update Integrity Error: {e}")
+        detail="Database integrity error during update."
+        if "communities_name_key" in str(e):
+             detail = "Community name already exists."
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+    except HTTPException as http_exc:
+        if conn: conn.rollback()
+        raise http_exc
+    except Exception as e:
+        if conn: conn.rollback()
+        print(f"❌ Error updating community details {community_id}: {e}")
+        raise HTTPException(status_code=500, detail="Could not update community details")
+    finally:
+        if conn: conn.close()
+
+
+# --- NEW: POST /communities/{id}/logo (Update Logo) ---
+# Using POST for file upload is common, could also use PUT
+@router.post("/{community_id}/logo", response_model=schemas.CommunityDisplay)
+async def update_community_logo(
+    community_id: int,
+    current_user_id: int = Depends(auth.get_current_user), # Permission check
+    logo: UploadFile = File(...), # Require a file
+    # API Key dependency handled by router
+):
+    """ Updates a community's logo. Requires creator permission. """
+    conn = None
+    old_logo_path = None
+    new_logo_path = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # 1. Check Permissions & Get Old Path
+        community = crud.get_community_by_id(cursor, community_id)
+        if not community:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
+        if community['created_by'] != current_user_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this community's logo")
+        old_logo_path = community.get('logo_path')
+        community_name = community.get('name', f'community_{community_id}') # For path prefix
+
+        # 2. Upload New Logo to MinIO
+        if not utils.minio_client:
+             raise HTTPException(status_code=500, detail="MinIO client not configured on server.")
+
+        object_name_prefix = f"communities/{community_name.replace(' ', '_').lower()}/logo"
+        new_logo_path = await utils.upload_file_to_minio(logo, object_name_prefix)
+
+        if not new_logo_path:
+             raise HTTPException(status_code=500, detail="Failed to upload new logo")
+
+        # 3. Update Database Path
+        updated_db = crud.update_community_logo_path_db(cursor, community_id, new_logo_path)
+        if not updated_db:
+            # Should not happen if community exists, but handle defensively
+            conn.rollback()
+             # Clean up newly uploaded file if DB update fails
+            if new_logo_path: delete_from_minio(new_logo_path)
+            raise HTTPException(status_code=500, detail="Failed to update logo path in database")
+
+        conn.commit()
+
+        # 4. Delete Old Logo from MinIO (AFTER DB commit)
+        if old_logo_path:
+             deleted_minio = delete_from_minio(old_logo_path)
+             if not deleted_minio:
+                 # Log warning, but don't fail the request
+                 print(f"⚠️ Warning: Failed to delete old MinIO logo: {old_logo_path}")
+
+        # 5. Fetch and Return Updated Community Data
+        updated_community_db = crud.get_community_details_db(cursor, community_id)
+        if not updated_community_db:
+             # This is unlikely but possible
+             raise HTTPException(status_code=500, detail="Could not retrieve updated community details after logo update")
+
+        response_data = dict(updated_community_db)
+        response_data['primary_location'] = str(updated_community_db.get('primary_location'))
+        response_data['logo_url'] = get_minio_url(updated_community_db.get('logo_path')) # Should use new_logo_path
+        return schemas.CommunityDisplay(**response_data)
+
+    except HTTPException as http_exc:
+        if conn: conn.rollback()
+         # Clean up newly uploaded file if an HTTP error occurs during DB update phase
+        if new_logo_path and not updated_db: delete_from_minio(new_logo_path)
+        raise http_exc
+    except Exception as e:
+        if conn: conn.rollback()
+         # Clean up newly uploaded file on general error
+        if new_logo_path and 'updated_db' not in locals(): delete_from_minio(new_logo_path)
+        print(f"❌ Error updating community logo {community_id}: {e}")
+        raise HTTPException(status_code=500, detail="Could not update community logo")
+    finally:
+        if conn: conn.close()
+
 
 @router.delete("/{community_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_community(
