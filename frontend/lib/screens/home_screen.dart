@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../main.dart';
-import '../services/auth_provider.dart';
-import '../theme/theme_constants.dart';
+import '../main_navigation_screen.dart';
+import '../../services/auth_provider.dart';
+import '../../theme/theme_constants.dart';
 import 'explore_screen.dart';
 import 'communities_screen.dart';
 import 'chatroom_screen.dart';

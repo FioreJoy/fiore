@@ -1,216 +1,106 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'dart:async';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+// Removed ApiService import for now to keep it focused on auth state
 
 class AuthProvider with ChangeNotifier {
   String? _token;
   String? _userId;
-  DateTime? _tokenExpiryDate;
-  Timer? _autoLogoutTimer;
+  String? _userImageUrl; // Store user image URL from login/profile fetch
   bool _isTryingAutoLogin = true;
-  bool _isAuthenticated = false;
-  bool get isAuthenticated => _isAuthenticated;
-  
-  // Keys for SharedPreferences storage
-  static const String _tokenKey = 'auth_token';
-  static const String _userIdKey = 'user_id';
-  static const String _expiryDateKey = 'token_expiry';
-  
-  // Session timeout in hours (adjust as needed)
-  static const int _sessionTimeout = 24;
+
+  final _storage = const FlutterSecureStorage();
+  static const _tokenKey = 'authToken';
+  static const _userIdKey = 'userId';
+  static const _imageUrlKey = 'userImageUrl';
 
   AuthProvider() {
-    tryAutoLogin();
+    _tryAutoLogin();
   }
 
+  // --- Getters ---
+  bool get isAuthenticated => _token != null;
   String? get token => _token;
-  String? get userId => _userId;
+  String? get userId => _userId; // Keep as String, parse to int where needed
+  String? get userImageUrl => _userImageUrl;
   bool get isTryingAutoLogin => _isTryingAutoLogin;
 
-  // Check if token is expired
-  bool isTokenExpired() {
-    if (_tokenExpiryDate == null) return true;
-    return DateTime.now().isAfter(_tokenExpiryDate!);
-  }
-  
-  // Initialize from shared preferences (call on app startup)
-  Future<bool> tryAutoLogin() async {
-    _isTryingAutoLogin = true;
-    notifyListeners();
+  // --- Actions ---
 
-    final prefs = await SharedPreferences.getInstance();
-    
-    // Check if token exists in storage
-    if (!prefs.containsKey(_tokenKey)) {
-      _isAuthenticated = false;
-      _isTryingAutoLogin = false;
-      notifyListeners();
-      return false;
-    }
-    
-    // Retrieve stored data
-    final String? storedToken = prefs.getString(_tokenKey);
-    final String? storedUserId = prefs.getString(_userIdKey);
-    final String? expiryDateStr = prefs.getString(_expiryDateKey);
-    
-    // Parse expiry date if it exists
-    final DateTime? expiryDate = expiryDateStr != null 
-      ? DateTime.tryParse(expiryDateStr) 
-      : null;
-    
-    // Validate data
-    if (storedToken == null || storedUserId == null || expiryDate == null) {
-      _isAuthenticated = false;
-      _isTryingAutoLogin = false;
-      notifyListeners();
-      return false;
-    }
-    
-    // Check if token is expired
-    if (DateTime.now().isAfter(expiryDate)) {
-      // Clear expired token
-      await _clearStoredAuthData();
-      _isAuthenticated = false;
-      _isTryingAutoLogin = false;
-      notifyListeners();
-      return false;
-    }
-    
-    // Set data and start timer
-    _token = storedToken;
-    _userId = storedUserId;
-    _tokenExpiryDate = expiryDate;
-    _isAuthenticated = true;
-
-    _isTryingAutoLogin = false;
-    notifyListeners();
-    return true;
-  }
-
-  // Set auth token with expiry time
-  Future<void> setAuthToken(String? token, {DateTime? expiryDate}) async {
+  /// Stores authentication details after a successful login or signup.
+  Future<void> loginSuccess(String token, String userId, String? imageUrl) async {
     _token = token;
-    
-    if (token != null) {
-      // If expiry date is not provided, set default expiry (24 hours from now)
-      _tokenExpiryDate = expiryDate ?? DateTime.now().add(Duration(hours: _sessionTimeout));
-      
-      // Save to persistent storage
-      await _saveAuthData();
-      
-      // Set auto-logout timer
-      _setAutoLogoutTimer();
-      _isAuthenticated = true;
-    } else {
-      // If token is null, clear stored data
-      await _clearStoredAuthData();
-      _tokenExpiryDate = null;
-      _userId = null; // Added line to clear userId when token is null
-      _isAuthenticated = false;
-      
-      // Cancel any existing auto-logout timer
-      _cancelAutoLogoutTimer();
-    }
-    
-    notifyListeners();
-  }
-
-  // Set user ID
-  Future<void> setUserId(String? userId) async {
     _userId = userId;
-    
-    if (userId != null && _token != null) {
-      // Save to persistent storage
-      await _saveAuthData();
-    } else if (userId == null) {
-      // Clear stored user ID
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_userIdKey);
+    _userImageUrl = imageUrl; // Store potentially updated image URL
+
+    // Persist to secure storage
+    await _storage.write(key: _tokenKey, value: token);
+    await _storage.write(key: _userIdKey, value: userId);
+    if (imageUrl != null) {
+      await _storage.write(key: _imageUrlKey, value: imageUrl);
+    } else {
+      // Ensure old value is removed if new one is null
+      await _storage.delete(key: _imageUrlKey);
     }
-    
+
+    _isTryingAutoLogin = false; // No longer trying if we just logged in
+    print("AuthProvider: Login Success Persisted - User: $userId");
     notifyListeners();
   }
 
-  // Logout user
+  /// Attempts to load authentication details from storage on app startup.
+  Future<void> _tryAutoLogin() async {
+    final storedToken = await _storage.read(key: _tokenKey);
+    final storedUserId = await _storage.read(key: _userIdKey);
+    final storedImageUrl = await _storage.read(key: _imageUrlKey);
+
+    if (storedToken != null && storedUserId != null) {
+      // Basic check: Assume token is valid if present.
+      // For production, add a check here: call an API endpoint (like /auth/me)
+      // to verify the token is still valid before setting the state.
+      // If invalid, call logout() here.
+      _token = storedToken;
+      _userId = storedUserId;
+      _userImageUrl = storedImageUrl;
+      print("AuthProvider: Auto-login successful for User: $storedUserId");
+    } else {
+      print("AuthProvider: No credentials found for auto-login.");
+      // Ensure state is cleared if no credentials found
+      _token = null;
+      _userId = null;
+      _userImageUrl = null;
+    }
+    _isTryingAutoLogin = false; // Mark attempt as finished
+    notifyListeners(); // Notify listeners regardless of success/failure
+  }
+
+  /// Clears authentication details and notifies listeners.
   Future<void> logout() async {
     _token = null;
     _userId = null;
-    _tokenExpiryDate = null;
-    _isAuthenticated = false;
-    
-    // Clear stored auth data
-    await _clearStoredAuthData();
-    
-    // Cancel auto-logout timer
-    _cancelAutoLogoutTimer();
-    
+    _userImageUrl = null;
+    await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: _userIdKey);
+    await _storage.delete(key: _imageUrlKey);
+    print("AuthProvider: User logged out.");
+    // Ensure auto-login flag isn't stuck on true if logout happens during startup
+    if (_isTryingAutoLogin) {
+      _isTryingAutoLogin = false;
+    }
     notifyListeners();
   }
-  
-  // Extend session (call this when user performs significant actions)
-  Future<void> extendSession() async {
-    if (isTokenExpired()) return; // Added check for token expiration
-    if (_token != null && _userId != null) {
-      // Set new expiry time (24 hours from now)
-      _tokenExpiryDate = DateTime.now().add(Duration(hours: _sessionTimeout));
-      
-      // Save to persistent storage
-      await _saveAuthData();
-      
-      // Reset auto-logout timer
-      _setAutoLogoutTimer();
-      
+
+  /// Allows updating the stored user image URL (e.g., after profile update)
+  /// without requiring a full re-login.
+  Future<void> updateUserImageUrl(String? newImageUrl) async {
+    if (_userImageUrl != newImageUrl) {
+      _userImageUrl = newImageUrl;
+      if (newImageUrl != null) {
+        await _storage.write(key: _imageUrlKey, value: newImageUrl);
+      } else {
+        await _storage.delete(key: _imageUrlKey);
+      }
+      print("AuthProvider: Updated user image URL.");
       notifyListeners();
     }
-  }
-  
-  // Save auth data to persistent storage
-  Future<void> _saveAuthData() async {
-    if (_token == null || _userId == null || _tokenExpiryDate == null) return;
-    
-    final prefs = await SharedPreferences.getInstance();
-    
-    await prefs.setString(_tokenKey, _token!);
-    await prefs.setString(_userIdKey, _userId!);
-    await prefs.setString(_expiryDateKey, _tokenExpiryDate!.toIso8601String());
-  }
-  
-  // Clear stored auth data
-  Future<void> _clearStoredAuthData() async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    await prefs.remove(_tokenKey);
-    await prefs.remove(_userIdKey);
-    await prefs.remove(_expiryDateKey);
-  }
-  
-  // Set auto-logout timer
-  void _setAutoLogoutTimer() {
-    // Cancel any existing timer
-    _cancelAutoLogoutTimer();
-    
-    if (_tokenExpiryDate != null) {
-      final timeToExpiry = _tokenExpiryDate!.difference(DateTime.now());
-      
-      // Only set timer if expiry is in the future
-      if (timeToExpiry.inSeconds > 0) {
-        _autoLogoutTimer = Timer(timeToExpiry, logout);
-      }
-    }
-  }
-  
-  // Cancel auto-logout timer
-  void _cancelAutoLogoutTimer() {
-    if (_autoLogoutTimer != null) {
-      _autoLogoutTimer!.cancel();
-      _autoLogoutTimer = null;
-    }
-  }
-  
-  @override
-  void dispose() {
-    _cancelAutoLogoutTimer();
-    super.dispose();
   }
 }

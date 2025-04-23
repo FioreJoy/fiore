@@ -7,7 +7,7 @@ class CommunityCard extends StatelessWidget {
   final int memberCount;
   final int onlineCount;
   final Color backgroundColor;
-  final String? imageUrl;
+  final String? logoUrl;
   final String? location;
   final bool isJoined;
   final VoidCallback onJoin;
@@ -20,7 +20,7 @@ class CommunityCard extends StatelessWidget {
     required this.memberCount,
     required this.onlineCount,
     required this.backgroundColor,
-    this.imageUrl,
+    this.logoUrl,
     this.location,
     required this.isJoined,
     required this.onJoin,

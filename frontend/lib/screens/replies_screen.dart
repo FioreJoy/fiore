@@ -1,11 +1,14 @@
+import '../services/auth_provider.dart';
+import '../services/api/reply_service.dart';
 // frontend/lib/screens/replies_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../services/api_service.dart';
-import '../services/auth_provider.dart';
-import '../widgets/reply_card.dart';
+import 'package:provider/provider.dart';
+import '../../services/api/REPLACE_WITH_SERVICE.dart';
+import '../../services/auth_provider.dart';
+import '../../widgets/reply_card.dart';
 import 'create_reply_screen.dart';
-import '../theme/theme_constants.dart';
+import '../../theme/theme_constants.dart';
 import 'package:intl/intl.dart'; // For date formatting
 
 // Helper data structure for replies hierarchy
@@ -45,14 +48,14 @@ class _RepliesScreenState extends State<RepliesScreen> {
 
   void _triggerLoadReplies() {
     if (!mounted) return;
-    final apiService = Provider.of<ApiService>(context, listen: false);
+    final apiService = Provider.of<ReplyService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     setState(() {
       _loadRepliesFuture = _fetchAndStructureReplies(apiService, authProvider.token);
     });
   }
 
-  Future<List<ReplyNode>> _fetchAndStructureReplies(ApiService apiService, String? token) async {
+  Future<List<ReplyNode>> _fetchAndStructureReplies(ReplyService replyService, String? token) async {
     final flatReplies = await apiService.fetchReplies(widget.postId, token);
 
     // Initialize vote data for fetched replies
@@ -132,7 +135,7 @@ class _RepliesScreenState extends State<RepliesScreen> {
 
   Future<void> _deleteReply(String replyId) async {
     if (!mounted) return;
-    final apiService = Provider.of<ApiService>(context, listen: false);
+    final apiService = Provider.of<ReplyService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     if (!authProvider.isAuthenticated) return;
@@ -162,7 +165,7 @@ class _RepliesScreenState extends State<RepliesScreen> {
 
   Future<void> _voteOnReply(String replyId, bool voteType) async {
     if (!mounted) return;
-    final apiService = Provider.of<ApiService>(context, listen: false);
+    final apiService = Provider.of<ReplyService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     if (!authProvider.isAuthenticated) {
