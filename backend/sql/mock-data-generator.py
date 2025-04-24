@@ -17,6 +17,7 @@ from tqdm import tqdm
 import math
 import asyncio
 import re # For sanitizing filenames
+import sys # For nohup output handling
 
 # --- Configuration ---
 load_dotenv()
@@ -44,7 +45,11 @@ MINIO_USE_SSL = os.getenv("MINIO_USE_SSL", "False").lower() == "true"
 # --- Mock Data Lists ---
 GENDERS = ['Male', 'Female', 'Others']
 COLLEGES = ['VIT Vellore', 'MIT Manipal', 'SRM Chennai', 'IIT Delhi', 'BITS Pilani', 'NSUT', 'DTU', 'IIIT Hyderabad', 'Stanford', 'Harvard', 'UC Berkeley', 'Cambridge', 'Oxford', 'Community College', 'Online University']
-INTERESTS = ['Gaming', 'Tech', 'Science', 'Music', 'Sports', 'Movies', 'Books', 'Art', 'Travel', 'Food', 'Coding', 'Fitness', 'Photography', 'Startups', 'Anime', 'Hiking', 'Politics', 'Finance', 'Writing', 'Dancing']
+
+# *** CORRECTED INTERESTS LIST TO MATCH DB CONSTRAINT ***
+INTERESTS = ['Gaming', 'Tech', 'Science', 'Music', 'Sports', 'College Event', 'Activities', 'Social', 'Other']
+# Note: We use this corrected list for BOTH user interests and community interests generation.
+
 COMMUNITY_ADJECTIVES = ['Awesome', 'Creative', 'Digital', 'Global', 'Innovative', 'Local', 'Virtual', 'Dynamic', 'Future', 'United', 'Open', 'Collaborative', 'Sustainable', 'Academic', 'Research']
 COMMUNITY_NOUNS = ['Network', 'Hub', 'Collective', 'Space', 'Zone', 'Society', 'Crew', 'Labs', 'Circle', 'Forum', 'Initiative', 'Group', 'Project', 'Association', 'Guild']
 EVENT_TYPES = ['Meetup', 'Workshop', 'Conference', 'Hackathon', 'Talk', 'Social', 'Competition', 'Webinar', 'Party', 'Game Night', 'Study Session', 'AMA', 'Panel', 'Presentation', 'Demo Day']
@@ -122,11 +127,12 @@ def generate_placeholder_image(text="?", size=(100, 100), bg_color=None) -> byte
         font = ImageFont.load_default()
 
     try:
+        # Use textbbox for more accurate positioning if available (Pillow >= 8.0.0)
         text_bbox = d.textbbox((0, 0), text, font=font)
         text_width = text_bbox[2] - text_bbox[0]
         text_height = text_bbox[3] - text_bbox[1]
-        position = ((size[0] - text_width) / 2, (size[1] - text_height) / 2 - size[1] // 10)
-    except AttributeError:
+        position = ((size[0] - text_width) / 2, (size[1] - text_height) / 2 - size[1] // 10) # Adjust vertical position
+    except AttributeError: # Fallback for older Pillow versions
          text_width, text_height = d.textsize(text, font=font)
          position = ((size[0] - text_width) / 2, (size[1] - text_height) / 2)
 
@@ -136,8 +142,10 @@ def generate_placeholder_image(text="?", size=(100, 100), bg_color=None) -> byte
     img.save(img_byte_arr, format='PNG')
     return img_byte_arr.getvalue()
 
-async def upload_to_minio(minio_client: Minio, data: bytes, object_name: str, content_type='image/png') -> bool:
-    """Uploads bytes data to MinIO."""
+# Make upload_to_minio synchronous for easier integration without async/await in main loop if preferred
+# Alternatively, keep it async and use asyncio.run() as before. Let's make it sync for simplicity here.
+def upload_to_minio_sync(minio_client: Minio, data: bytes, object_name: str, content_type='image/png') -> bool:
+    """Uploads bytes data to MinIO (Synchronous Version)."""
     if not minio_client:
         return False
     try:
@@ -150,26 +158,22 @@ async def upload_to_minio(minio_client: Minio, data: bytes, object_name: str, co
         )
         return True
     except S3Error as e:
-        print(f"❌ MinIO Upload Error for {object_name}: {e}")
+        print(f"❌ MinIO Upload Error for {object_name}: {e}", file=sys.stderr) # Print errors to stderr
         return False
     except Exception as e:
-        print(f"❌ General Error during MinIO upload for {object_name}: {e}")
+        print(f"❌ General Error during MinIO upload for {object_name}: {e}", file=sys.stderr)
         return False
 
 def sanitize_for_path(name: str) -> str:
     """Removes or replaces characters unsuitable for path components."""
-    # Remove leading/trailing whitespace
     name = name.strip()
-    # Replace spaces and common problematic characters with underscores
     name = re.sub(r'[\\/:*?"<>|\s]+', '_', name)
-    # Remove any remaining non-alphanumeric characters (except underscores)
-    name = re.sub(r'[^\w_]+', '', name)
-    # Limit length to avoid excessively long paths (optional)
+    name = re.sub(r'[^\w_.-]+', '', name) # Allow ., _ and - in addition to alphanum
     return name[:50]
 
 
 # --- Main Data Generation Logic ---
-async def main():
+def main(): # Changed main to synchronous
     """Main function to orchestrate mock data generation."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -182,7 +186,7 @@ async def main():
     community_interests = {}
     community_members_map = {}
     event_participants_map = {}
-    batch_size = 10000 # For bulk inserts
+    batch_size = 5000 # Adjust batch size based on memory/performance
 
     try:
         print("--- Starting Mock Data Generation ---")
@@ -209,7 +213,7 @@ async def main():
                 name = f"{first_name} {last_name}"
                 gender = random.choice(GENDERS)
                 college = random.choice(COLLEGES)
-                interest = random.choice(INTERESTS)
+                interest = random.choice(INTERESTS) # Uses corrected list
                 location_str = f"({fake.longitude()},{fake.latitude()})"
                 created_at = fake.date_time_between(start_date="-2y", end_date="now", tzinfo=timezone.utc)
                 last_seen = fake.date_time_between(start_date="-7d", end_date="now", tzinfo=timezone.utc)
@@ -217,9 +221,9 @@ async def main():
                 image_path = None
                 if minio_client:
                     placeholder = generate_placeholder_image(f"{first_name[0]}{last_name[0]}", size=(200, 200))
-                    # *** Correct User Profile Path ***
                     object_name = f"users/{username}/profile/{uuid.uuid4()}.png"
-                    if await upload_to_minio(minio_client, placeholder, object_name):
+                    # Use synchronous upload function
+                    if upload_to_minio_sync(minio_client, placeholder, object_name):
                         image_path = object_name
 
                 users_data.append((
@@ -234,13 +238,14 @@ async def main():
             VALUES %s RETURNING id, interest;
         """
         try:
+            print(f"  Inserting {len(users_data)} user records...")
             inserted_users = execute_values(cursor, insert_query_users, users_data, fetch=True)
             conn.commit()
             generated_user_ids = [u[0] for u in inserted_users]
             user_interests = {u[0]: u[1] for u in inserted_users}
             print(f"✅ Inserted {len(generated_user_ids)} users.")
         except (Exception, psycopg2.Error) as error:
-            print(f"\n❌ Error during user bulk insert: {error}")
+            print(f"\n❌ Error during user bulk insert: {error}", file=sys.stderr)
             if conn: conn.rollback()
             print("Exiting due to user insertion error.")
             exit(1)
@@ -249,13 +254,13 @@ async def main():
         print(f"\nGenerating {NUM_COMMUNITIES} communities...")
         communities_data = []
         if not generated_user_ids:
-            print("❌ Cannot generate communities without users.")
+            print("❌ Cannot generate communities without users.", file=sys.stderr)
             return
 
         with tqdm(total=NUM_COMMUNITIES, desc="Generating Communities", unit="comm") as pbar:
             for i in range(NUM_COMMUNITIES):
                 base_name = f"{random.choice(COMMUNITY_ADJECTIVES)} {random.choice(COMMUNITY_NOUNS)} {i}"
-                interest = random.choice(INTERESTS)
+                interest = random.choice(INTERESTS) # Uses corrected list
                 creator_id = random.choice(generated_user_ids)
                 description = f"A community for {interest} enthusiasts. Welcome!"
                 location_str = f"({fake.longitude()},{fake.latitude()})"
@@ -265,10 +270,10 @@ async def main():
                 if minio_client:
                     comm_placeholder_initial = base_name[0] if base_name else 'C'
                     placeholder = generate_placeholder_image(comm_placeholder_initial, size=(300, 300), bg_color=(random.randint(50, 150), random.randint(50, 150), random.randint(50, 150)))
-                    # *** Correct Community Logo Path ***
-                    sanitized_name_for_path = sanitize_for_path(base_name) # Sanitize name for path component
+                    sanitized_name_for_path = sanitize_for_path(base_name)
                     object_name = f"communities/{sanitized_name_for_path}/logo/{uuid.uuid4()}.png"
-                    if await upload_to_minio(minio_client, placeholder, object_name):
+                    # Use synchronous upload function
+                    if upload_to_minio_sync(minio_client, placeholder, object_name):
                         logo_path = object_name
 
                 communities_data.append((
@@ -281,12 +286,20 @@ async def main():
             INSERT INTO communities (name, description, created_by, created_at, primary_location, interest, logo_path)
             VALUES %s RETURNING id, interest, created_by;
         """
-        inserted_communities = execute_values(cursor, insert_query_communities, communities_data, fetch=True)
-        conn.commit()
-        generated_community_ids = [c[0] for c in inserted_communities]
-        community_interests = {c[0]: c[1] for c in inserted_communities}
-        community_creators = {c[0]: c[2] for c in inserted_communities}
-        print(f"✅ Inserted {len(generated_community_ids)} communities.")
+        try:
+            print(f"  Inserting {len(communities_data)} community records...")
+            inserted_communities = execute_values(cursor, insert_query_communities, communities_data, fetch=True)
+            conn.commit()
+            generated_community_ids = [c[0] for c in inserted_communities]
+            community_interests = {c[0]: c[1] for c in inserted_communities}
+            community_creators = {c[0]: c[2] for c in inserted_communities}
+            print(f"✅ Inserted {len(generated_community_ids)} communities.")
+        except (Exception, psycopg2.Error) as error:
+            print(f"\n❌ Error during community bulk insert: {error}", file=sys.stderr)
+            if conn: conn.rollback()
+            print("Exiting due to community insertion error.")
+            exit(1)
+
 
         # 3. Generate Community Memberships
         print(f"\nGenerating community memberships...")
@@ -334,7 +347,6 @@ async def main():
         else:
             print("ℹ️ No new community memberships to insert.")
 
-
         # 4. Generate Events
         print(f"\nGenerating events...")
         events_data = []
@@ -364,23 +376,22 @@ async def main():
                      event_timestamp = fake.date_time_between(start_date="-60d", end_date="+90d", tzinfo=timezone.utc)
                      max_participants = random.randint(15, 150)
                      created_at = fake.date_time_between(start_date="-1y", end_date=min(event_timestamp, datetime.now(timezone.utc)), tzinfo=timezone.utc)
-                     image_url = None # Keep events without images for simplicity now
+                     image_url = None # No event images for now
 
                      events_data.append((
                          comm_id, creator_id, title, description, location,
                          event_timestamp, max_participants, image_url, created_at
                      ))
                      total_events_generated_count += 1
-                     # Update progress bar visually
                      pbar.update(1)
-                     if pbar.n > pbar.total: # Adjust total if estimate is exceeded
-                        pbar.total = pbar.n
+                     if pbar.n > pbar.total: pbar.total = pbar.n # Adjust total if estimate is exceeded
 
         if events_data:
             insert_query_events = """
                 INSERT INTO events (community_id, creator_id, title, description, location, event_timestamp, max_participants, image_url, created_at)
                 VALUES %s RETURNING id, community_id, creator_id, created_at;
             """
+            print(f"  Inserting {len(events_data)} event records...")
             inserted_events = execute_values(cursor, insert_query_events, events_data, fetch=True)
             conn.commit()
             generated_event_ids = [e[0] for e in inserted_events]
@@ -397,8 +408,9 @@ async def main():
         event_participants_map = {eid: set() for eid in generated_event_ids}
 
         for event_id, creator_id in event_creators.items():
-            participants_data.append((event_id, creator_id, event_creation_times[event_id]))
-            event_participants_map[event_id].add(creator_id)
+            if event_id in event_creation_times: # Ensure event exists
+                 participants_data.append((event_id, creator_id, event_creation_times[event_id]))
+                 event_participants_map[event_id].add(creator_id)
 
         print("  Calculating potential participants...")
         with tqdm(total=len(generated_event_ids), desc="Evaluating Participants", unit="event") as pbar_eval_part:
@@ -410,24 +422,29 @@ async def main():
                 community_members = list(community_members_map.get(comm_id, []))
                 if not community_members: continue
 
-                cursor.execute("SELECT max_participants FROM events WHERE id = %s", (event_id,))
-                event_details = cursor.fetchone()
-                max_p = event_details[0] if event_details else 100
+                # Fetch max participants only if needed (optimization)
+                max_p = None
 
                 for member_id in community_members:
                     if member_id in event_participants_map[event_id]: continue
-                    if len(event_participants_map[event_id]) >= max_p: break
+
+                    # Check limit only when necessary
+                    if max_p is None:
+                        cursor.execute("SELECT max_participants FROM events WHERE id = %s", (event_id,))
+                        event_details = cursor.fetchone()
+                        max_p = event_details[0] if event_details else 100 # Cache it
+
+                    if len(event_participants_map[event_id]) >= max_p:
+                        break # Stop adding if event is full
 
                     if random.random() < 0.20:
                         event_created = event_creation_times.get(event_id, datetime.now(timezone.utc) - timedelta(days=1))
                         join_start = event_created
                         join_end = datetime.now(timezone.utc)
-                        # Ensure start_date is not after end_date
-                        if join_start > join_end:
-                            join_start = join_end - timedelta(hours=1)
+                        if join_start > join_end: join_start = join_end - timedelta(hours=1)
                         try:
                             joined_at = fake.date_time_between(start_date=join_start, end_date=join_end, tzinfo=timezone.utc)
-                        except ValueError: # Handle potential edge case from fake library
+                        except ValueError:
                              joined_at = join_end
 
                         participants_data.append((event_id, member_id, joined_at))
@@ -454,7 +471,7 @@ async def main():
         chat_messages_data = []
         all_comm_and_event_ids = generated_community_ids + generated_event_ids
         if not all_comm_and_event_ids or not generated_user_ids:
-             print("❌ Cannot generate chat messages without communities/events or users.")
+             print("❌ Cannot generate chat messages without communities/events or users.", file=sys.stderr)
         else:
             with tqdm(total=NUM_CHAT_MESSAGES, desc="Generating Chat Messages", unit="msg") as pbar_chat:
                 while len(chat_messages_data) < NUM_CHAT_MESSAGES:
@@ -502,7 +519,7 @@ async def main():
         print("\n--- Mock Data Generation Finished Successfully! ---")
 
     except (Exception, psycopg2.Error) as error:
-        print(f"\n❌ An error occurred during mock data generation: {error}")
+        print(f"\n❌ An error occurred during mock data generation: {error}", file=sys.stderr)
         import traceback
         traceback.print_exc()
         if conn:
@@ -515,4 +532,5 @@ async def main():
             print("Database connection closed.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Run the synchronous main function
+    main()

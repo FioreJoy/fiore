@@ -10,6 +10,7 @@ from typing import Optional, Dict
 from minio import Minio # <-- Add import
 from minio.error import S3Error # <-- Add import
 from dotenv import load_dotenv
+from datetime import timedelta, datetime, timezone # Add datetime/timezone if needed elsewhere
 
 load_dotenv() # Ensure env vars are loaded
 
@@ -35,7 +36,7 @@ if MINIO_ENDPOINT and MINIO_ACCESS_KEY and MINIO_SECRET_KEY:
         found = minio_client.bucket_exists(MINIO_BUCKET)
         if not found:
             minio_client.make_bucket(MINIO_BUCKET)
-            print(f"MinIO Bucket '{MINIO_BUCKET}' created.")
+            #print(f"MinIO Bucket '{MINIO_BUCKET}' created.")
             # Optional: Set public read policy (use with caution!)
             # from minio.commonconfig import Policy
             # minio_client.set_bucket_policy(MINIO_BUCKET, Policy.READ_ONLY)
@@ -91,33 +92,25 @@ async def upload_file_to_minio(
         await file.close()
 
 # --- MinIO URL Generation ---
-def get_minio_url(object_name: Optional[str]) -> Optional[str]:
-    """Generates a publicly accessible URL for a MinIO object."""
+def get_minio_url(object_name: Optional[str], expires_in_hours: int = 1) -> Optional[str]:
+    """Generates a pre-signed URL for temporary GET access."""
     if not minio_client or not object_name:
         return None
 
-    # Construct the URL based on endpoint, bucket, and object name
-    # This assumes the bucket is publicly readable or you handle signed URLs elsewhere
-    protocol = "https" if MINIO_USE_SSL else "http"
-    # Basic URL construction - adjust if your MinIO setup needs different pathing
-    url = f"{protocol}://{MINIO_ENDPOINT}/{MINIO_BUCKET}/{object_name}"
-    # print(f"Generated MinIO URL: {url}") # Debugging
-    return url
-
-    # --- Alternative: Pre-signed URL (more secure if bucket isn't public) ---
-    # try:
-    #     presigned_url = minio_client.presigned_get_object(
-    #         MINIO_BUCKET,
-    #         object_name,
-    #         expires=timedelta(hours=1) # Example: URL valid for 1 hour
-    #     )
-    #     return presigned_url
-    # except S3Error as e:
-    #     print(f"❌ MinIO S3 Error generating presigned URL: {e}")
-    #     return None
-    # except Exception as e:
-    #      print(f"❌ General error generating presigned URL: {e}")
-    #      return None
+    try:
+        presigned_url = minio_client.presigned_get_object(
+            MINIO_BUCKET,
+            object_name,
+            expires=timedelta(hours=expires_in_hours)
+        )
+        return presigned_url
+    except S3Error as e:
+        print(f"  Error Code: {e.code}, Message: {e.message}")
+        return None
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return None
 
 # def save_image_from_base64(base64_string: str, username: str) -> Optional[str]:
 #     """Decodes a Base64 string, saves it as an image, and returns the relative file path."""

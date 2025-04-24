@@ -175,15 +175,25 @@ async def read_users_me(current_user_id: int = Depends(auth.get_current_user)):
 
         # Construct full image path URL if needed (adjust based on how you serve static files)
         img_path = user_db.get('image_path')
-        if img_path:
+        if img_path and img_path.startswith('/'):
             # Assuming 'user_images' is served statically at the root
             # This might need adjustment based on your static file setup in server.py
-            user_display_data['image_path'] = f"/{img_path}" # Prepend '/' if served from root
+            # Prepend '/' if served from root
             # Or use full base URL if needed:
             # from .. import app_constants
             # user_display_data['image_path'] = f"{app_constants.baseUrl}/{img_path}"
+            img_path_for_minio = img_path[1:] # Remove leading slash
+            print(f"DEBUG: Removed leading slash from image_path: {img_path_for_minio}")
+        else:
+            img_path_for_minio = img_path
+        
+        user_display_data['image_url'] = get_minio_url(img_path_for_minio)
+        # Keep the original path from DB if needed by schema (optional)
+        user_display_data['image_path'] = img_path
+        # --- *** END FIX *** ---
 
-        # Validate and return using the Pydantic model
+        print(f"DEBUG: User data prepared for response: {user_display_data}") # Log before returning
+	# Validate and return using the Pydantic model
         return schemas.UserDisplay(**user_display_data)
 
     except Exception as e:
