@@ -1,10 +1,9 @@
-// frontend/lib/screens/profile/profile_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:intl/intl.dart'; // For date formatting
+import 'package:flutter/services.dart'; // For clipboard
 
 // --- Updated Service Imports ---
 import '../../services/api/auth_service.dart'; // Use AuthService for profile actions
@@ -100,6 +99,27 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
       print("ProfileScreen: Returning from settings, reloading data...");
       _loadUserData(); // Trigger reload
     });
+  }
+
+  // Function to handle editing profile
+  void _editProfile() {
+    // Here you would navigate to a profile edit page
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Edit Profile functionality will be implemented soon')),
+    );
+    // You can replace with actual navigation when you have the edit profile screen
+    // Navigator.push(context, MaterialPageRoute(builder: (context) => EditProfileScreen()));
+  }
+
+  // Function to share profile
+  void _shareProfile() {
+    final username = _userData?['username'] ?? '';
+    // This would typically integrate with a share plugin
+    // For now, copy a share link to clipboard as a demo
+    Clipboard.setData(ClipboardData(text: 'Check out my profile: @$username'));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Profile link copied to clipboard')),
+    );
   }
 
   // Format date helper (moved from ThemeConstants or define here)
@@ -208,62 +228,398 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
     final String lastSeen = formatDateTime(_userData!['last_seen']);
     final location = _userData!['current_location']; // Map<String, double>? or String?
 
+    // Stats data - you might need to adjust these based on your actual API/data model
+    final int joinedCommunities = _userData!['joined_communities_count'] as int? ?? 0;
+    final int joinedEvents = _userData!['joined_events_count'] as int? ?? 0;
+    final int posts = _userData!['posts_count'] as int? ?? 0;
+    final int followers = _userData!['followers_count'] as int? ?? 0;
+
+    // Main container color/gradient to make header more attractive
+    final Color headerStartColor = isDark
+        ? ThemeConstants.accentColor.withOpacity(0.7)
+        : ThemeConstants.accentColor.withOpacity(0.1);
+    final Color headerEndColor = isDark
+        ? ThemeConstants.accentColor.withOpacity(0.3)
+        : ThemeConstants.accentColor.withOpacity(0.05);
+
     return ListView(
-      padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+      padding: EdgeInsets.zero, // Remove padding for full-width header
       children: [
-        // Profile Header
-        Row( crossAxisAlignment: CrossAxisAlignment.center, children: [
-          CircleAvatar( radius: 45, backgroundColor: Colors.grey.shade300,
-            backgroundImage: imageUrl != null && imageUrl.isNotEmpty
-                ? CachedNetworkImageProvider(imageUrl)
-                : const NetworkImage(AppConstants.defaultAvatar) as ImageProvider,
+        // Enhanced Profile Header with background
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [headerStartColor, headerEndColor],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(30),
+              bottomRight: Radius.circular(30),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
-          const SizedBox(width: ThemeConstants.mediumPadding),
-          Expanded( child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text( name, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis,),
-            const SizedBox(height: 4),
-            Text( '@$username', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey.shade600),),
-            const SizedBox(height: 6),
-            Text( 'Joined: $joinedDate', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey.shade500),),
-            Text( 'Last Seen: $lastSeen', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey.shade500),),
-          ],),),
-        ],),
-        const SizedBox(height: ThemeConstants.largePadding),
-        const Divider(),
-        const SizedBox(height: ThemeConstants.mediumPadding),
+          padding: const EdgeInsets.fromLTRB(ThemeConstants.mediumPadding,
+                                            ThemeConstants.mediumPadding,
+                                            ThemeConstants.mediumPadding,
+                                            ThemeConstants.largePadding),
+          child: Column(
+            children: [
+              // Profile picture and name/username
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Enhanced avatar with border
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white,
+                        width: 3,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 10,
+                        ),
+                      ],
+                    ),
+                    child: CircleAvatar(
+                      radius: 45,
+                      backgroundColor: Colors.grey.shade300,
+                      backgroundImage: imageUrl != null && imageUrl.isNotEmpty
+                          ? CachedNetworkImageProvider(imageUrl)
+                          : const NetworkImage(AppConstants.defaultAvatar) as ImageProvider,
+                    ),
+                  ),
+                  const SizedBox(width: ThemeConstants.mediumPadding),
 
-        // Profile Details Section
-        _buildSectionTitle('About Me', isDark),
-        _buildDetailItem(Icons.email_outlined, 'Email', email, isDark),
-        _buildDetailItem(Icons.wc_outlined, 'Gender', gender, isDark),
-        _buildDetailItem(Icons.school_outlined, 'College', college, isDark),
-        _buildDetailItem(Icons.location_on_outlined, 'Location', formatLocation(location), isDark), // Use formatter
-        const SizedBox(height: ThemeConstants.mediumPadding),
+                  // Name, username, joined info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '@$username',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: isDark ? Colors.white70 : Colors.black54,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Joined: $joinedDate',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: isDark ? Colors.white60 : Colors.black45,
+                          ),
+                        ),
+                        Text(
+                          'Last Seen: $lastSeen',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: isDark ? Colors.white60 : Colors.black45,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
 
-        // Interests Section
-        _buildSectionTitle('Interests', isDark),
-        interests.isEmpty
-            ? Padding( padding: const EdgeInsets.only(left: 16.0, top: 8.0), child: Text('No interests added yet.', style: TextStyle(color: Colors.grey.shade500)),)
-            : Padding( // Add padding around chips
-          padding: const EdgeInsets.only(left: 8.0),
-          child: Wrap( spacing: 8.0, runSpacing: 4.0, children: interests.map((interest) => Chip(
-            label: Text(interest), backgroundColor: ThemeConstants.accentColor.withOpacity(0.1),
-            labelStyle: TextStyle(color: ThemeConstants.accentColor, fontSize: 12), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            side: BorderSide(color: ThemeConstants.accentColor.withOpacity(0.3)),
-          )).toList(),),
+              // Edit and Share buttons
+              Padding(
+                padding: const EdgeInsets.only(top: ThemeConstants.mediumPadding),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    // Edit Profile Button
+                    ElevatedButton.icon(
+                      onPressed: _editProfile,
+                      icon: const Icon(Icons.edit, size: 18),
+                      label: const Text('Edit Profile'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isDark ? Colors.white : ThemeConstants.accentColor,
+                        foregroundColor: isDark ? ThemeConstants.accentColor : Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                    ),
+
+                    // Share Profile Button
+                    OutlinedButton.icon(
+                      onPressed: _shareProfile,
+                      icon: const Icon(Icons.share, size: 18),
+                      label: const Text('Share Profile'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: isDark ? Colors.white : ThemeConstants.accentColor,
+                        side: BorderSide(
+                          color: isDark ? Colors.white : ThemeConstants.accentColor,
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: ThemeConstants.largePadding),
+
+        // Stats Section (Communities, Events, Posts, Followers)
+        Padding(
+          padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionTitle('Stats', isDark),
+              const SizedBox(height: 8),
+
+              // Stats grid
+              Row(
+                children: [
+                  _buildStatCard(
+                    context,
+                    icon: Icons.people,
+                    value: joinedCommunities.toString(),
+                    label: 'Communities',
+                    isDark: isDark,
+                  ),
+                  _buildStatCard(
+                    context,
+                    icon: Icons.event,
+                    value: joinedEvents.toString(),
+                    label: 'Events',
+                    isDark: isDark,
+                  ),
+                  _buildStatCard(
+                    context,
+                    icon: Icons.forum,
+                    value: posts.toString(),
+                    label: 'Posts',
+                    isDark: isDark,
+                  ),
+                  _buildStatCard(
+                    context,
+                    icon: Icons.person_add,
+                    value: followers.toString(),
+                    label: 'Followers',
+                    isDark: isDark,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
         const Divider(),
-        // Add links to user's posts/activity later if needed
+
+        // About Me Section
+        Padding(
+          padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionTitle('About Me', isDark),
+              _buildDetailItem(Icons.email_outlined, 'Email', email, isDark),
+              _buildDetailItem(Icons.wc_outlined, 'Gender', gender, isDark),
+              _buildDetailItem(Icons.school_outlined, 'College', college, isDark),
+              _buildDetailItem(Icons.location_on_outlined, 'Location', formatLocation(location), isDark),
+            ],
+          ),
+        ),
+
+        const Divider(),
+
+        // Interests Section with enhanced styling
+        Padding(
+          padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionTitle('Interests', isDark),
+              const SizedBox(height: 10),
+              interests.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.only(left: 16.0, top: 8.0),
+                    child: Text(
+                      'No interests added yet.',
+                      style: TextStyle(
+                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  )
+                : Wrap(
+                    spacing: 10.0,
+                    runSpacing: 8.0,
+                    children: interests.map((interest) => Chip(
+                      avatar: Icon(
+                        Icons.local_offer, // Or another relevant icon
+                        size: 16,
+                        color: ThemeConstants.accentColor,
+                      ),
+                      label: Text(interest),
+                      backgroundColor: isDark
+                          ? ThemeConstants.accentColor.withOpacity(0.2)
+                          : ThemeConstants.accentColor.withOpacity(0.1),
+                      labelStyle: TextStyle(
+                        color: isDark ? Colors.white : ThemeConstants.accentColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(
+                          color: ThemeConstants.accentColor.withOpacity(0.4),
+                          width: 1,
+                        ),
+                      ),
+                    )).toList(),
+                  ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: ThemeConstants.largePadding),
+        // Add more sections like activities, posts, etc. here if needed
       ],
     );
   }
 
+  // Stat card widget
+  Widget _buildStatCard(BuildContext context, {
+    required IconData icon,
+    required String value,
+    required String label,
+    required bool isDark,
+  }) {
+    return Expanded(
+      child: Card(
+        elevation: 2,
+        shadowColor: Colors.black26,
+        color: isDark ? Colors.grey.shade800 : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 8.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: ThemeConstants.accentColor,
+                size: 22,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // --- Helper Widgets ---
-  Widget _buildSectionTitle(String title, bool isDark) { /* Keep original */ return Padding( padding: const EdgeInsets.only(bottom: 12.0), child: Text( title, style: Theme.of(context).textTheme.titleLarge?.copyWith( fontWeight: FontWeight.w600, color: isDark ? ThemeConstants.accentColor : ThemeConstants.primaryColor,),),); }
-  Widget _buildDetailItem(IconData icon, String label, String value, bool isDark) { /* Keep original */ return Padding( padding: const EdgeInsets.symmetric(vertical: 8.0), child: Row( children: [ Icon(icon, size: 20, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600), const SizedBox(width: 16), Text('$label:', style: TextStyle(fontWeight: FontWeight.w500, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)), const SizedBox(width: 8), Expanded(child: Text(value, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))),],),); }
+  Widget _buildSectionTitle(String title, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: isDark ? ThemeConstants.accentColor : ThemeConstants.primaryColor,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailItem(IconData icon, String label, String value, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? ThemeConstants.accentColor.withOpacity(0.2)
+                  : ThemeConstants.accentColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              icon,
+              size: 20,
+              color: isDark ? ThemeConstants.accentColor : ThemeConstants.accentColor,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLoadingShimmer(bool isDark) { /* Keep original */ final baseColor = isDark ? Colors.grey.shade800 : Colors.grey.shade300; final highlightColor = isDark ? Colors.grey.shade700 : Colors.grey.shade100; return Shimmer.fromColors( baseColor: baseColor, highlightColor: highlightColor, child: ListView( padding: const EdgeInsets.all(ThemeConstants.mediumPadding), children: [ Row( children: [ const CircleAvatar(radius: 45), const SizedBox(width: ThemeConstants.mediumPadding), Expanded( child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Container(width: 150, height: 20, color: Colors.white), const SizedBox(height: 8), Container(width: 100, height: 16, color: Colors.white), const SizedBox(height: 8), Container(width: 120, height: 14, color: Colors.white),],),),],), const SizedBox(height: ThemeConstants.largePadding), const Divider(), const SizedBox(height: ThemeConstants.mediumPadding), Container(width: double.infinity, height: 20, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)), Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), const SizedBox(height: ThemeConstants.mediumPadding), Container(width: double.infinity, height: 20, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)), Wrap( spacing: 8.0, runSpacing: 4.0, children: List.generate(5, (_) => Chip(label: Container(width: 60, height: 14, color: Colors.white))),),],),); }
   Widget _buildNotLoggedInView(bool isDark) { /* Keep original */ return Center( child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [ Icon(Icons.person_off_outlined, size: 80, color: isDark ? Colors.grey.shade700 : Colors.grey.shade400), const SizedBox(height: 20), Text('Please log in to view your profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade500 : Colors.grey.shade700)), const SizedBox(height: 8), Text('Manage your communities, posts, and settings', style: TextStyle(fontSize: 14, color: isDark ? Colors.grey.shade600 : Colors.grey.shade600)), const SizedBox(height: 24), ElevatedButton( onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false), style: ElevatedButton.styleFrom(backgroundColor: ThemeConstants.accentColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)), child: const Text('Log In'),),],),); }
   Widget _buildErrorView(String message, bool isDark) { /* Keep original */ return Center( child: Padding( padding: const EdgeInsets.all(16.0), child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [ Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 60), const SizedBox(height: 16), Text(message, textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)), const SizedBox(height: 24), CustomButton( text: 'Retry', icon: Icons.refresh, onPressed: _loadUserData, type: ButtonType.secondary,),],),),); }
-
 }

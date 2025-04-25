@@ -666,43 +666,58 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     // return const Center(child: Text("Error displaying event card"));
   }
   // Build Message List Container (Handles loading/empty states)
-  Widget _buildMessagesListContainer(bool isDark, String currentUserId) {
-     // Show loading indicator at the top if fetching older messages
-     bool showTopLoader = _isLoadingMessages && _messages.isNotEmpty;
+ Widget _buildMessagesListContainer(bool isDark, String currentUserId) {
+  // Show loading indicator at the top if fetching older messages
+  bool showTopLoader = _isLoadingMessages && _messages.isNotEmpty;
 
-     return Column(
-       children: [
-         if (showTopLoader)
-           const Padding(
-             padding: EdgeInsets.symmetric(vertical: 8.0),
-             child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-           ),
-         Expanded(
-           child: (_isLoadingMessages && _messages.isEmpty)
-               ? const Center(child: CircularProgressIndicator())
-               : _messages.isEmpty
-                   ? Center(child: Text('No messages yet.', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)))
-                   : ListView.builder(
-                       controller: _scrollController,
-                       padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.smallPadding, vertical: 8.0),
-                       itemCount: _messages.length,
-                       itemBuilder: (context, index) {
-                         final messageData = _messages[index];
-                         final bool isCurrentUserMessage = currentUserId.isNotEmpty && (messageData.user_id.toString() == currentUserId);
+  return Column(
+    children: [
+      if (showTopLoader)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8.0),
+          child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+        ),
+      Expanded(
+        child: (_isLoadingMessages && _messages.isEmpty)
+            ? const Center(child: CircularProgressIndicator())
+            : _messages.isEmpty
+                ? Center(child: Text('No messages yet.', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)))
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.smallPadding, vertical: 8.0),
+                    itemCount: _messages.length,
+                    itemBuilder: (context, index) {
+                      final messageData = _messages[index];
+                      final bool isCurrentUserMessage = currentUserId.isNotEmpty && (messageData.user_id.toString() == currentUserId);
 
-                         // Adapt ChatMessageData to MessageModel if ChatMessageBubble expects it
-                         final displayMessage = MessageModel(
-                           id: messageData.message_id.toString(), userId: messageData.user_id.toString(),
-                           username: isCurrentUserMessage ? "Me" : messageData.username, content: messageData.content,
-                           timestamp: messageData.timestamp, isCurrentUser: isCurrentUserMessage,
-                         );
-                         return ChatMessageBubble(message: displayMessage);
-                       },
-                     ),
-         ),
-       ],
-     );
-  }
+                      // Get user's profile image URL from AuthProvider for current user
+                      String? profileImageUrl;
+                      if (isCurrentUserMessage) {
+                        // Get current user's profile image from AuthProvider
+                        profileImageUrl = Provider.of<AuthProvider>(context, listen: false).userImageUrl;
+                      } else {
+                        // For other users, check if their profile image is included in message data
+                        profileImageUrl = messageData.profile_image_url;
+                      }
+
+                      // Adapt ChatMessageData to MessageModel, now including profile image
+                      final displayMessage = MessageModel(
+                        id: messageData.message_id.toString(),
+                        userId: messageData.user_id.toString(),
+                        username: isCurrentUserMessage ? "Me" : messageData.username,
+                        content: messageData.content,
+                        timestamp: messageData.timestamp,
+                        isCurrentUser: isCurrentUserMessage,
+                        profileImageUrl: profileImageUrl, // Pass profile image URL
+                      );
+
+                      return ChatMessageBubble(message: displayMessage);
+                    },
+                  ),
+      ),
+    ],
+  );
+}
 
   // Build Message Input Row
   Widget _buildMessageInput(bool isDark) {

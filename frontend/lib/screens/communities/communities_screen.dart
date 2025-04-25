@@ -32,6 +32,8 @@ class CommunitiesScreen extends StatefulWidget {
 
 class _CommunitiesScreenState extends State<CommunitiesScreen>
     with AutomaticKeepAliveClientMixin {
+  // Show joined only toggle
+  bool _showJoinedOnly = false;
   @override
   bool get wantKeepAlive => true;
 
@@ -47,8 +49,26 @@ class _CommunitiesScreenState extends State<CommunitiesScreen>
   final Map<String, bool> _joinedStatusMap = {};
 
   // --- Static Data for UI ---
-  final List<Map<String, dynamic>> _sortOptions = [ /* Keep as is */];
-  final List<Map<String, dynamic>> _categoryTabs = [ /* Keep as is */];
+  final List<Map<String, dynamic>> _sortOptions = [
+    {'id': 'latest', 'label': 'Latest', 'icon': Icons.access_time},
+    {'id': 'popular', 'label': 'Most Popular', 'icon': Icons.trending_up},
+    {'id': 'active', 'label': 'Most Active', 'icon': Icons.bolt},
+    {'id': 'nearby', 'label': 'Nearby', 'icon': Icons.location_on},
+  ];
+
+  final List<Map<String, dynamic>> _categoryTabs = [
+    {'id': 'all', 'label': 'All', 'icon': Icons.public},
+    {'id': 'trending', 'label': 'Trending', 'icon': Icons.trending_up},
+    {'id': 'gaming', 'label': 'Gaming', 'icon': Icons.sports_esports},
+    {'id': 'tech', 'label': 'Tech', 'icon': Icons.code},
+    {'id': 'science', 'label': 'Science', 'icon': Icons.science},
+    {'id': 'music', 'label': 'Music', 'icon': Icons.music_note},
+    {'id': 'sports', 'label': 'Sports', 'icon': Icons.sports},
+    {'id': 'college_events', 'label': 'College Events', 'icon': Icons.school},
+    {'id': 'activities', 'label': 'Activities', 'icon': Icons.hiking},
+    {'id': 'social', 'label': 'Social', 'icon': Icons.people},
+    {'id': 'other', 'label': 'Other', 'icon': Icons.more_horiz},
+  ];
 
 
   @override
@@ -73,10 +93,12 @@ class _CommunitiesScreenState extends State<CommunitiesScreen>
       // AuthProvider isn't strictly needed here unless API requires token for listing
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-      if (_selectedCategory == 'trending') {
-        _loadCommunitiesFuture = communityService.getTrendingCommunities(token: authProvider.token); // Pass token if needed
+      if (_showJoinedOnly) {
+        _loadCommunitiesFuture = communityService.getJoinedCommunities(token: authProvider.token);
+      } else if (_selectedCategory == 'trending') {
+        _loadCommunitiesFuture = communityService.getTrendingCommunities(token: authProvider.token);
       } else {
-        _loadCommunitiesFuture = communityService.getCommunities(token: authProvider.token); // Pass token if needed
+        _loadCommunitiesFuture = communityService.getCommunities(token: authProvider.token);
       }
       // Force rebuild to show loading state from FutureBuilder
       setState(() {});
@@ -164,7 +186,17 @@ class _CommunitiesScreenState extends State<CommunitiesScreen>
   }
 
   // Navigate to create screen
-  void _navigateToCreateCommunity() async { /* Keep existing logic */ }
+  void _navigateToCreateCommunity() async {
+    // Navigate to the CreateCommunityScreen
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const CreateCommunityScreen()),
+    );
+
+    // Refresh communities list if community was created
+    if (result == true && mounted) {
+      _triggerCommunityLoad();
+    }
+  }
 
   // Handle join/leave logic using CommunityService
   Future<void> _toggleJoinCommunity(String communityId, bool currentlyJoined) async {
@@ -203,49 +235,232 @@ class _CommunitiesScreenState extends State<CommunitiesScreen>
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      body: Column( children: [
-        // Search Bar (Keep existing)
-        Padding( padding: const EdgeInsets.all(ThemeConstants.mediumPadding), child: TextField( onChanged: _updateSearchQuery, decoration: InputDecoration( hintText: "Search communities...", prefixIcon: const Icon(Icons.search, size: 20), filled: true, fillColor: isDark ? ThemeConstants.backgroundDarker : Colors.grey.shade100, border: OutlineInputBorder( borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none,), contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20), isDense: true,),),),
-        // Category Tabs (Keep existing)
-        SizedBox( height: 50, child: ListView.builder( scrollDirection: Axis.horizontal, itemCount: _categoryTabs.length, padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.smallPadding), itemBuilder: (context, index) { final category = _categoryTabs[index]; final isSelected = _selectedCategory == category['id']; return Padding( padding: const EdgeInsets.symmetric(horizontal: 4.0), child: ChoiceChip( label: Text(category['label'] as String), avatar: Icon(category['icon'] as IconData, size: 16, color: isSelected ? Colors.white : theme.colorScheme.primary), selected: isSelected, onSelected: (_) => _selectCategory(category['id'] as String), selectedColor: theme.colorScheme.primary, backgroundColor: isDark ? ThemeConstants.backgroundDark : Colors.white, labelStyle: TextStyle( fontSize: 13, color: isSelected ? Colors.white : (isDark ? Colors.grey.shade300 : Colors.black87), fontWeight: isSelected ? FontWeight.bold : FontWeight.normal), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), shape: StadiumBorder(side: BorderSide(color: isDark ? Colors.grey.shade700 : Colors.grey.shade300)),),); },),),
-        // Sort Options (Keep existing)
-        Padding( padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.mediumPadding, vertical: 5), child: Row( mainAxisAlignment: MainAxisAlignment.end, children: [ Text("Sort by:", style: theme.textTheme.bodySmall), const SizedBox(width: 8), DropdownButton<String>( value: _selectedSortOption, icon: const Icon(Icons.sort, size: 18), elevation: 4, style: theme.textTheme.bodyMedium, underline: Container(), onChanged: (v) { if (v != null) _selectSortOption(v); }, items: _sortOptions.map<DropdownMenuItem<String>>((o) => DropdownMenuItem<String>( value: o['id'] as String, child: Row( children: [ Icon(o['icon'] as IconData, size: 16, color: Colors.grey.shade600), const SizedBox(width: 6), Text(o['label'] as String),],),)).toList(), isDense: true,),],),),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Search Bar (Keep existing)
+            Padding(
+              padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+              child: TextField(
+                onChanged: _updateSearchQuery,
+                decoration: InputDecoration(
+                  hintText: "Search communities...",
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  filled: true,
+                  fillColor: isDark ? ThemeConstants.backgroundDarker : Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20),
+                  isDense: true,
+                ),
+              ),
+            ),
 
-        // Community Grid
-        Expanded( child: RefreshIndicator( onRefresh: () async => _triggerCommunityLoad(),
-          child: FutureBuilder<List<dynamic>>( future: _loadCommunitiesFuture, builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting && !(snapshot.hasData || snapshot.hasError)) { return _buildLoadingShimmer(context); }
-            // Use local error state first
-            if (_error != null) { return _buildErrorUI(_error, isDark); }
-            if (snapshot.hasError) { print("CommunitiesScreen FB Error: ${snapshot.error}"); return _buildErrorUI(snapshot.error, isDark);}
-            if (!snapshot.hasData || snapshot.data!.isEmpty) { return _buildEmptyUI(isDark, isSearchOrFilterActive: false); }
+            // Category Tabs
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.smallPadding),
+              child: SizedBox(
+                height: 50,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _categoryTabs.length,
+                  itemBuilder: (context, index) {
+                    final category = _categoryTabs[index];
+                    final isSelected = _selectedCategory == category['id'];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                      child: ChoiceChip(
+                        label: Text(category['label'] as String),
+                        avatar: Icon(
+                          category['icon'] as IconData,
+                          size: 16,
+                          color: isSelected
+                              ? Colors.white
+                              : Theme.of(context).colorScheme.primary,
+                        ),
+                        selected: isSelected,
+                        onSelected: (_) => _selectCategory(category['id'] as String),
+                        selectedColor: Theme.of(context).colorScheme.primary,
+                        backgroundColor: Theme.of(context).brightness == Brightness.dark
+                            ? ThemeConstants.backgroundDark
+                            : Colors.white,
+                        labelStyle: TextStyle(
+                          fontSize: 13,
+                          color: isSelected
+                              ? Colors.white
+                              : (Theme.of(context).brightness == Brightness.dark
+                                  ? Colors.grey.shade300
+                                  : Colors.black87),
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        shape: StadiumBorder(
+                          side: BorderSide(
+                            color: Theme.of(context).brightness == Brightness.dark
+                                ? Colors.grey.shade700
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
 
-            final List<dynamic> filteredSortedCommunities = _filterAndSortCommunities(snapshot.data!);
-            if (filteredSortedCommunities.isEmpty) { return _buildEmptyUI(isDark, isSearchOrFilterActive: _searchQuery.isNotEmpty || (_selectedCategory != 'all' && _selectedCategory != 'trending')); }
+            // Sort Options + Joined Toggle - NOW ALIGNED
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.mediumPadding, vertical: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Joined Toggle without container background, just the switch
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text("Joined", style: theme.textTheme.bodySmall),
+                      Switch.adaptive(
+                        value: _showJoinedOnly,
+                        onChanged: (value) {
+                          setState(() {
+                            _showJoinedOnly = value;
+                          });
+                          _triggerCommunityLoad();
+                        },
+                        activeColor: Theme.of(context).colorScheme.primary,
+                      ),
+                    ],
+                  ),
 
-            return GridView.builder( key: ValueKey('$_selectedCategory-$_selectedSortOption'), padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount( crossAxisCount: 2, childAspectRatio: 0.85, crossAxisSpacing: ThemeConstants.mediumPadding, mainAxisSpacing: ThemeConstants.mediumPadding,),
-              itemCount: filteredSortedCommunities.length, itemBuilder: (context, index) {
-                final community = filteredSortedCommunities[index] as Map<String, dynamic>; final communityId = community['id'].toString();
-                // --- Use _joinedStatusMap ---
-                final bool isJoined = _joinedStatusMap[communityId] ?? false;
-                // ---------------------------
-                final color = ThemeConstants.communityColors[community['id'].hashCode % ThemeConstants.communityColors.length];
+                  // Sort dropdown on the right
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text("Sort by:", style: theme.textTheme.bodySmall),
+                      const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: _selectedSortOption,
+                        elevation: 4,
+                        style: theme.textTheme.bodyMedium,
+                        underline: Container(),
+                        onChanged: (v) {
+                          if (v != null) _selectSortOption(v);
+                        },
+                        items: _sortOptions
+                            .map<DropdownMenuItem<String>>(
+                              (o) => DropdownMenuItem<String>(
+                                value: o['id'] as String,
+                                child: Row(
+                                  children: [
+                                    Icon(o['icon'] as IconData, size: 16, color: Colors.grey.shade600),
+                                    const SizedBox(width: 6),
+                                    Text(o['label'] as String),
+                                  ],
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        isDense: true,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
 
-                return CommunityCard( key: ValueKey(communityId),
-                  name: community['name'] ?? 'No Name', description: community['description'] as String?,
-                  memberCount: community['member_count'] as int? ?? 0, onlineCount: community['online_count'] as int? ?? 0,
-                  logoUrl: community['logo_url'] as String?, // <-- Pass logoUrl
-                  backgroundColor: color, isJoined: isJoined,
-                  onJoin: () => _toggleJoinCommunity(communityId, isJoined), // Pass callback
-                  onTap: () => _navigateToCommunityDetail(community),
-                );},);},),),),
-      ],),
-      floatingActionButton: FloatingActionButton( onPressed: _navigateToCreateCommunity, tooltip: "Create Community", child: const Icon(Icons.add), backgroundColor: theme.colorScheme.primary, foregroundColor: theme.colorScheme.onPrimary,),
+            // Community Grid
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async => _triggerCommunityLoad(),
+                child: FutureBuilder<List<dynamic>>(
+                  future: _loadCommunitiesFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting && !(snapshot.hasData || snapshot.hasError)) {
+                      return _buildLoadingShimmer(context);
+                    }
+                    // Use local error state first
+                    if (_error != null) {
+                      return _buildErrorUI(_error, isDark);
+                    }
+                    if (snapshot.hasError) {
+                      print("CommunitiesScreen FB Error: ${snapshot.error}");
+                      return _buildErrorUI(snapshot.error, isDark);
+                    }
+                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      return _buildEmptyUI(isDark, isSearchOrFilterActive: false);
+                    }
+
+                    final List<dynamic> filteredSortedCommunities = _filterAndSortCommunities(snapshot.data!);
+                    if (filteredSortedCommunities.isEmpty) {
+                      return _buildEmptyUI(isDark, isSearchOrFilterActive: _searchQuery.isNotEmpty || (_selectedCategory != 'all' && _selectedCategory != 'trending'));
+                    }
+
+                    // Improve grid responsiveness by using LayoutBuilder
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        // Calculate grid parameters based on screen width
+                        int crossAxisCount = 2; // Default for medium to large screens
+                        double childAspectRatio = 0.9; // Slightly taller than before for better content fit
+
+                        // Adjust for very small screens
+                        if (constraints.maxWidth < 300) {
+                          crossAxisCount = 1; // Single column for very small screens
+                          childAspectRatio = 1.2; // Wider card on small screens
+                        }
+
+                        return GridView.builder(
+                          key: ValueKey('$_selectedCategory-$_selectedSortOption'),
+                          padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: crossAxisCount,
+                            childAspectRatio: childAspectRatio,
+                            crossAxisSpacing: ThemeConstants.mediumPadding,
+                            mainAxisSpacing: ThemeConstants.mediumPadding,
+                          ),
+                          itemCount: filteredSortedCommunities.length,
+                          itemBuilder: (context, index) {
+                            final community = filteredSortedCommunities[index] as Map<String, dynamic>;
+                            final communityId = community['id'].toString();
+                            // --- Use _joinedStatusMap ---
+                            final bool isJoined = _joinedStatusMap[communityId] ?? false;
+                            // ---------------------------
+                            final color = ThemeConstants.communityColors[community['id'].hashCode % ThemeConstants.communityColors.length];
+
+                            return CommunityCard(
+                              key: ValueKey(communityId),
+                              name: community['name'] ?? 'No Name',
+                              description: community['description'] as String?,
+                              memberCount: community['member_count'] as int? ?? 0,
+                              onlineCount: community['online_count'] as int? ?? 0,
+                              logoUrl: community['logo_url'] as String?, // <-- Pass logoUrl
+                              backgroundColor: color,
+                              isJoined: isJoined,
+                              onJoin: () => _toggleJoinCommunity(communityId, isJoined), // Pass callback
+                              onTap: () => _navigateToCommunityDetail(community),
+                            );
+                          },
+                        );
+                      }
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _navigateToCreateCommunity,
+        tooltip: "Create Community",
+        child: const Icon(Icons.add),
+        backgroundColor: theme.colorScheme.secondary, // Changed to secondary color
+        foregroundColor: theme.colorScheme.onSecondary,
+      ),
     );
   }
 
-  // --- Helper Build Methods ---
   // --- Helper Build Methods ---
   Widget _buildLoadingShimmer(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -306,5 +521,4 @@ class _CommunitiesScreenState extends State<CommunitiesScreen>
     ],),),);
     // --- End Explicit Return ---
   }
-
 }

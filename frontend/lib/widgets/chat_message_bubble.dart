@@ -1,154 +1,148 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:intl/intl.dart';
+
 import '../models/message_model.dart';
 import '../theme/theme_constants.dart';
-import 'package:intl/intl.dart';
 
 class ChatMessageBubble extends StatelessWidget {
   final MessageModel message;
-  final VoidCallback? onLongPress;
-  final Function(String)? onReactionSelected;
 
   const ChatMessageBubble({
     Key? key,
     required this.message,
-    this.onLongPress,
-    this.onReactionSelected,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    // Format timestamp as hh:mm AM/PM
-    final formatter = DateFormat('h:mm a');
-    final timeString = formatter.format(message.timestamp);
+    // Determine colors based on sender (self or others)
+    final Color bubbleColor = message.isCurrentUser
+        ? (isDark ? ThemeConstants.accentColor.withOpacity(0.5) : ThemeConstants.accentColor.withOpacity(0.2))
+        : (isDark ? Colors.grey.shade800 : Colors.grey.shade200);
 
-    // Set different colors for sent vs received messages
-    final bubbleColor = message.isCurrentUser
-      ? LinearGradient(
-          colors: [
-            Color(0xFF0d1b4a),
-            Color(0xFF0d2b6a),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        )
-      : LinearGradient(
-          colors: [
-            isDark ? Color(0xFF1a1a2e) : Color(0xFFe8eaf6),
-            isDark ? Color(0xFF2a2a3e) : Color(0xFFc5cae9),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        );
+    final Color textColor = message.isCurrentUser
+        ? (isDark ? Colors.white : ThemeConstants.accentColor)
+        : (isDark ? Colors.white : Colors.black87);
 
-    final textColor = message.isCurrentUser
-      ? Colors.white
-      : (isDark ? Colors.white : Colors.black87);
+    // Format timestamp
+    final formattedTime = DateFormat('h:mm a').format(message.timestamp);
 
-    final timeColor = message.isCurrentUser
-      ? Colors.white70
-      : (isDark ? Colors.white60 : Colors.black54);
-
-    return Align(
-      alignment: message.isCurrentUser
-          ? Alignment.centerRight
-          : Alignment.centerLeft,
-      child: Container(
-        margin: EdgeInsets.only(
-          left: message.isCurrentUser ? 80 : 8,
-          right: message.isCurrentUser ? 8 : 80,
-          top: 4,
-          bottom: 4,
-        ),
-        child: InkWell(
-          onLongPress: onLongPress,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: bubbleColor,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 10,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (!message.isCurrentUser)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      message.username,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: ThemeConstants.accentColor,
-                      ),
-                    ),
-                  ),
-                Text(
-                  message.content,
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 15,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          timeString,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: timeColor,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (message.reactions != null && message.reactions!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Wrap(
-                      spacing: 4,
-                      children: message.reactions!
-                          .map((reaction) => _buildReaction(reaction))
-                          .toList(),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+    // Create a default avatar widget
+    Widget avatarWidget = CircleAvatar(
+      radius: 16,
+      backgroundColor: message.isCurrentUser
+          ? ThemeConstants.accentColor.withOpacity(0.3)
+          : Colors.grey.shade300,
+      child: Text(
+        message.username.isNotEmpty ? message.username[0].toUpperCase() : '?',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: message.isCurrentUser
+              ? ThemeConstants.accentColor
+              : Colors.grey.shade700,
         ),
       ),
     );
-  }
 
-  Widget _buildReaction(String reaction) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        reaction,
-        style: const TextStyle(fontSize: 12),
+    // If user has a profile image, use it
+    if (message.profileImageUrl != null && message.profileImageUrl!.isNotEmpty) {
+      avatarWidget = CircleAvatar(
+        radius: 16,
+        backgroundImage: CachedNetworkImageProvider(message.profileImageUrl!),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        // Align user messages to the right, others to the left
+        mainAxisAlignment: message.isCurrentUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
+        children: [
+          // Only show avatar for other users' messages on the left side
+          if (!message.isCurrentUser) avatarWidget,
+
+          // Add some spacing between avatar and bubble
+          if (!message.isCurrentUser) const SizedBox(width: 8),
+
+          // Message bubble with constraints
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              // Limit the bubble width to a percentage of the screen
+              maxWidth: MediaQuery.of(context).size.width * 0.75,
+            ),
+            child: Column(
+              crossAxisAlignment: message.isCurrentUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              children: [
+                // Username (only for others, not self)
+                if (!message.isCurrentUser)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8.0, bottom: 2.0),
+                    child: Text(
+                      message.username,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+
+                // The message bubble
+                Container(
+                  decoration: BoxDecoration(
+                    color: bubbleColor,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(16),
+                      topRight: const Radius.circular(16),
+                      bottomLeft: message.isCurrentUser
+                          ? const Radius.circular(16)
+                          : const Radius.circular(4),
+                      bottomRight: message.isCurrentUser
+                          ? const Radius.circular(4)
+                          : const Radius.circular(16),
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      // Message content
+                      Text(
+                        message.content,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: textColor,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      // Timestamp
+                      Text(
+                        formattedTime,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: textColor.withOpacity(0.7),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Show avatar for current user's messages on the right side
+          if (message.isCurrentUser) const SizedBox(width: 8),
+          if (message.isCurrentUser) avatarWidget,
+        ],
       ),
     );
   }
