@@ -6,19 +6,22 @@ import 'package:provider/provider.dart';
 // --- Updated Imports for Settings Sub-screens ---
 import 'settings_feature/account/edit_profile.dart';
 import 'settings_feature/account/change_password_page.dart';
-// import 'settings_feature/account/college_verification_page.dart'; // Assuming path exists
-// import 'settings_feature/account/linked_accounts_page.dart'; // Assuming path exists
 import 'settings_feature/notifications/notification_settings_page.dart';
 import 'settings_feature/privacy/privacy_security_page.dart';
 import 'settings_feature/privacy/blocked_users.dart';
-// import 'settings_feature/preferences/preferences_page.dart'; // Assuming path exists
 import 'settings_feature/app/app_settings_page.dart';
 import 'settings_feature/legal/legal_policies_page.dart';
 import 'settings_feature/support/support_help_page.dart';
 import 'settings_feature/auth/logout_delete_page.dart';
 
-// --- Service/Provider Imports ---
-import '../../services/auth_provider.dart'; // To check login state if needed
+// --- Placeholder Imports (Existing) ---
+import 'settings_feature/account/college_verification_page.dart';
+import 'settings_feature/account/linked_accounts_page.dart';
+import 'settings_feature/preferences/preferences_page.dart';
+
+// --- Services/Providers ---
+import '../../services/auth_provider.dart';
+import '../../services/theme_provider.dart'; // <-- New Import for Theme toggle
 
 // --- Theme and Constants ---
 import '../../theme/theme_constants.dart';
@@ -32,20 +35,21 @@ class SettingsHomeScreen extends StatelessWidget {
     required IconData icon,
     required String title,
     required String subtitle,
-    required Widget targetScreen, // The screen to navigate to
+    required Widget targetScreen,
     Color? iconColor,
-    bool requiresAuth = false, // Does this setting require login?
+    bool requiresAuth = false,
   }) {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final bool canNavigate = !requiresAuth || authProvider.isAuthenticated;
     final theme = Theme.of(context);
-    final bool isDark = theme.brightness == Brightness.dark;
 
     return ListTile(
       leading: Icon(icon, color: iconColor ?? theme.colorScheme.primary),
       title: Text(title),
       subtitle: Text(subtitle, style: theme.textTheme.bodySmall),
-      trailing: canNavigate ? const Icon(Icons.chevron_right) : const Icon(Icons.lock_outline, size: 18, color: Colors.grey),
+      trailing: canNavigate
+          ? const Icon(Icons.chevron_right)
+          : const Icon(Icons.lock_outline, size: 18, color: Colors.grey),
       onTap: canNavigate
           ? () => Navigator.push(
         context,
@@ -73,11 +77,11 @@ class SettingsHomeScreen extends StatelessWidget {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final themeProvider = Provider.of<ThemeProvider>(context); // <-- New
 
     return Scaffold(
       appBar: AppBar(
@@ -92,7 +96,7 @@ class SettingsHomeScreen extends StatelessWidget {
             icon: Icons.person_outline,
             title: 'Edit Profile',
             subtitle: 'Update your name, username, college, avatar',
-            targetScreen: const EditProfileScreen(), // Navigate to EditProfileScreen
+            targetScreen: const EditProfileScreen(),
             requiresAuth: true,
           ),
           _buildSettingsItem(
@@ -100,23 +104,23 @@ class SettingsHomeScreen extends StatelessWidget {
             icon: Icons.lock_outline,
             title: 'Change Password',
             subtitle: 'Update your login password',
-            targetScreen: const ChangePasswordPage(), // Navigate to ChangePasswordPage
+            targetScreen: const ChangePasswordPage(),
             requiresAuth: true,
           ),
           _buildSettingsItem(
             context: context,
             icon: Icons.verified_user_outlined,
-            title: 'College Verification', // Example
+            title: 'College Verification',
             subtitle: 'Verify your student status',
-            targetScreen: const CollegeVerificationPage(), // Placeholder path
+            targetScreen: const CollegeVerificationPage(),
             requiresAuth: true,
           ),
           _buildSettingsItem(
             context: context,
             icon: Icons.link,
-            title: 'Linked Accounts', // Example
+            title: 'Linked Accounts',
             subtitle: 'Manage connected social accounts',
-            targetScreen: const LinkedAccountsPage(), // Placeholder path
+            targetScreen: const LinkedAccountsPage(),
             requiresAuth: true,
           ),
 
@@ -126,24 +130,36 @@ class SettingsHomeScreen extends StatelessWidget {
             icon: Icons.notifications_outlined,
             title: 'Notifications',
             subtitle: 'Manage push and email notifications',
-            targetScreen: const NotificationSettingsPage(), // Navigate
-            requiresAuth: true, // Usually requires login
+            targetScreen: const NotificationSettingsPage(),
+            requiresAuth: true,
           ),
           _buildSettingsItem(
             context: context,
             icon: Icons.tune_outlined,
-            title: 'Preferences', // Example
+            title: 'Preferences',
             subtitle: 'Feed customization, content filters',
-            targetScreen: const PreferencesPage(), // Placeholder path
+            targetScreen: const PreferencesPage(),
           ),
           _buildSettingsItem(
             context: context,
             icon: Icons.settings_applications_outlined,
             title: 'App Settings',
             subtitle: 'Theme, data usage, language',
-            targetScreen: const AppSettingsPage(), // Navigate
+            targetScreen: const AppSettingsPage(),
           ),
 
+          // Dark Mode Toggle (added after App Settings)
+          SwitchListTile(
+            title: const Text('Dark Mode'),
+            secondary: Icon(isDark ? Icons.dark_mode_outlined : Icons.light_mode_outlined),
+            value: themeProvider.themeMode == ThemeMode.dark ||
+                (themeProvider.themeMode == ThemeMode.system &&
+                    MediaQuery.platformBrightnessOf(context) == Brightness.dark),
+            onChanged: (bool value) {
+              context.read<ThemeProvider>().toggleTheme(value);
+            },
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+          ),
 
           _buildSectionHeader(context, 'Privacy & Security'),
           _buildSettingsItem(
@@ -151,7 +167,7 @@ class SettingsHomeScreen extends StatelessWidget {
             icon: Icons.security_outlined,
             title: 'Privacy & Security',
             subtitle: 'Account visibility, data permissions',
-            targetScreen: const PrivacySecurityPage(), // Navigate
+            targetScreen: const PrivacySecurityPage(),
             requiresAuth: true,
           ),
           _buildSettingsItem(
@@ -159,7 +175,7 @@ class SettingsHomeScreen extends StatelessWidget {
             icon: Icons.block,
             title: 'Blocked Users',
             subtitle: 'Manage users you have blocked',
-            targetScreen: const BlockedUsersScreen(), // Navigate
+            targetScreen: const BlockedUsersScreen(),
             requiresAuth: true,
           ),
 
@@ -169,48 +185,45 @@ class SettingsHomeScreen extends StatelessWidget {
             icon: Icons.help_outline,
             title: 'Help & Support',
             subtitle: 'FAQ, contact support',
-            targetScreen: const SupportHelpPage(), // Navigate
+            targetScreen: const SupportHelpPage(),
           ),
           _buildSettingsItem(
             context: context,
             icon: Icons.gavel_outlined,
             title: 'Legal & Policies',
             subtitle: 'Terms of Service, Privacy Policy',
-            targetScreen: const LegalPoliciesPage(), // Navigate
+            targetScreen: const LegalPoliciesPage(),
           ),
 
-          // Auth Actions Section (Logout/Delete)
           _buildSectionHeader(context, 'Authentication'),
           _buildSettingsItem(
             context: context,
             icon: Icons.exit_to_app,
-            iconColor: ThemeConstants.errorColor, // Use error color for emphasis
+            iconColor: ThemeConstants.errorColor,
             title: 'Logout / Delete Account',
             subtitle: 'Sign out or permanently delete your account',
-            targetScreen: const LogoutDeletePage(), // Navigate
+            targetScreen: const LogoutDeletePage(),
             requiresAuth: true,
           ),
 
-          const SizedBox(height: 30), // Bottom padding
-
+          const SizedBox(height: 30),
         ],
       ),
     );
   }
 }
 
-
-// --- Placeholder Screens (If they don't exist yet) ---
-// Add basic Scaffold widgets for screens that might be missing
-
+// --- Placeholder Screens (no changes) ---
 class CollegeVerificationPage extends StatelessWidget {
   const CollegeVerificationPage({Key? key}) : super(key: key);
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("College Verification")));
 }
+
 class LinkedAccountsPage extends StatelessWidget {
   const LinkedAccountsPage({Key? key}) : super(key: key);
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("Linked Accounts")));
 }
+
 class PreferencesPage extends StatelessWidget {
   const PreferencesPage({Key? key}) : super(key: key);
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("Preferences")));

@@ -10,18 +10,18 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.5
-  provider: ^6.0.5
-  http: ^1.1.0
+  provider: ^6.1.2
+  http: ^1.2.0
   http_parser: ^4.0.2
-  path_provider: ^2.1.1
-  image_picker: ^1.0.4
-  cached_network_image: ^3.3.0
-  flutter_svg: ^2.0.7
+  path_provider: ^2.1.2
+  image_picker: ^1.0.7
+  cached_network_image: ^3.3.1
+  flutter_svg: ^2.0.9
   intl: ^0.18.1
   shimmer: ^3.0.0
   flutter_markdown: ^0.6.17+1
-  url_launcher: ^6.1.14
-  shared_preferences: ^2.2.1
+  url_launcher: ^6.2.5
+  shared_preferences: ^2.2.3
   flutter_secure_storage: ^9.0.0
   web_socket_channel: ^2.4.0
   flutter_launcher_icons: ^0.14.3
@@ -29,7 +29,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^2.0.0
+  flutter_lints: ^3.0.1
 
 flutter:
   uses-material-design: true
@@ -37,7 +37,6 @@ flutter:
   assets:
     - assets/images/
 
-  # Fonts
   fonts:
     - family: Poppins
       fonts:
