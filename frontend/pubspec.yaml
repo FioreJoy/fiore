@@ -23,7 +23,8 @@ dependencies:
   url_launcher: ^6.1.14
   shared_preferences: ^2.2.1
   flutter_secure_storage: ^9.0.0
-  web_socket_channel: ^2.4.0 # For WebSocket communication
+  web_socket_channel: ^2.4.0
+  flutter_launcher_icons: ^0.14.3
 
 dev_dependencies:
   flutter_test:
