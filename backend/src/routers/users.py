@@ -140,3 +140,37 @@ async def get_my_joined_events(
         raise HTTPException(status_code=500, detail=f"Failed to fetch joined events: {e}")
     finally:
         if conn: conn.close()
+
+@router.get("/me/stats", response_model=schemas.UserStats)
+async def get_user_stats(current_user_id: int = Depends(auth.get_current_user)):
+    """Fetches statistics for the currently authenticated user."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Fetch communities joined
+        cursor.execute("SELECT COUNT(*) FROM community_members WHERE user_id = %s;", (current_user_id,))
+        communities_joined = cursor.fetchone()['count']
+
+        # Fetch events attended
+        cursor.execute("SELECT COUNT(*) FROM event_participants WHERE user_id = %s;", (current_user_id,))
+        events_attended = cursor.fetchone()['count']
+
+        # Fetch posts created
+        cursor.execute("SELECT COUNT(*) FROM posts WHERE user_id = %s;", (current_user_id,))
+        posts_created = cursor.fetchone()['count']
+
+        return {
+            "communities_joined": communities_joined,
+            "events_attended": events_attended,
+            "posts_created": posts_created
+        }
+    except Exception as e:
+        # Log the detailed error
+        import traceback
+        print(f"❌ Error fetching user stats for user {current_user_id}:")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Failed to fetch user statistics")
+    finally:
+        if conn: conn.close()
