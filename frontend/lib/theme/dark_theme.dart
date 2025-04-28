@@ -160,4 +160,9 @@ final ThemeData darkTheme = ThemeData(
       color: Colors.white,
     ),
   ),
+  textSelectionTheme: const TextSelectionThemeData(
+    cursorColor: Colors.white,
+    selectionColor: ThemeConstants.accentColor,
+    selectionHandleColor: ThemeConstants.primaryColor,
+  ),
 );

@@ -159,4 +159,11 @@ final ThemeData lightTheme = ThemeData(
       color: Colors.grey.shade800,
     ),
   ),
+
+  // <<< ADDED: Text Selection Theme for cursor color >>>
+  textSelectionTheme: TextSelectionThemeData(
+    cursorColor: Colors.black87,
+    selectionColor: ThemeConstants.primaryColor.withOpacity(0.3),
+    selectionHandleColor: ThemeConstants.primaryColor,
+  ),
 );
