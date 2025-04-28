@@ -34,63 +34,97 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
   bool _isLoading = false;
   Map<String, dynamic>? _userData; // Store fetched user data
   String? _error; // Store error message
+  
+  int _communitiesJoined = 0;
+  int _eventsAttended = 0;
+  int _postsCreated = 0;
 
   @override
   void initState() {
     super.initState();
-    // Use addPostFrameCallback for initial load after build
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      if (authProvider.isAuthenticated && _userData == null) {
-        _loadUserData();
-      }
+      _initialLoad(); // Call the initial loading logic
     });
   }
 
+  Future<void> _initialLoad() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (authProvider.isAuthenticated && _userData == null) {
+      await _loadUserData();
+    } else if (authProvider.isAuthenticated) {
+      await _loadUserStats();
+    }
+  }
+
   Future<void> _loadUserData() async {
-    if (!mounted || _isLoading) return; // Prevent concurrent loads
+    if (_isLoading) return;
 
     setState(() {
       _isLoading = true;
-      _error = null; // Clear previous errors
+      _error = null;
     });
 
-    // Use specific AuthService via Provider
     final authService = Provider.of<AuthService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     if (authProvider.token == null) {
-      print("ProfileScreen: Cannot load user data, token is null.");
-      if (mounted) setState(() { _isLoading = false; _error = "Not logged in."; });
+      if (mounted) {
+        setState(() {
+          _error = "Not authenticated.";
+          _isLoading = false;
+        });
+      }
       return;
     }
 
     try {
-      // Call AuthService to get profile data
-      final data = await authService.getCurrentUserProfile(authProvider.token!);
+      final userData = await authService.getCurrentUserProfile(authProvider.token!);
       if (mounted) {
         setState(() {
-          _userData = data;
+          _userData = userData;
           _isLoading = false;
-          // Update image URL in AuthProvider if it changed
-          if (authProvider.userImageUrl != data['image_url']) {
-            authProvider.updateUserImageUrl(data['image_url']);
-          }
         });
+        await _loadUserStats();
       }
     } catch (e) {
-      print("Error loading user data in ProfileScreen: $e");
       if (mounted) {
         setState(() {
+          _error = "Failed to load profile data: $e";
           _isLoading = false;
-          _error = e.toString().replaceFirst('Exception: ', '');
         });
       }
     }
   }
 
-  // Function to handle navigation to settings
-  void _navigateToSettings() {
+  Future<void> _loadUserStats() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    if (authProvider.token == null) {
+      print("Cannot load stats: Not authenticated.");
+      return;
+    }
+
+    try {
+      final stats = await authService.getUserStats(authProvider.token!);
+      if (mounted) {
+        setState(() {
+          _communitiesJoined = stats['communities_joined'] ?? 0;
+          _eventsAttended = stats['events_attended'] ?? 0;
+          _postsCreated = stats['posts_created'] ?? 0;
+        });
+      }
+    } catch (e) {
+      print("Error loading user stats: $e");
+    }
+  }
+
+  // Define the missing methods
+  String formatDateTime(String dateTime) {
+    final date = DateTime.parse(dateTime);
+    return DateFormat('MMM dd, yyyy').format(date);
+  }
+void _navigateToSettings() {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const SettingsHomeScreen()), // Use renamed screen
@@ -100,81 +134,36 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
       _loadUserData(); // Trigger reload
     });
   }
-
-  // Function to handle editing profile
   void _editProfile() {
-    // Here you would navigate to a profile edit page
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Edit Profile functionality will be implemented soon')),
-    );
-    // You can replace with actual navigation when you have the edit profile screen
-    // Navigator.push(context, MaterialPageRoute(builder: (context) => EditProfileScreen()));
+    // Implement the edit profile functionality
   }
 
-  // Function to share profile
   void _shareProfile() {
-    final username = _userData?['username'] ?? '';
-    // This would typically integrate with a share plugin
-    // For now, copy a share link to clipboard as a demo
-    Clipboard.setData(ClipboardData(text: 'Check out my profile: @$username'));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Profile link copied to clipboard')),
-    );
+    // Implement the share profile functionality
   }
 
-  // Format date helper (moved from ThemeConstants or define here)
-  String formatDateTime(dynamic timestamp) {
-    if (timestamp == null) return 'N/A';
-    try {
-      // Handle both String and DateTime objects potentially coming from JSON
-      DateTime? dt;
-      if (timestamp is String) {
-        dt = DateTime.tryParse(timestamp)?.toLocal();
-      } else if (timestamp is DateTime) {
-        dt = timestamp.toLocal();
-      }
-      if (dt != null) {
-        // Example format: Jan 15, 2024, 10:30 AM
-        return DateFormat('MMM d, yyyy, hh:mm a').format(dt);
-      }
-    } catch (e) {
-      print("Error formatting timestamp '$timestamp': $e");
-    }
-    return 'Invalid Date'; // Fallback for parsing errors
-  }
-
-  // Format location helper
   String formatLocation(dynamic locationData) {
     if (locationData is Map) {
       final lon = locationData['longitude'];
       final lat = locationData['latitude'];
-      if (lon is num && lat is num) {
-        return '(${lon.toStringAsFixed(4)}, ${lat.toStringAsFixed(4)})';
-      }
-    } else if (locationData is String && locationData.isNotEmpty) {
-      // If backend sends string directly, return it (or parse if needed)
-      return locationData;
-    }
-    return 'N/A';
+      if (lon is num && lat is num) return '(${lon.toStringAsFixed(4)}, ${lat.toStringAsFixed(4)})';
+    } else if (locationData is String && locationData.isNotEmpty) return locationData;
+    return '(0,0)';
   }
-
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Keep state
+    super.build(context);
 
     final authProvider = Provider.of<AuthProvider>(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // Handle logout state change
     if (!authProvider.isAuthenticated && _userData != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() { _userData = null; _error = null; });
       });
-    }
-    // Handle login state change if data wasn't loaded
-    else if (authProvider.isAuthenticated && _userData == null && !_isLoading && _error == null) {
+    } else if (authProvider.isAuthenticated && _userData == null && !_isLoading && _error == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadUserData();
       });
@@ -184,57 +173,49 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
       appBar: AppBar(
         title: const Text('My Profile'),
         actions: [
-          if (authProvider.isAuthenticated) // Only show settings if logged in
-            IconButton( icon: const Icon(Icons.settings_outlined), tooltip: 'Settings', onPressed: _navigateToSettings, ),
+          if (authProvider.isAuthenticated)
+            IconButton(icon: const Icon(Icons.settings_outlined), tooltip: 'Settings', onPressed: _navigateToSettings),
         ],
         elevation: 1,
       ),
       body: RefreshIndicator(
         onRefresh: _loadUserData,
-        child: _buildBody(authProvider, isDark), // Delegate body build
+        child: _buildBody(authProvider, isDark),
       ),
     );
   }
 
-  // --- Body Build Logic ---
   Widget _buildBody(AuthProvider authProvider, bool isDark) {
     if (_isLoading && _userData == null) {
-      return _buildLoadingShimmer(isDark); // Shimmer on initial load
+      return _buildLoadingShimmer(isDark);
     } else if (!authProvider.isAuthenticated) {
-      return _buildNotLoggedInView(isDark); // Show login prompt
+      return _buildNotLoggedInView(isDark);
     } else if (_error != null) {
-      return _buildErrorView(_error!, isDark); // Show error view
+      return _buildErrorView(_error!, isDark);
     } else if (_userData != null) {
-      return _buildProfileView(isDark); // Show profile
+      return _buildProfileView(isDark);
     } else {
-      // Fallback: Should ideally not be reached if logic is correct
       return const Center(child: Text("Loading profile..."));
     }
   }
 
-
-  // --- Profile View (when data is loaded) ---
   Widget _buildProfileView(bool isDark) {
-    // Data extraction (already checked _userData != null)
     final String name = _userData!['name'] ?? 'N/A';
     final String username = _userData!['username'] ?? 'N/A';
     final String email = _userData!['email'] ?? 'N/A';
     final String gender = _userData!['gender'] ?? 'N/A';
     final String college = _userData!['college'] ?? 'N/A';
-    // Use image URL from AuthProvider as it might be updated more recently after profile edit
     final String? imageUrl = Provider.of<AuthProvider>(context, listen: false).userImageUrl ?? _userData!['image_url'];
     final List<String> interests = List<String>.from(_userData!['interests'] ?? []);
     final String joinedDate = formatDateTime(_userData!['created_at']);
     final String lastSeen = formatDateTime(_userData!['last_seen']);
-    final location = _userData!['current_location']; // Map<String, double>? or String?
+    final location = _userData!['current_location'];
 
-    // Stats data - you might need to adjust these based on your actual API/data model
-    final int joinedCommunities = _userData!['joined_communities_count'] as int? ?? 0;
-    final int joinedEvents = _userData!['joined_events_count'] as int? ?? 0;
-    final int posts = _userData!['posts_count'] as int? ?? 0;
+    final int joinedCommunities = _communitiesJoined;
+    final int joinedEvents = _eventsAttended;
+    final int posts = _postsCreated;
     final int followers = _userData!['followers_count'] as int? ?? 0;
 
-    // Main container color/gradient to make header more attractive
     final Color headerStartColor = isDark
         ? ThemeConstants.accentColor.withOpacity(0.7)
         : ThemeConstants.accentColor.withOpacity(0.1);
@@ -243,9 +224,8 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
         : ThemeConstants.accentColor.withOpacity(0.05);
 
     return ListView(
-      padding: EdgeInsets.zero, // Remove padding for full-width header
+      padding: EdgeInsets.zero,
       children: [
-        // Enhanced Profile Header with background
         Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -271,11 +251,9 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
                                             ThemeConstants.largePadding),
           child: Column(
             children: [
-              // Profile picture and name/username
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Enhanced avatar with border
                   Container(
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
@@ -300,7 +278,6 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
                   ),
                   const SizedBox(width: ThemeConstants.mediumPadding),
 
-                  // Name, username, joined info
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -341,13 +318,11 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
                 ],
               ),
 
-              // Edit and Share buttons
               Padding(
                 padding: const EdgeInsets.only(top: ThemeConstants.mediumPadding),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    // Edit Profile Button
                     ElevatedButton.icon(
                       onPressed: _editProfile,
                       icon: const Icon(Icons.edit, size: 18),
@@ -362,7 +337,6 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
                       ),
                     ),
 
-                    // Share Profile Button
                     OutlinedButton.icon(
                       onPressed: _shareProfile,
                       icon: const Icon(Icons.share, size: 18),
@@ -385,7 +359,6 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
           ),
         ),
 
-        // Stats Section (Communities, Events, Posts, Followers)
         Padding(
           padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
           child: Column(
@@ -394,7 +367,6 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
               _buildSectionTitle('Stats', isDark),
               const SizedBox(height: 8),
 
-              // Stats grid
               Row(
                 children: [
                   _buildStatCard(
@@ -433,7 +405,6 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
 
         const Divider(),
 
-        // About Me Section
         Padding(
           padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
           child: Column(
@@ -450,7 +421,6 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
 
         const Divider(),
 
-        // Interests Section with enhanced styling
         Padding(
           padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
           child: Column(
@@ -474,7 +444,7 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
                     runSpacing: 8.0,
                     children: interests.map((interest) => Chip(
                       avatar: Icon(
-                        Icons.local_offer, // Or another relevant icon
+                        Icons.local_offer,
                         size: 16,
                         color: ThemeConstants.accentColor,
                       ),
@@ -503,12 +473,10 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
         ),
 
         const SizedBox(height: ThemeConstants.largePadding),
-        // Add more sections like activities, posts, etc. here if needed
       ],
     );
   }
 
-  // Stat card widget
   Widget _buildStatCard(BuildContext context, {
     required IconData icon,
     required String value,
@@ -558,7 +526,6 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
     );
   }
 
-  // --- Helper Widgets ---
   Widget _buildSectionTitle(String title, bool isDark) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12.0),

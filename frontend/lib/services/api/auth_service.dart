@@ -164,7 +164,18 @@ class AuthService {
       rethrow;
     }
   }
-
+ Future<Map<String, dynamic>> getUserStats(String token) async {
+    try {
+      final response = await _apiClient.get(
+        '/users/me/stats',
+        token: token, // Use token parameter instead of headers
+      );
+      return response as Map<String, dynamic>;
+    } catch (e) {
+      print("AuthService: Error fetching user stats: $e");
+      throw Exception('Failed to load user stats');
+    }
+  }
   /// Deletes the account of the currently authenticated user.
   Future<void> deleteAccount({required String token}) async {
     try {
