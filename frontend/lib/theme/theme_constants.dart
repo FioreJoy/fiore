@@ -3,13 +3,16 @@ import 'package:flutter/material.dart';
 class ThemeConstants {
   // Color Palette
   static const Color primaryColor = Color(0xFF1B1F3B); // Midnight Blue
+  //static const Color accentColor = Color.fromARGB(255, 246, 247, 247); // Cyan
   static const Color accentColor = Color(0xFF00FFFF); // Cyan
+  //static const Color accentColor = Color(0xD4C4EC);
   static const Color highlightColor = Color(0xFFFFDD44); // Yellow
   static const Color backgroundDark = Color(0xFF121426);
   static const Color backgroundDarker = Color(0xFF0A0C18);
   static const Color backgroundDarkest = Color(0xFF050714);
   static const Color errorColor = Color(0xFFE57373);
   static const Color successColor = Color(0xFF81C784);
+  static const Color warningColor = Colors.amber;
 
   // Spacing constants
   static const double smallPadding = 8.0;

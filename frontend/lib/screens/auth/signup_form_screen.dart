@@ -205,8 +205,8 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
               // Bottom Buttons
               Padding( padding: const EdgeInsets.only(top: ThemeConstants.mediumPadding, bottom: 5.0),
                 child: CustomButton( // Use CustomButton
-                  text: _currentStep == 3 ? "Create Account" : "Continue",
-                  onPressed: _isLoading ? null : _handleNextOrSubmit,
+                  text: _currentStep < 3 ? 'Continue' : 'Sign Up',
+                  onPressed: _isLoading ? () {} : _signUp, // Provide a default empty function
                   isLoading: _isLoading,
                   type: ButtonType.primary,
                   isFullWidth: true,

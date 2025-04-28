@@ -41,7 +41,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Map<String, dynamic>? _initialUserData; // Store initial data to compare changes
 
   bool _isLoadingData = true; // Loading state for initial fetch
-  bool _isSaving = false; // Loading state for saving profile
+  bool _isLoading = false; // Loading state for saving profile
   String? _errorMessage; // To display errors
 
   // Example interest options (should ideally be consistent across app)
@@ -137,7 +137,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<void> _saveProfile() async {
     setState(() => _errorMessage = null); // Clear error
 
-    if (!_formKey.currentState!.validate() || _isSaving || _initialUserData == null) {
+    if (!_formKey.currentState!.validate() || _isLoading || _initialUserData == null) {
       return;
     }
 
@@ -185,12 +185,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     // --- End Prepare data ---
 
 
-    setState(() => _isSaving = true);
+    setState(() => _isLoading = true);
     final authService = Provider.of<AuthService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     if (authProvider.token == null) {
-      setState(() { _errorMessage = "Not authenticated."; _isSaving = false; });
+      setState(() { _errorMessage = "Not authenticated."; _isLoading = false; });
       return;
     }
 
@@ -217,14 +217,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (mounted) {
         setState(() {
           _errorMessage = e.toString().replaceFirst('Exception: ', '');
-          _isSaving = false;
+          _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = "An unexpected error occurred saving the profile.";
-          _isSaving = false;
+          _isLoading = false;
         });
         print("EditProfileScreen: Unexpected save error: $e");
       }
@@ -318,9 +318,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
 
             CustomButton(
-              text: 'Save Profile',
-              onPressed: _isSaving ? null : _saveProfile,
-              isLoading: _isSaving,
+              text: 'Save Changes',
+              onPressed: _isLoading ? () {} : _saveProfile, // Provide a default empty function
+              isLoading: _isLoading,
               type: ButtonType.primary,
               isFullWidth: true,
             ),

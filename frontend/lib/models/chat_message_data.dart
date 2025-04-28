@@ -8,6 +8,7 @@ class ChatMessageData {
   final String username;
   final String content;
   final DateTime timestamp;
+  final String? profile_image_url;
 
   ChatMessageData({
     required this.message_id,
@@ -17,6 +18,7 @@ class ChatMessageData {
     required this.username,
     required this.content,
     required this.timestamp,
+    this.profile_image_url,
   });
 
   factory ChatMessageData.fromJson(Map<String, dynamic> json) {

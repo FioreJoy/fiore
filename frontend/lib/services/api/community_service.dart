@@ -1,5 +1,3 @@
-// frontend/lib/services/api/community_service.dart
-
 import 'dart:io'; // For File type
 import 'package:http/http.dart' as http; // For MultipartFile
 
@@ -32,6 +30,19 @@ class CommunityService {
 
   /// Fetches a list of trending communities.
   Future<List<dynamic>> getTrendingCommunities({String? token}) async {
+    try {
+      final response = await _apiClient.get(
+        ApiEndpoints.communitiesTrending,
+        token: token, // Pass token if needed
+      );
+      return response as List<dynamic>; // Expects List<CommunityDisplay>
+    } catch (e) {
+      print("CommunityService: Failed to fetch trending communities - $e");
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> getJoinedCommunities({String? token}) async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.communitiesTrending,
