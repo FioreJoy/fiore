@@ -111,7 +111,7 @@ class _LinkedAccountsPageState extends State<LinkedAccountsPage> {
         text: isLinked ? 'Unlink' : 'Link',
         onPressed: isLinked ? onUnlink : onLink,
         type: isLinked ? ButtonType.outline : ButtonType.primary,
-        size: ButtonSize.small,
+        // size: ButtonSize.small, // Remove this line if 'size' is not supported
         // foregroundColor: isLinked ? Colors.redAccent : kDeepMidnightBlue,
         // backgroundColor: isLinked ? Colors.transparent : kHighlightYellow,
         // borderColor: isLinked ? Colors.redAccent : null, // Add this for outline button

@@ -342,3 +342,4 @@ async def unfollow_user_route(user_id: int, current_user_id: int = Depends(auth.
 #     # and join users on f.following_id = u.id
 #     # Remember to process data and generate image_url
 #     pass
+        #if conn: conn.close()

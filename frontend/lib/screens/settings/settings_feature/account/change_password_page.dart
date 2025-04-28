@@ -161,7 +161,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
 
               CustomButton(
                 text: 'Update Password',
-                onPressed: _isLoading ? null : _submitChangePassword,
+                onPressed: _isLoading ? () {} : _submitChangePassword,
                 isLoading: _isLoading,
                 type: ButtonType.primary,
                 isFullWidth: true,

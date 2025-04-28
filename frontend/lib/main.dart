@@ -1,13 +1,12 @@
 // frontend/lib/main.dart
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-// --- Updated Screen Imports ---
-import 'screens/auth/login_screen.dart'; // Updated path
-import 'screens/main_navigation_screen.dart'; // Updated path for main container
+// --- Screen Imports ---
+import 'screens/auth/login_screen.dart';
+import 'screens/main_navigation_screen.dart';
 
-// Service Imports (Corrected paths)
+// --- Service Imports ---
 import 'services/auth_provider.dart';
 import 'services/api_client.dart';
 import 'services/websocket_service.dart';
@@ -22,29 +21,33 @@ import 'services/api/chat_service.dart';
 import 'services/api/settings_service.dart';
 import 'services/api/block_service.dart';
 
-// Theme Imports
-import 'theme/theme_constants.dart';
+// --- Theme Imports ---
+import 'services/theme_provider.dart'; // <- New ThemeProvider
 import 'theme/light_theme.dart';
 import 'theme/dark_theme.dart';
-// Constants
+
+// --- App Constants ---
 import 'app_constants.dart';
 
-void main() {
-  // Ensure environment variables are available (optional check)
-  const apiKey = String.fromEnvironment('API_KEY');
-  const wsUrl = String.fromEnvironment('WS_BASE_URL');
-  if (apiKey.isEmpty || wsUrl.isEmpty) {
-    print("FATAL: API_KEY or WS_BASE_URL environment variable not provided during build.");
-    // Handle error appropriately
-  }
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize AuthProvider and wait for token
+  final authProvider = AuthProvider();
+  await authProvider.loadToken();
+
+  // Initialize ThemeProvider
+  final themeProvider = ThemeProvider();
 
   runApp(
     MultiProvider(
       providers: [
         // --- Core Providers ---
         Provider<ApiClient>(create: (_) => ApiClient(), dispose: (_, client) => client.dispose()),
-        ChangeNotifierProvider<AuthProvider>(create: (_) => AuthProvider()),
         Provider<WebSocketService>(create: (_) => WebSocketService(), dispose: (_, service) => service.dispose()),
+
+        ChangeNotifierProvider.value(value: authProvider),
+        ChangeNotifierProvider.value(value: themeProvider),
 
         // --- API Service Providers ---
         ProxyProvider<ApiClient, AuthService>(update: (_, apiClient, __) => AuthService(apiClient)),
@@ -57,64 +60,46 @@ void main() {
         ProxyProvider<ApiClient, ChatService>(update: (_, apiClient, __) => ChatService(apiClient)),
         ProxyProvider<ApiClient, SettingsService>(update: (_, apiClient, __) => SettingsService(apiClient)),
         ProxyProvider<ApiClient, BlockService>(update: (_, apiClient, __) => BlockService(apiClient)),
-
-        // --- UI State Notifiers ---
-        ChangeNotifierProvider<ThemeNotifier>(create: (_) => ThemeNotifier()),
       ],
       child: const MyApp(),
     ),
   );
 }
 
-// ThemeNotifier class (keep as is)
-class ThemeNotifier with ChangeNotifier {
-  ThemeData _themeData;
-  ThemeNotifier() : _themeData = darkTheme();
-  ThemeData getTheme() => _themeData;
-  void setTheme(ThemeData themeData) { _themeData = themeData; notifyListeners(); }
-  void toggleTheme() { _themeData = (_themeData == lightTheme()) ? darkTheme() : lightTheme(); notifyListeners(); }
-  bool get isDarkMode => _themeData == darkTheme();
-}
-
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ThemeNotifier>(
-      builder: (context, themeNotifier, child) {
-        return MaterialApp(
-          title: AppConstants.appName,
-          theme: themeNotifier.getTheme(),
-          debugShowCheckedModeBanner: false,
-          // The home logic remains the same, checking auth state
-          home: Consumer<AuthProvider>(
-            builder: (context, authProvider, _) {
-              if (authProvider.isTryingAutoLogin) {
-                return const Scaffold(body: Center(child: CircularProgressIndicator()));
-              }
-              // Navigate to MainNavigationScreen if authenticated, else LoginScreen
-              return authProvider.isAuthenticated
-                  ? const MainNavigationScreen() // <-- Use the screen from its new file
-                  : const LoginScreen(); // <-- Use screen from its new path
-            },
-          ),
-          // Define named routes for easier navigation (optional but recommended)
-          routes: {
-            '/login': (context) => const LoginScreen(),
-            '/main': (context) => const MainNavigationScreen(),
-            // Define routes for other screens if needed, e.g.:
-            // '/signup': (context) => const SignUpScreen(), // From screens/auth/
-            // '/settings': (context) => const SettingsHomeScreen(), // From screens/settings/
-            // ... etc
-          },
-          // Set initialRoute if using named routes extensively
-          // initialRoute: '/', // Define what '/' maps to (e.g., the auth check)
-        );
+    final authProvider = context.watch<AuthProvider>();
+    final themeProvider = context.watch<ThemeProvider>();
+
+    if (authProvider.isLoading || themeProvider.isLoading) {
+      return const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    return MaterialApp(
+      title: AppConstants.appName,
+      debugShowCheckedModeBanner: false,
+
+      themeMode: themeProvider.themeMode,
+      theme: lightTheme,
+      darkTheme: darkTheme,
+
+      home: authProvider.isAuthenticated
+          ? const MainNavigationScreen()
+          : const LoginScreen(),
+
+      routes: {
+        '/login': (context) => const LoginScreen(),
+        '/main': (context) => const MainNavigationScreen(),
+        // Add more routes here if needed
       },
     );
   }
 }
-
-// NOTE: The MainNavigationScreen widget and its state (_MainNavigationScreenState)
-// have been MOVED to frontend/lib/screens/main_navigation_screen.dart

@@ -175,9 +175,9 @@ class _LogoutDeletePageState extends State<LogoutDeletePage> {
             const SizedBox(height: 16),
             CustomButton(
               text: 'Log Out',
-              onPressed: _logout,
+              onPressed: () => _logout(),
               icon: Icons.logout,
-              type: ButtonType.secondary, // Use secondary style for logout
+              type: ButtonType.secondary, // Use a valid ButtonType
               isFullWidth: true,
             ),
 
@@ -198,18 +198,23 @@ class _LogoutDeletePageState extends State<LogoutDeletePage> {
 
             // Error Message Display
             if (_errorMessage != null)
-              Padding( padding: const EdgeInsets.only(bottom: 15.0), child: Text( _errorMessage!, style: const TextStyle(color: ThemeConstants.errorColor, fontSize: 14), textAlign: TextAlign.center,),),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 15.0),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: ThemeConstants.errorColor, fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+              ),
 
             CustomButton(
-              text: 'Delete Account Permanently',
-              onPressed: _isDeleting ? null : _deleteAccount,
-              icon: Icons.delete_forever,
+              text: 'Delete Account',
+              onPressed: _isDeleting ?  () {} : _deleteAccount,
               isLoading: _isDeleting,
-              //color: ThemeConstants.errorColor, // Custom color for delete button
-              //textColor: Colors.white,
+              type: ButtonType.secondary,
               isFullWidth: true,
             ),
-            const Spacer(), // Push content to top if not centered
+            const Spacer(),
           ],
         ),
       ),

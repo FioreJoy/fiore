@@ -250,12 +250,13 @@ class BlockedUserDisplay(BaseModel):
     class Config:
         from_attributes = True
 
+
 class UserStats(BaseModel):
     communities_joined: int
     events_attended: int
     posts_created: int
 
-class UserDisplay(BaseModel):
+class UserDisplay(UserBase):
     id: int
     created_at: datetime
     last_seen: Optional[datetime] = None

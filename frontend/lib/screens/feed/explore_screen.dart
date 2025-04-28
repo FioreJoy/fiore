@@ -150,7 +150,7 @@ class _ExploreScreenState extends State<ExploreScreen> with AutomaticKeepAliveCl
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Explore',
+          'Connections',
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: ThemeConstants.headingText,

@@ -198,7 +198,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
 
               CustomButton(
                 text: 'Create Community',
-                onPressed: _isLoading ? null : _createCommunity,
+                onPressed: _createCommunity,
                 isLoading: _isLoading,
                 type: ButtonType.primary,
                 isFullWidth: true,
