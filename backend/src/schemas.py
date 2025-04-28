@@ -249,3 +249,16 @@ class BlockedUserDisplay(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UserStats(BaseModel):
+    communities_joined: int
+    events_attended: int
+    posts_created: int
+
+class UserDisplay(BaseModel):
+    id: int
+    created_at: datetime
+    last_seen: Optional[datetime] = None
+    interests: List[str] = []
+    followers_count: int = 0
+    following_count: int = 0

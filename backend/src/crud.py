@@ -658,3 +658,64 @@ def get_chat_messages_db(cursor: psycopg2.extensions.cursor, community_id: Optio
 
     cursor.execute(query, tuple(params))
     return cursor.fetchall()
+
+
+def follow_user(cursor, follower_id: int, following_id: int) -> bool:
+    try:
+        cursor.execute("""
+            INSERT INTO user_followers (follower_id, following_id)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+            RETURNING *
+        """, (follower_id, following_id))
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error following user: {e}")
+        return False
+
+def follow_user(cursor, follower_id: int, following_id: int) -> bool:
+    try:
+        cursor.execute("""
+            INSERT INTO user_followers (follower_id, following_id)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+            RETURNING *
+        """, (follower_id, following_id))
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error following user: {e}")
+        return False
+        
+def unfollow_user(cursor: psycopg2.extensions.cursor, follower_id: int, following_id: int) -> bool:
+    try:
+        cursor.execute(
+            """
+            DELETE FROM user_followers
+            WHERE follower_id = %s AND following_id = %s;
+            """,
+            (follower_id, following_id)
+        )
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error unfollowing user (follower: {follower_id}, following: {following_id}): {e}")
+        return False
+
+def get_user_profile(cursor, user_id: int):
+    cursor.execute("""
+        SELECT u.*, 
+            (SELECT COUNT(*) FROM user_followers WHERE following_id = u.id) AS followers_count,
+            (SELECT COUNT(*) FROM user_followers WHERE follower_id = u.id) AS following_count
+        FROM users u
+        WHERE u.id = %s
+    """, (user_id,))
+    user = cursor.fetchone()
+    return None
+
+def get_followers(cursor, user_id: int):
+    cursor.execute("""
+        SELECT u.id, u.name, u.username, u.image_path
+        FROM user_followers f
+        JOIN users u ON f.follower_id = u.id
+        WHERE f.following_id = %s
+    """, (user_id,))
+    return cursor.fetchall()
