@@ -177,11 +177,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
                             CustomButton(
                               text: 'Log In',
-                              onPressed: _isLoading ? null : () { _submitLogin(); },
+                              onPressed: _isLoading ? () {} : _submitLogin, // Provide a default empty function
                               isLoading: _isLoading,
-                              type: ButtonType.primary, // Make sure ButtonType enum is imported/defined
+                              type: ButtonType.primary,
                               isFullWidth: true,
-                              // height: 50, // Remove fixed height if CustomButton doesn't support it
                             ),
                           ],
                         ),

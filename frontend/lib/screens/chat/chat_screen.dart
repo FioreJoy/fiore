@@ -703,15 +703,17 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                       // Adapt ChatMessageData to MessageModel, now including profile image
                       final displayMessage = MessageModel(
                         id: messageData.message_id.toString(),
-                        userId: messageData.user_id.toString(),
-                        username: isCurrentUserMessage ? "Me" : messageData.username,
+                        senderId: messageData.user_id.toString(),
+                        senderName: messageData.username,
                         content: messageData.content,
                         timestamp: messageData.timestamp,
-                        isCurrentUser: isCurrentUserMessage,
                         profileImageUrl: profileImageUrl, // Pass profile image URL
                       );
 
-                      return ChatMessageBubble(message: displayMessage);
+                      return ChatMessageBubble(
+                        message: displayMessage,
+                        isMe: isCurrentUserMessage,
+                      );
                     },
                   ),
       ),
