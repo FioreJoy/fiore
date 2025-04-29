@@ -82,8 +82,8 @@ class _LinkedAccountsPageState extends State<LinkedAccountsPage> {
           // Add more providers as needed (Apple, Twitter, etc.)
            const Divider(color: kSubtleGray, height: 1),
            const SizedBox(height: 20),
-           Padding(
-             padding: const EdgeInsets.symmetric(horizontal: 16.0),
+           const Padding(
+             padding: EdgeInsets.symmetric(horizontal: 16.0),
              child: Text(
                'Linking accounts allows for quicker login and potential future integrations.',
                style: TextStyle(color: kSubtleGray, fontSize: 13),

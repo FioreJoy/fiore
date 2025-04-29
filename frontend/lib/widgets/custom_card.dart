@@ -19,7 +19,7 @@ class CustomCard extends StatelessWidget {
   final Clip clipBehavior;
 
   const CustomCard({
-    Key? key,
+    super.key,
     required this.child,
     this.width,
     this.height,
@@ -35,7 +35,7 @@ class CustomCard extends StatelessWidget {
     this.shape = BoxShape.rectangle,
     this.boxShadow,
     this.clipBehavior = Clip.antiAlias,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

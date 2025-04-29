@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart';
 import '../app_constants.dart';
 
 // Define API Key as a constant (load from environment ideally using --dart-define)

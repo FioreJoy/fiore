@@ -15,9 +15,6 @@ import 'settings_feature/support/support_help_page.dart';
 import 'settings_feature/auth/logout_delete_page.dart';
 
 // --- Placeholder Imports (Existing) ---
-import 'settings_feature/account/college_verification_page.dart';
-import 'settings_feature/account/linked_accounts_page.dart';
-import 'settings_feature/preferences/preferences_page.dart';
 
 // --- Services/Providers ---
 import '../../services/auth_provider.dart';
@@ -27,7 +24,7 @@ import '../../services/theme_provider.dart'; // <-- New Import for Theme toggle
 import '../../theme/theme_constants.dart';
 
 class SettingsHomeScreen extends StatelessWidget {
-  const SettingsHomeScreen({Key? key}) : super(key: key);
+  const SettingsHomeScreen({super.key});
 
   // Helper to create list tiles
   Widget _buildSettingsItem({
@@ -215,16 +212,16 @@ class SettingsHomeScreen extends StatelessWidget {
 
 // --- Placeholder Screens (no changes) ---
 class CollegeVerificationPage extends StatelessWidget {
-  const CollegeVerificationPage({Key? key}) : super(key: key);
+  const CollegeVerificationPage({super.key});
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("College Verification")));
 }
 
 class LinkedAccountsPage extends StatelessWidget {
-  const LinkedAccountsPage({Key? key}) : super(key: key);
+  const LinkedAccountsPage({super.key});
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("Linked Accounts")));
 }
 
 class PreferencesPage extends StatelessWidget {
-  const PreferencesPage({Key? key}) : super(key: key);
+  const PreferencesPage({super.key});
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text("Preferences")));
 }

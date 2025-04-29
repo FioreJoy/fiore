@@ -76,7 +76,7 @@ class _CollegeVerificationPageState extends State<CollegeVerificationPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-               Text(
+               const Text(
                  'Verify your college email (.edu) to unlock exclusive communities and features.',
                  style: TextStyle(color: kSubtleGray, fontSize: 14),
                ),

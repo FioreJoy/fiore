@@ -12,10 +12,9 @@ import '../../widgets/custom_text_field.dart';
 import '../../widgets/custom_button.dart';
 
 import '../../theme/theme_constants.dart';
-import '../../app_constants.dart';
 
 class CreateCommunityScreen extends StatefulWidget {
-  const CreateCommunityScreen({Key? key}) : super(key: key);
+  const CreateCommunityScreen({super.key});
 
   @override
   _CreateCommunityScreenState createState() => _CreateCommunityScreenState();
@@ -101,7 +100,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
     try {
       String locationToSend = _locationController.text.trim();
       if (locationToSend.isNotEmpty) {
-        final pattern = r'^\s*\(\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*\)\s*$';
+        const pattern = r'^\s*\(\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*\)\s*$';
         if (!RegExp(pattern).hasMatch(locationToSend)) {
           throw Exception("Invalid location format. Use (longitude,latitude) or leave blank.");
         }

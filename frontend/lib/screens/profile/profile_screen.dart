@@ -11,7 +11,7 @@ import '../../services/api/auth_service.dart'; // Use AuthService for profile ac
 import '../../services/auth_provider.dart'; // To get token and user state
 
 // --- Widget Imports ---
-import '../../widgets/custom_card.dart'; // Assuming used for layout?
+// Assuming used for layout?
 import '../../widgets/custom_button.dart'; // For retry button
 
 // --- Theme and Constants ---
@@ -22,7 +22,7 @@ import '../../app_constants.dart'; // For default avatar
 import '../settings/settings_home_screen.dart'; // Updated path
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  const ProfileScreen({super.key});
 
   @override
   _ProfileScreenState createState() => _ProfileScreenState();
@@ -248,7 +248,7 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
           padding: const EdgeInsets.only(left: 8.0),
           child: Wrap( spacing: 8.0, runSpacing: 4.0, children: interests.map((interest) => Chip(
             label: Text(interest), backgroundColor: ThemeConstants.accentColor.withOpacity(0.1),
-            labelStyle: TextStyle(color: ThemeConstants.accentColor, fontSize: 12), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            labelStyle: const TextStyle(color: ThemeConstants.accentColor, fontSize: 12), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             side: BorderSide(color: ThemeConstants.accentColor.withOpacity(0.3)),
           )).toList(),),
         ),
@@ -264,6 +264,6 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
   Widget _buildDetailItem(IconData icon, String label, String value, bool isDark) { /* Keep original */ return Padding( padding: const EdgeInsets.symmetric(vertical: 8.0), child: Row( children: [ Icon(icon, size: 20, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600), const SizedBox(width: 16), Text('$label:', style: TextStyle(fontWeight: FontWeight.w500, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)), const SizedBox(width: 8), Expanded(child: Text(value, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))),],),); }
   Widget _buildLoadingShimmer(bool isDark) { /* Keep original */ final baseColor = isDark ? Colors.grey.shade800 : Colors.grey.shade300; final highlightColor = isDark ? Colors.grey.shade700 : Colors.grey.shade100; return Shimmer.fromColors( baseColor: baseColor, highlightColor: highlightColor, child: ListView( padding: const EdgeInsets.all(ThemeConstants.mediumPadding), children: [ Row( children: [ const CircleAvatar(radius: 45), const SizedBox(width: ThemeConstants.mediumPadding), Expanded( child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Container(width: 150, height: 20, color: Colors.white), const SizedBox(height: 8), Container(width: 100, height: 16, color: Colors.white), const SizedBox(height: 8), Container(width: 120, height: 14, color: Colors.white),],),),],), const SizedBox(height: ThemeConstants.largePadding), const Divider(), const SizedBox(height: ThemeConstants.mediumPadding), Container(width: double.infinity, height: 20, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)), Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), const SizedBox(height: ThemeConstants.mediumPadding), Container(width: double.infinity, height: 20, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)), Wrap( spacing: 8.0, runSpacing: 4.0, children: List.generate(5, (_) => Chip(label: Container(width: 60, height: 14, color: Colors.white))),),],),); }
   Widget _buildNotLoggedInView(bool isDark) { /* Keep original */ return Center( child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [ Icon(Icons.person_off_outlined, size: 80, color: isDark ? Colors.grey.shade700 : Colors.grey.shade400), const SizedBox(height: 20), Text('Please log in to view your profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade500 : Colors.grey.shade700)), const SizedBox(height: 8), Text('Manage your communities, posts, and settings', style: TextStyle(fontSize: 14, color: isDark ? Colors.grey.shade600 : Colors.grey.shade600)), const SizedBox(height: 24), ElevatedButton( onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false), style: ElevatedButton.styleFrom(backgroundColor: ThemeConstants.accentColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)), child: const Text('Log In'),),],),); }
-  Widget _buildErrorView(String message, bool isDark) { /* Keep original */ return Center( child: Padding( padding: const EdgeInsets.all(16.0), child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [ Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 60), const SizedBox(height: 16), Text(message, textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)), const SizedBox(height: 24), CustomButton( text: 'Retry', icon: Icons.refresh, onPressed: _loadUserData, type: ButtonType.secondary,),],),),); }
+  Widget _buildErrorView(String message, bool isDark) { /* Keep original */ return Center( child: Padding( padding: const EdgeInsets.all(16.0), child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [ const Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 60), const SizedBox(height: 16), Text(message, textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)), const SizedBox(height: 24), CustomButton( text: 'Retry', icon: Icons.refresh, onPressed: _loadUserData, type: ButtonType.secondary,),],),),); }
 
 }

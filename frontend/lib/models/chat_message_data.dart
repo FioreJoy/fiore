@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart'; // For required annotation if needed
+// For required annotation if needed
 
 class ChatMessageData {
   final int messageId; // <- renamed from message_id (no underscore for Dart best practices)

@@ -16,7 +16,7 @@ import '../../widgets/custom_button.dart';
 
 // --- Theme and Constants ---
 import '../../theme/theme_constants.dart';
-import '../../app_constants.dart'; // For default images if needed
+// For default images if needed
 
 // --- Navigation Imports ---
 // Import ChatScreen if navigating directly to it
@@ -31,11 +31,11 @@ class CommunityDetailScreen extends StatefulWidget {
   final Function(String communityId, bool currentlyJoined) onToggleJoin;
 
   const CommunityDetailScreen({
-    Key? key,
+    super.key,
     required this.communityData,
     required this.initialIsJoined,
     required this.onToggleJoin,
-  }) : super(key: key);
+  });
 
   @override
   _CommunityDetailScreenState createState() => _CommunityDetailScreenState();
@@ -120,7 +120,7 @@ class _CommunityDetailScreenState extends State<CommunityDetailScreen> with Sing
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final communityColors = ThemeConstants.communityColors;
+    const communityColors = ThemeConstants.communityColors;
     final color = communityColors[widget.communityData['id'].hashCode % communityColors.length];
 
     // Safely extract data with defaults

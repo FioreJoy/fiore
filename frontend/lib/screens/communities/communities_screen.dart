@@ -11,7 +11,6 @@ import '../../services/auth_provider.dart';
 
 // --- Corrected Widget Imports ---
 import '../../widgets/community_card.dart';
-import '../../widgets/custom_card.dart';
 import '../../widgets/custom_button.dart';
 
 // --- Corrected Theme and Constants ---
@@ -22,7 +21,7 @@ import 'create_community_screen.dart';
 import 'community_detail_screen.dart';
 
 class CommunitiesScreen extends StatefulWidget {
-  const CommunitiesScreen({Key? key}) : super(key: key);
+  const CommunitiesScreen({super.key});
 
   @override
   _CommunitiesScreenState createState() => _CommunitiesScreenState();
@@ -346,9 +345,9 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> with AutomaticKee
       floatingActionButton: FloatingActionButton(
         onPressed: _navigateToCreateCommunity,
         tooltip: "Create Community",
-        child: const Icon(Icons.add),
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: theme.colorScheme.onPrimary,
+        child: const Icon(Icons.add),
       ),
     );
   }

@@ -1,7 +1,6 @@
 // frontend/lib/screens/main_navigation_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 // Import the main screens based on their NEW locations
 import 'feed/explore_screen.dart';
@@ -12,7 +11,7 @@ import 'profile/profile_screen.dart';
 import '../theme/theme_constants.dart';
 
 class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({Key? key}) : super(key: key);
+  const MainNavigationScreen({super.key});
 
   @override
   _MainNavigationScreenState createState() => _MainNavigationScreenState();
@@ -63,8 +62,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       body: PageView(
         controller: _pageController,
         onPageChanged: (index) => setState(() => _selectedIndex = index),
-        children: _screens,
-        physics: const NeverScrollableScrollPhysics(), // Disable swiping between main pages
+        physics: const NeverScrollableScrollPhysics(),
+        children: _screens, // Disable swiping between main pages
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(

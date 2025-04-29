@@ -34,8 +34,8 @@ class RepliesScreen extends StatefulWidget {
   const RepliesScreen({
     required this.postId,
     this.postTitle,
-    Key? key
-  }) : super(key: key);
+    super.key
+  });
 
   @override
   _RepliesScreenState createState() => _RepliesScreenState();
@@ -289,10 +289,10 @@ class _RepliesScreenState extends State<RepliesScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _navigateToAddReply(context),
-        child: const Icon(Icons.add_comment),
         tooltip: "Add Reply",
         backgroundColor: ThemeConstants.accentColor,
         foregroundColor: Colors.white,
+        child: const Icon(Icons.add_comment),
       ),
     );
   }

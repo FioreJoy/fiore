@@ -5,11 +5,10 @@ final ThemeData lightTheme = ThemeData(
   useMaterial3: true,
   brightness: Brightness.light,
   primaryColor: ThemeConstants.primaryColor,
-  colorScheme: ColorScheme.light(
+  colorScheme: const ColorScheme.light(
     primary: ThemeConstants.primaryColor,
     secondary: ThemeConstants.accentColor,
     tertiary: ThemeConstants.highlightColor,
-    background: Colors.grey.shade100,
     surface: Colors.white,
     error: ThemeConstants.errorColor,
   ),

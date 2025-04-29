@@ -10,7 +10,6 @@ final ThemeData darkTheme = ThemeData(
     primary: ThemeConstants.primaryColor,
     secondary: ThemeConstants.accentColor,
     tertiary: ThemeConstants.highlightColor,
-    background: ThemeConstants.backgroundDark,
     surface: ThemeConstants.backgroundDarker,
     error: ThemeConstants.errorColor,
   ),

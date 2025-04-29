@@ -14,7 +14,7 @@ class ChatEventCard extends StatelessWidget {
   final Widget? trailingWidget; // <-- ADD THIS FIELD
 
   const ChatEventCard({
-    Key? key,
+    super.key,
     required this.event,
     required this.isJoined,
     this.isSelected = false, // Default to false
@@ -22,7 +22,7 @@ class ChatEventCard extends StatelessWidget {
     this.onJoin,
     this.showJoinButton = true,
     this.trailingWidget, // <-- ADD TO CONSTRUCTOR
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

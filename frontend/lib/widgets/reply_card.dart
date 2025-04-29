@@ -23,7 +23,7 @@ class ReplyCard extends StatelessWidget {
   final Color? authorHighlightColor; // For OP highlighting
 
   const ReplyCard({
-    Key? key,
+    super.key,
     required this.content,
     this.authorName,
     this.authorAvatar,
@@ -39,7 +39,7 @@ class ReplyCard extends StatelessWidget {
     this.downvotes = 0, // Default value
     required this.indentLevel,
     this.authorHighlightColor,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) { // <<< context is available here

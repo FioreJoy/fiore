@@ -19,7 +19,7 @@ import 'services/api/vote_service.dart';
 import 'services/api/chat_service.dart';
 import 'services/api/settings_service.dart';
 import 'services/api/block_service.dart';
-import 'services/api_client.dart'; // Keep ApiClient import if used by ProxyProvider below
+// Keep ApiClient import if used by ProxyProvider below
 
 // --- Theme Imports ---
 import 'services/theme_provider.dart';
@@ -114,7 +114,7 @@ class MyApp extends StatelessWidget {
       home: authProvider.isAuthenticated
           ? const MainNavigationScreen()
           : const LoginScreen(),
-      routes: { /* routes */ },
+      routes: const { /* routes */ },
     );
   }
 }

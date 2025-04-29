@@ -31,7 +31,7 @@ import '../../widgets/chat_event_card.dart';
 import '../../theme/theme_constants.dart'; // Assuming this exists
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({Key? key}) : super(key: key);
+  const ChatScreen({super.key});
 
   @override
   _ChatScreenState createState() => _ChatScreenState();
@@ -161,32 +161,28 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     _wsMessagesSubscription = wsService.rawMessages.listen((messageMap) {
       if (!mounted) return;
       // Ensure it's a map before processing
-      if (messageMap is Map<String, dynamic>) {
-        final currentScreenKey = getRoomKey(_selectedEventId != null ? 'event' : 'community', _selectedEventId ?? _selectedCommunityId);
-        final messageRoomKey = getRoomKey(messageMap['event_id'] != null ? 'event' : 'community', messageMap['event_id'] ?? messageMap['community_id']);
+      final currentScreenKey = getRoomKey(_selectedEventId != null ? 'event' : 'community', _selectedEventId ?? _selectedCommunityId);
+      final messageRoomKey = getRoomKey(messageMap['event_id'] != null ? 'event' : 'community', messageMap['event_id'] ?? messageMap['community_id']);
 
-        // Process only if the message is for the currently displayed room
-        if (messageRoomKey == currentScreenKey && messageMap.containsKey('message_id')) {
-          try {
-            final newMessage = ChatMessageData.fromJson(messageMap);
-            // Avoid duplicates if server echoes back (check messageId)
-            bool alreadyExists = _messages.any((m) => m.messageId == newMessage.messageId);
-            if (!alreadyExists) {
-              setState(() => _messages.add(newMessage)); // Add to the end
-              WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-            }
-          } catch (e) { print("ChatScreen: Error parsing WS message JSON: $e"); }
-        } else if (messageMap.containsKey('error')) {
-          print("ChatScreen: WS Server Error: ${messageMap['error']}");
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chat Error: ${messageMap['error']}')));
-        } else if (messageRoomKey != currentScreenKey) {
-          // Silently ignore messages for other rooms in this screen instance
-          // print("ChatScreen: Ignored message for different room ($messageRoomKey vs $currentScreenKey)");
-        }
-      } else {
-        print("ChatScreen: Received non-map WS message: $messageMap");
+      // Process only if the message is for the currently displayed room
+      if (messageRoomKey == currentScreenKey && messageMap.containsKey('message_id')) {
+        try {
+          final newMessage = ChatMessageData.fromJson(messageMap);
+          // Avoid duplicates if server echoes back (check messageId)
+          bool alreadyExists = _messages.any((m) => m.messageId == newMessage.messageId);
+          if (!alreadyExists) {
+            setState(() => _messages.add(newMessage)); // Add to the end
+            WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+          }
+        } catch (e) { print("ChatScreen: Error parsing WS message JSON: $e"); }
+      } else if (messageMap.containsKey('error')) {
+        print("ChatScreen: WS Server Error: ${messageMap['error']}");
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chat Error: ${messageMap['error']}')));
+      } else if (messageRoomKey != currentScreenKey) {
+        // Silently ignore messages for other rooms in this screen instance
+        // print("ChatScreen: Ignored message for different room ($messageRoomKey vs $currentScreenKey)");
       }
-    }, onError: (error) {
+        }, onError: (error) {
       print("ChatScreen: Error on WS messages stream: $error");
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chat connection error: $error')));
       if (mounted) setState((){}); // Update UI state
@@ -663,7 +659,7 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                 return ListTile(
                   leading: CircleAvatar(
                     radius: 20,
-                    backgroundColor: isSelected ? Theme.of(context).colorScheme.primaryContainer : Theme.of(context).colorScheme.surfaceVariant,
+                    backgroundColor: isSelected ? Theme.of(context).colorScheme.primaryContainer : Theme.of(context).colorScheme.surfaceContainerHighest,
                     backgroundImage: logoUrl != null && logoUrl.isNotEmpty ? NetworkImage(logoUrl) : null,
                     child: logoUrl == null || logoUrl.isEmpty ? Text( communityName.isNotEmpty ? communityName[0].toUpperCase() : '?', style: TextStyle(color: isSelected ? Theme.of(context).colorScheme.onPrimaryContainer : Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold)) : null,
                   ),
@@ -720,8 +716,8 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
         showJoinButton: false, // Usually false when it's the active chat context
         trailingWidget: TextButton(
           onPressed: selectCommunityChat,
-          child: const Text('Back to Community Chat'),
           style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+          child: const Text('Back to Community Chat'),
         ),
       ),
     );

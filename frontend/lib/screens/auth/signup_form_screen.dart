@@ -2,7 +2,7 @@
 
 import 'dart:io';
 import 'dart:typed_data'; // Keep Uint8List for image display as per original
-import 'dart:convert'; // Import for jsonDecode (in case result needs it, though unlikely here)
+// Import for jsonDecode (in case result needs it, though unlikely here)
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -14,10 +14,10 @@ import '../main_navigation_screen.dart'; // Correct path
 import '../../theme/theme_constants.dart';
 import '../../widgets/custom_text_field.dart'; // Assuming correct path & widget exists
 import '../../widgets/custom_button.dart'; // Assuming correct path & widget exists
-import '../../app_constants.dart'; // For default avatar if needed
+// For default avatar if needed
 
 class SignUpFormScreen extends StatefulWidget {
-  const SignUpFormScreen({Key? key}) : super(key: key);
+  const SignUpFormScreen({super.key});
 
   @override
   _SignUpFormScreenState createState() => _SignUpFormScreenState();
@@ -365,7 +365,11 @@ class _SignUpFormScreenState extends State<SignUpFormScreen> {
     return Column( children: [
       Center(child: Text("Select Your Interests", style: Theme.of(context).textTheme.titleLarge)), const SizedBox(height: 10), Text("Choose a few things you like (optional).", style: Theme.of(context).textTheme.bodyMedium), const SizedBox(height: 15),
       Expanded( child: GridView.builder( padding: EdgeInsets.zero, gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount( crossAxisCount: 3, childAspectRatio: 1.1, crossAxisSpacing: 12, mainAxisSpacing: 12,), itemCount: interests.length, itemBuilder: (context, index) { String name = interests[index]["name"]; IconData icon = interests[index]["icon"]; bool isSelected = _selectedInterests.contains(name);
-      return GestureDetector( onTap: () => setState(() { if (isSelected) _selectedInterests.remove(name); else _selectedInterests.add(name); }),
+      return GestureDetector( onTap: () => setState(() { if (isSelected) {
+        _selectedInterests.remove(name);
+      } else {
+        _selectedInterests.add(name);
+      } }),
         child: AnimatedContainer( duration: const Duration(milliseconds: 200), decoration: BoxDecoration( color: isSelected ? primaryColor : (isDark ? Colors.grey.shade800 : Colors.grey.shade100), borderRadius: BorderRadius.circular(ThemeConstants.borderRadius), border: Border.all(color: isSelected ? primaryColor : Colors.grey.shade300, width: isSelected ? 2 : 1), boxShadow: isSelected ? [BoxShadow(color: primaryColor.withOpacity(0.3), blurRadius: 5)] : []),
           child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [ Icon(icon, size: 30, color: isSelected ? Colors.white : (isDark ? Colors.grey.shade300 : Colors.grey.shade700)), const SizedBox(height: 8), Text(name, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: isSelected ? Colors.white : (isDark ? Colors.grey.shade200 : Colors.black87), fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),],),),);
       },),),

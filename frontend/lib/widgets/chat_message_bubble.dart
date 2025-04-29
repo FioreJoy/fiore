@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:mime/mime.dart'; // To check mime types
-import 'package:open_filex/open_filex.dart'; // To open files
+// To open files
 // Import your download service if you implement one, or url_launcher
 // import 'package:url_launcher/url_launcher.dart'; // Example
 

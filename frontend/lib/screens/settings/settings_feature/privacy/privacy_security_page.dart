@@ -109,7 +109,7 @@ class _PrivacySecurityPageState extends State<PrivacySecurityPage> {
            // Note: 2FA often requires a more complex setup flow (QR code, backup codes)
           SwitchListTile.adaptive(
             title: const Text('Two-Factor Authentication', style: TextStyle(color: kLightText)),
-            subtitle: Text(_twoFactorEnabled ? 'Enabled' : 'Disabled - Adds an extra layer of security', style: TextStyle(color: kSubtleGray)),
+            subtitle: Text(_twoFactorEnabled ? 'Enabled' : 'Disabled - Adds an extra layer of security', style: const TextStyle(color: kSubtleGray)),
             value: _twoFactorEnabled,
             onChanged: (value) {
               // --- TODO: Trigger 2FA setup/disable flow ---

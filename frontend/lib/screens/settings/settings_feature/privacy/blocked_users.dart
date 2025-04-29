@@ -16,7 +16,7 @@ import '../../../../theme/theme_constants.dart';
 import '../../../../app_constants.dart'; // For default avatar
 
 class BlockedUsersScreen extends StatefulWidget {
-  const BlockedUsersScreen({Key? key}) : super(key: key);
+  const BlockedUsersScreen({super.key});
 
   @override
   _BlockedUsersScreenState createState() => _BlockedUsersScreenState();
@@ -44,7 +44,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     // Still need to check if authenticated before making the call
-    if (!authProvider.isAuthenticated || authProvider.apiClient == null) {
+    if (!authProvider.isAuthenticated) {
       setState(() { _isLoading = false; _error = "Not authenticated or configuration error."; });
       return;
     }
@@ -77,7 +77,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Unblock $username?'),
-        content: Text('Are you sure you want to unblock this user? They will be able to see your content and interact with you again.'),
+        content: const Text('Are you sure you want to unblock this user? They will be able to see your content and interact with you again.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           TextButton(
@@ -95,7 +95,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     // Still need to check if authenticated before making the call
-    if (!authProvider.isAuthenticated || authProvider.apiClient == null) {
+    if (!authProvider.isAuthenticated) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Authentication error or configuration error.'), backgroundColor: Colors.red));
       return;
     }

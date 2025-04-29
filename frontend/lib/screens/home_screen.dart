@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 // --- Provider Imports ---
-import '../services/auth_provider.dart'; // Correct path if home_screen is in /screens
+// Correct path if home_screen is in /screens
 // <<< FIX: Use correct path and class name for Theme Provider >>>
 import '../services/theme_provider.dart'; // Path to the ThemeProvider we created
 
@@ -28,7 +28,7 @@ class HomeScreen extends StatefulWidget {
   // This widget likely doesn't need to be stateful if navigation
   // state is handled by MainNavigationScreen. Consider making it StatelessWidget.
   // For now, keeping StatefulWidget structure as provided.
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   _HomeScreenState createState() => _HomeScreenState();

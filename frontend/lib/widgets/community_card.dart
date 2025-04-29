@@ -14,7 +14,7 @@ class CommunityCard extends StatelessWidget {
   final VoidCallback onTap;
 
   const CommunityCard({
-    Key? key,
+    super.key,
     required this.name,
     this.description,
     required this.memberCount,
@@ -25,7 +25,7 @@ class CommunityCard extends StatelessWidget {
     required this.isJoined,
     required this.onJoin,
     required this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

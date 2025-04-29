@@ -26,10 +26,10 @@ class PostsScreen extends StatefulWidget {
   final String? communityName;
 
   const PostsScreen({
-    Key? key,
+    super.key,
     this.communityId,
     this.communityName
-  }) : super(key: key);
+  });
 
   @override
   _PostsScreenState createState() => _PostsScreenState();
@@ -112,7 +112,11 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
     setState(() {
       final newData = Map<String, dynamic>.from(currentVoteData);
       int newUpvotes = currentUpvotes; int newDownvotes = currentDownvotes;
-      if (previousVoteType == voteType) { newData['vote_type'] = null; if (voteType == true) newUpvotes--; else newDownvotes--; }
+      if (previousVoteType == voteType) { newData['vote_type'] = null; if (voteType == true) {
+        newUpvotes--;
+      } else {
+        newDownvotes--;
+      } }
       else { newData['vote_type'] = voteType; if (voteType == true) { newUpvotes++; if (previousVoteType == false) newDownvotes--; } else { newDownvotes++; if (previousVoteType == true) newUpvotes--; } }
       newData['upvotes'] = newUpvotes < 0 ? 0 : newUpvotes; newData['downvotes'] = newDownvotes < 0 ? 0 : newDownvotes;
       _postVoteData[postIdStr] = newData; // Use string key
@@ -187,12 +191,16 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
       try {
         // <<< FIX: Pass int postId using named parameter >>>
         await postService.deletePost(postId: postId); // Assuming deletePost expects named param
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Post deleted'), duration: Duration(seconds: 1)));
+        }
         _triggerPostLoad(); // Refresh list
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Error deleting post: ${e.toString()}'), backgroundColor: ThemeConstants.errorColor));
+        }
       }
     }
   }
@@ -220,7 +228,7 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
 
     final authProvider = Provider.of<AuthProvider>(context); // Listen for auth state changes if needed
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final communityColors = ThemeConstants.communityColors;
+    const communityColors = ThemeConstants.communityColors;
     // <<< FIX: Get current user ID as int? >>>
     final int? currentUserId = authProvider.userId;
 
@@ -403,10 +411,10 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _navigateToCreatePost,
-        child: const Icon(Icons.add),
         tooltip: "Create Post",
         backgroundColor: ThemeConstants.accentColor,
         foregroundColor: Colors.white,
+        child: const Icon(Icons.add),
       ),
     );
   }

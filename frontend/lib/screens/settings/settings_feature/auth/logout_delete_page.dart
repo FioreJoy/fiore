@@ -15,7 +15,7 @@ import '../../../../theme/theme_constants.dart';
 import '../../../auth/login_screen.dart'; // Navigate back to login after actions
 
 class LogoutDeletePage extends StatefulWidget {
-  const LogoutDeletePage({Key? key}) : super(key: key);
+  const LogoutDeletePage({super.key});
 
   @override
   _LogoutDeletePageState createState() => _LogoutDeletePageState();

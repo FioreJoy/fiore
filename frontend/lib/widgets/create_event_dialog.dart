@@ -7,10 +7,10 @@ class CreateEventDialog extends StatefulWidget {
   final Function(String title, String description, String location, DateTime dateTime, int maxParticipants) onSubmit;
 
   const CreateEventDialog({
-    Key? key,
+    super.key,
     required this.communityId,
     required this.onSubmit,
-  }) : super(key: key);
+  });
 
   @override
   _CreateEventDialogState createState() => _CreateEventDialogState();
@@ -110,20 +110,20 @@ class _CreateEventDialogState extends State<CreateEventDialog> {
             // Dialog Header
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: ThemeConstants.accentColor,
-                borderRadius: const BorderRadius.only(
+                borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(16),
                   topRight: Radius.circular(16),
                 ),
               ),
-              child: Row(
+              child: const Row(
                 children: [
                   Icon(
                     Icons.event_note,
                     color: ThemeConstants.primaryColor,
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Text(
                     'Create New Event',
                     style: TextStyle(
@@ -278,9 +278,9 @@ class ContentContainer extends StatelessWidget {
   final Widget child;
 
   const ContentContainer({
-    Key? key,
+    super.key,
     required this.child,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -4,7 +4,7 @@
 import 'package:flutter/material.dart';
 import '../theme/theme_constants.dart';
 import '../app_constants.dart'; // For constructing image URLs potentially
-import 'package:intl/intl.dart'; // For date formatting
+// For date formatting
 
 class PostCard extends StatelessWidget {
   final String title;
@@ -27,7 +27,7 @@ class PostCard extends StatelessWidget {
   final VoidCallback onTap;
 
   const PostCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.content,
     this.authorName,
@@ -46,7 +46,7 @@ class PostCard extends StatelessWidget {
     required this.onReply,
     this.onDelete,
     required this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

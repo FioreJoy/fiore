@@ -22,10 +22,10 @@ class CreatePostScreen extends StatefulWidget {
   final String? communityName; // Optional: For display
 
   const CreatePostScreen({
-    Key? key,
+    super.key,
     this.communityId,
     this.communityName,
-  }) : super(key: key);
+  });
 
   @override
   _CreatePostScreenState createState() => _CreatePostScreenState();
@@ -79,7 +79,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     // Still check if authenticated,ApiClient is needed
-    if (!authProvider.isAuthenticated || authProvider.apiClient == null) {
+    if (!authProvider.isAuthenticated) {
       setState(() {
         _errorMessage = 'Authentication error or configuration issue. Please log in again.';
         _isLoading = false;

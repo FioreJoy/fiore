@@ -30,7 +30,7 @@ class CustomBottomNav extends StatelessWidget {
   final double unselectedFontSize;
 
   const CustomBottomNav({
-    Key? key,
+    super.key,
     required this.items,
     required this.currentIndex,
     required this.onTap,
@@ -39,7 +39,7 @@ class CustomBottomNav extends StatelessWidget {
     this.iconSize = 24,
     this.selectedFontSize = 12,
     this.unselectedFontSize = 10,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

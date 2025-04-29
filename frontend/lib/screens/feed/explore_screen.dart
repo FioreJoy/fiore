@@ -1,18 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:shimmer/shimmer.dart';
-import 'package:provider/provider.dart';
-import '../../services/api/post_service.dart';
-import '../../services/api/community_service.dart';
-import '../../services/api/event_service.dart';
-import '../../services/auth_provider.dart';
 import '../../theme/theme_constants.dart';
-import '../../widgets/custom_card.dart';
-import '../../widgets/custom_button.dart';
-import 'dart:math' as math;
 
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({Key? key}) : super(key: key);
+  const ExploreScreen({super.key});
 
   @override
   _ExploreScreenState createState() => _ExploreScreenState();
@@ -114,13 +104,12 @@ class _ExploreScreenState extends State<ExploreScreen> with AutomaticKeepAliveCl
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.dark(
+            colorScheme: const ColorScheme.dark(
               primary: ThemeConstants.accentColor,
               onPrimary: ThemeConstants.primaryColor,
               surface: ThemeConstants.backgroundDark,
               onSurface: Colors.white,
-            ),
-            dialogBackgroundColor: ThemeConstants.backgroundDarker,
+            ), dialogTheme: const DialogThemeData(backgroundColor: ThemeConstants.backgroundDarker),
           ),
           child: child!,
         );
@@ -149,7 +138,7 @@ class _ExploreScreenState extends State<ExploreScreen> with AutomaticKeepAliveCl
     
     return Scaffold(
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           'Explore',
           style: TextStyle(
             fontWeight: FontWeight.bold,
@@ -539,7 +528,7 @@ class _ExploreScreenState extends State<ExploreScreen> with AutomaticKeepAliveCl
                     ),
                     child: Text(
                       event['community'],
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: ThemeConstants.primaryColor,
                         fontWeight: FontWeight.bold,
                         fontSize: ThemeConstants.microText,

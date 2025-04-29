@@ -17,7 +17,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
   // Placeholder state - replace with your actual state management
   bool isDark = true; // Default based on our palette
   bool _locationVisible = true;
-  List<String> _selectedInterests = ['Movies', 'Hackathons']; // Example
+  final List<String> _selectedInterests = ['Movies', 'Hackathons']; // Example
 
   // Example list of available interests
   final List<String> _availableInterests = [
@@ -32,7 +32,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
     // Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
     print('Dark Mode Toggled: $isDark');
      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Theme changed (Simulated)'), backgroundColor: kCyan),
+        const SnackBar(content: Text('Theme changed (Simulated)'), backgroundColor: kCyan),
      );
   }
 
@@ -43,7 +43,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
     // TODO: Save location preference
     print('Location Visibility Toggled: $_locationVisible');
      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Location preference updated (Simulated)'), backgroundColor: kCyan),
+        const SnackBar(content: Text('Location preference updated (Simulated)'), backgroundColor: kCyan),
      );
   }
 

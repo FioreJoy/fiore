@@ -1,11 +1,10 @@
 import 'dart:io'; // For File type
 import 'package:http/http.dart' as http; // For MultipartFile
-import 'package:intl/intl.dart'; // For formatting dates if needed client-side
+// For formatting dates if needed client-side
 
 import '../api_client.dart';
 import '../api_endpoints.dart';
 // Import EventModel if you use it for type safety
-import '../../models/event_model.dart';
 
 /// Service responsible for event-related API calls.
 class EventService {

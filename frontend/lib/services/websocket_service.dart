@@ -2,7 +2,7 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io'; // Required for WebSocketException
+// Required for WebSocketException
 import 'dart:math'; // Required for pow
 import 'package:flutter/foundation.dart'; // For kDebugMode
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -193,7 +193,7 @@ class WebSocketService {
   }
 
   String? _getRoomKey(String roomType, int roomId) {
-    return roomId != 0 ? '$roomType\_$roomId' : null;
+    return roomId != 0 ? '${roomType}_$roomId' : null;
   }
 
   void sendMessage(String message) {

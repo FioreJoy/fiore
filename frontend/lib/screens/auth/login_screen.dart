@@ -1,6 +1,6 @@
 // frontend/lib/screens/auth/login_screen.dart
 
-import 'dart:convert'; // Import for jsonDecode
+// Import for jsonDecode
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -15,7 +15,7 @@ import 'signup_form_screen.dart';            // Correct path (sibling directory)
 // import '../main_navigation_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   _LoginScreenState createState() => _LoginScreenState();
@@ -173,7 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: isDark ? ThemeConstants.accentColor : Colors.white,
                       letterSpacing: 1.5,
                       shadows: [ // Subtle shadow for light text
-                        Shadow( offset: Offset(1.0, 1.0), blurRadius: 2.0, color: Colors.black.withOpacity(0.3), ),
+                        Shadow( offset: const Offset(1.0, 1.0), blurRadius: 2.0, color: Colors.black.withOpacity(0.3), ),
                       ],
                     ),
                   ),

@@ -17,7 +17,7 @@ import '../../../../theme/theme_constants.dart';
 import '../../../../app_constants.dart';
 
 class EditProfileScreen extends StatefulWidget {
-  const EditProfileScreen({Key? key}) : super(key: key);
+  const EditProfileScreen({super.key});
 
   @override
   _EditProfileScreenState createState() => _EditProfileScreenState();
@@ -159,7 +159,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final currentLocationString = _locationController.text.trim();
     if (currentLocationString.isNotEmpty && currentLocationString != initialLocationString) {
       // Validate format before adding
-      final pattern = r'^\s*\(\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*\)\s*$';
+      const pattern = r'^\s*\(\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*\)\s*$';
       if (!RegExp(pattern).hasMatch(currentLocationString)) {
         setState(() => _errorMessage = "Invalid location format. Use (lon,lat).");
         return;

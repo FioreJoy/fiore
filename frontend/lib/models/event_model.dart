@@ -1,5 +1,4 @@
-import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // Import for date formatting
+// Import for date formatting
 
 class EventModel {
   final String id; // Assuming backend returns ID as string or can be converted

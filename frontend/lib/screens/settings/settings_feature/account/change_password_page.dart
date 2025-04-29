@@ -16,7 +16,7 @@ import '../../../../theme/theme_constants.dart';
 
 
 class ChangePasswordPage extends StatefulWidget {
-  const ChangePasswordPage({Key? key}) : super(key: key);
+  const ChangePasswordPage({super.key});
 
   @override
   _ChangePasswordPageState createState() => _ChangePasswordPageState();
@@ -108,7 +108,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
               CustomTextField(
                 controller: _oldPasswordController,
                 labelText: 'Current Password',
-                prefixIcon: Icon(Icons.lock_clock_outlined),
+                prefixIcon: const Icon(Icons.lock_clock_outlined),
                 obscureText: !_isOldPasswordVisible,
                 validator: (v) => v!.isEmpty ? 'Current password required' : null,
                 suffixIcon: IconButton(
@@ -120,7 +120,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
               CustomTextField(
                 controller: _newPasswordController,
                 labelText: 'New Password',
-                prefixIcon: Icon(Icons.lock_outline),
+                prefixIcon: const Icon(Icons.lock_outline),
                 obscureText: !_isNewPasswordVisible,
                 validator: (value) {
                   if (value == null || value.isEmpty) return 'New password required';
@@ -140,7 +140,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
               CustomTextField(
                 controller: _confirmPasswordController,
                 labelText: 'Confirm New Password',
-                prefixIcon: Icon(Icons.lock_person_outlined),
+                prefixIcon: const Icon(Icons.lock_person_outlined),
                 obscureText: !_isConfirmPasswordVisible,
                 validator: (value) {
                   if (value == null || value.isEmpty) return 'Confirmation required';

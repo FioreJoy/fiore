@@ -11,8 +11,8 @@ class AppSettingsPage extends StatefulWidget {
 }
 
 class _AppSettingsPageState extends State<AppSettingsPage> {
-  String _appVersion = AppConstants.appVersion; // Use constant initially
-  bool _isLoadingVersion = false; // Loading state for dynamic version
+  final String _appVersion = AppConstants.appVersion; // Use constant initially
+  final bool _isLoadingVersion = false; // Loading state for dynamic version
 
   @override
   void initState() {

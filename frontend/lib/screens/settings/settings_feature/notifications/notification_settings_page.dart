@@ -13,7 +13,7 @@ import '../../../../theme/theme_constants.dart';
 import '../../../../widgets/custom_button.dart'; // Assuming path is correct
 
 class NotificationSettingsPage extends StatefulWidget {
-  const NotificationSettingsPage({Key? key}) : super(key: key);
+  const NotificationSettingsPage({super.key});
 
   @override
   _NotificationSettingsPageState createState() => _NotificationSettingsPageState();
@@ -68,11 +68,11 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
               })
           );
           // Add any keys missing from response but present in defaults
-          _currentSettings.keys.forEach((key) {
+          for (var key in _currentSettings.keys) {
             if (!fetchedSettingsMap.containsKey(key)) {
               _currentSettings[key] = _currentSettings[key] ?? false; // Keep default if missing
             }
-          });
+          }
 
           _isLoading = false;
         });

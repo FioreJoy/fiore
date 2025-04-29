@@ -21,12 +21,12 @@ class CreateReplyScreen extends StatefulWidget {
   final String? parentReplyContent; // For context (optional)
 
   const CreateReplyScreen({
-    Key? key,
+    super.key,
     required this.postId,
     this.parentReplyId,
     this.postTitle,
     this.parentReplyContent,
-  }) : super(key: key);
+  });
 
   @override
   _CreateReplyScreenState createState() => _CreateReplyScreenState();
@@ -58,7 +58,7 @@ class _CreateReplyScreenState extends State<CreateReplyScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     // Still check if authenticated, ApiClient is needed
-    if (!authProvider.isAuthenticated || authProvider.apiClient == null) {
+    if (!authProvider.isAuthenticated) {
       setState(() {
         _errorMessage = 'Authentication error or configuration issue. Please log in again.';
         _isLoading = false;
