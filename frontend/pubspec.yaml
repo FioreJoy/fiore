@@ -21,10 +21,14 @@ dependencies:
   shimmer: ^3.0.0
   flutter_markdown: ^0.6.17+1
   url_launcher: ^6.2.5
+  flutter_typeahead: ^4.0.0
   shared_preferences: ^2.2.3
   flutter_secure_storage: ^9.0.0
   web_socket_channel: ^2.4.0
   flutter_launcher_icons: ^0.14.3
+  geolocator: ^11.0.0
+  rxdart: ^0.27.7 # Or latest version
+
 
 dev_dependencies:
   flutter_test:

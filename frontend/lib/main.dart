@@ -20,6 +20,8 @@ import 'services/api/vote_service.dart';
 import 'services/api/chat_service.dart';
 import 'services/api/settings_service.dart';
 import 'services/api/block_service.dart';
+import 'services/api/location_service.dart';
+
 
 // --- Theme Imports ---
 import 'services/theme_provider.dart'; // <- New ThemeProvider
@@ -45,6 +47,7 @@ void main() async {
         // --- Core Providers ---
         Provider<ApiClient>(create: (_) => ApiClient(), dispose: (_, client) => client.dispose()),
         Provider<WebSocketService>(create: (_) => WebSocketService(), dispose: (_, service) => service.dispose()),
+        Provider<LocationService>(create: (_) => LocationService()), // Add this line
 
         ChangeNotifierProvider.value(value: authProvider),
         ChangeNotifierProvider.value(value: themeProvider),
