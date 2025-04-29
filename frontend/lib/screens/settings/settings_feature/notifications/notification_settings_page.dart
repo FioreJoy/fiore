@@ -54,7 +54,9 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     }
 
     try {
-      final fetchedSettingsMap = await settingsService.getNotificationSettings(authProvider.token!);
+      // Fetch settings without passing the token as a named parameter
+      final fetchedSettingsMap = await settingsService.getNotificationSettings();
+
       if (mounted) {
         setState(() {
           // Update local state, ensuring type safety
@@ -113,7 +115,6 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
       try {
         // Send the *entire* settings map to the backend PUT endpoint
         await settingsService.updateNotificationSettings(
-          token: authProvider.token!,
           settings: _currentSettings,
         );
         if (mounted) {

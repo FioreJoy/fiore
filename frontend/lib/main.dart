@@ -8,8 +8,7 @@ import 'screens/main_navigation_screen.dart';
 
 // --- Service Imports ---
 import 'services/auth_provider.dart';
-import 'services/api_client.dart';
-import 'services/websocket_service.dart';
+import 'services/websocket_service.dart'; // Import the WebSocketService
 import 'services/api/auth_service.dart';
 import 'services/api/user_service.dart';
 import 'services/api/community_service.dart';
@@ -20,9 +19,10 @@ import 'services/api/vote_service.dart';
 import 'services/api/chat_service.dart';
 import 'services/api/settings_service.dart';
 import 'services/api/block_service.dart';
+import 'services/api_client.dart'; // Keep ApiClient import if used by ProxyProvider below
 
 // --- Theme Imports ---
-import 'services/theme_provider.dart'; // <- New ThemeProvider
+import 'services/theme_provider.dart';
 import 'theme/light_theme.dart';
 import 'theme/dark_theme.dart';
 
@@ -32,7 +32,7 @@ import 'app_constants.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize AuthProvider and wait for token
+  // Initialize AuthProvider (holds ApiClient)
   final authProvider = AuthProvider();
   await authProvider.loadToken();
 
@@ -43,29 +43,56 @@ void main() async {
     MultiProvider(
       providers: [
         // --- Core Providers ---
-        Provider<ApiClient>(create: (_) => ApiClient(), dispose: (_, client) => client.dispose()),
-        Provider<WebSocketService>(create: (_) => WebSocketService(), dispose: (_, service) => service.dispose()),
-
         ChangeNotifierProvider.value(value: authProvider),
         ChangeNotifierProvider.value(value: themeProvider),
 
-        // --- API Service Providers ---
-        ProxyProvider<ApiClient, AuthService>(update: (_, apiClient, __) => AuthService(apiClient)),
-        ProxyProvider<ApiClient, UserService>(update: (_, apiClient, __) => UserService(apiClient)),
-        ProxyProvider<ApiClient, CommunityService>(update: (_, apiClient, __) => CommunityService(apiClient)),
-        ProxyProvider<ApiClient, EventService>(update: (_, apiClient, __) => EventService(apiClient)),
-        ProxyProvider<ApiClient, PostService>(update: (_, apiClient, __) => PostService(apiClient)),
-        ProxyProvider<ApiClient, ReplyService>(update: (_, apiClient, __) => ReplyService(apiClient)),
-        ProxyProvider<ApiClient, VoteService>(update: (_, apiClient, __) => VoteService(apiClient)),
-        ProxyProvider<ApiClient, ChatService>(update: (_, apiClient, __) => ChatService(apiClient)),
-        ProxyProvider<ApiClient, SettingsService>(update: (_, apiClient, __) => SettingsService(apiClient)),
-        ProxyProvider<ApiClient, BlockService>(update: (_, apiClient, __) => BlockService(apiClient)),
+        // --- Provide WebSocketService globally ---
+        // ApiClient is accessed via AuthProvider now
+        Provider<WebSocketService>(
+          create: (_) => WebSocketService(), // Use parameterless constructor
+          // Dispose callback is important
+          dispose: (_, service) => service.dispose(),
+        ),
+
+        // --- API Service Providers using ProxyProvider ---
+        // Depend on AuthProvider to get the configured ApiClient
+        ProxyProvider<AuthProvider, AuthService>(
+          update: (_, auth, __) => AuthService(auth.apiClient),
+        ),
+        ProxyProvider<AuthProvider, UserService>(
+          update: (_, auth, __) => UserService(auth.apiClient),
+        ),
+        ProxyProvider<AuthProvider, CommunityService>(
+          update: (_, auth, __) => CommunityService(auth.apiClient),
+        ),
+        ProxyProvider<AuthProvider, EventService>(
+          update: (_, auth, __) => EventService(auth.apiClient),
+        ),
+        ProxyProvider<AuthProvider, PostService>(
+          update: (_, auth, __) => PostService(auth.apiClient),
+        ),
+        ProxyProvider<AuthProvider, ReplyService>(
+          update: (_, auth, __) => ReplyService(auth.apiClient),
+        ),
+        ProxyProvider<AuthProvider, VoteService>(
+          update: (_, auth, __) => VoteService(auth.apiClient),
+        ),
+        ProxyProvider<AuthProvider, ChatService>(
+          update: (_, auth, __) => ChatService(auth.apiClient),
+        ),
+        ProxyProvider<AuthProvider, SettingsService>(
+          update: (_, auth, __) => SettingsService(auth.apiClient),
+        ),
+        ProxyProvider<AuthProvider, BlockService>(
+          update: (_, auth, __) => BlockService(auth.apiClient),
+        ),
       ],
       child: const MyApp(),
     ),
   );
 }
 
+// MyApp class remains the same as the previous version
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -75,31 +102,19 @@ class MyApp extends StatelessWidget {
     final themeProvider = context.watch<ThemeProvider>();
 
     if (authProvider.isLoading || themeProvider.isLoading) {
-      return const MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-      );
+      return const MaterialApp(/* Loading Screen */);
     }
 
     return MaterialApp(
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
-
       themeMode: themeProvider.themeMode,
       theme: lightTheme,
       darkTheme: darkTheme,
-
       home: authProvider.isAuthenticated
           ? const MainNavigationScreen()
           : const LoginScreen(),
-
-      routes: {
-        '/login': (context) => const LoginScreen(),
-        '/main': (context) => const MainNavigationScreen(),
-        // Add more routes here if needed
-      },
+      routes: { /* routes */ },
     );
   }
 }

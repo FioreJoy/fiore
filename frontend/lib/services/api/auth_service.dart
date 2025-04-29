@@ -5,8 +5,6 @@ import 'package:http/http.dart' as http; // For MultipartFile
 
 import '../api_client.dart';
 import '../api_endpoints.dart';
-// Import user model if you create one (e.g., models/user_display.dart)
-// import '../../models/user_display.dart';
 
 /// Service responsible for authentication and user profile related API calls.
 class AuthService {
@@ -18,36 +16,26 @@ class AuthService {
   /// Returns a Map containing token, user_id, and potentially image_url.
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
-      // Login typically doesn't need the user's JWT token, but DOES need the API Key
-      // The ApiClient's post method automatically adds the API Key header.
-      // We pass null for the token argument here.
-      // NOTE: If your backend *specifically* requires API key ALSO on login,
-      // ensure ApiClient's post method adds it even with token=null.
-      // (Current ApiClient implementation DOES add API Key if configured).
+      // Login doesn't need the token, ApiClient handles it automatically
       final response = await _apiClient.post(
         ApiEndpoints.login,
-        token: null, // No JWT token needed for login itself
         body: {'email': email, 'password': password},
       );
-      // Expecting Map<String, dynamic> like {'token': ..., 'user_id': ..., 'image_url': ...}
       return response as Map<String, dynamic>;
     } catch (e) {
       print("AuthService: Login failed - $e");
-      // Re-throw the exception to be handled by the UI layer
       rethrow;
     }
   }
 
   /// Signs up a new user.
-  /// Requires profile details and optionally an image File.
-  /// Returns a Map containing token, user_id, and potentially image_url.
   Future<Map<String, dynamic>> signUp({
     required String name,
     required String username,
     required String email,
     required String password,
     required String gender,
-    required String currentLocation, // e.g., "(lon,lat)"
+    required String currentLocation,
     required String college,
     required List<String> interests,
     File? image,
@@ -62,33 +50,22 @@ class AuthService {
         'current_location': currentLocation,
         'college': college,
       };
-      // Add interests as multiple fields with the same key
-      for (String interest in interests) {
-         // Note: http package might not directly support duplicate keys in fields map.
-         // Sending as a comma-separated string might be necessary if backend expects that.
-         // Let's assume backend handles list from Form for now.
-         // If issues arise, change backend to accept comma-sep string or adjust client.
-         fields['interests'] = interest; // This will likely only send the LAST interest value.
-         // TODO: Confirm backend handling of List[str] = Form(...)
-         // If backend expects comma-separated:
-         // fields['interests'] = interests.join(',');
-      }
 
+      // Add interests
+      for (String interest in interests) {
+        fields['interests'] = interest;
+      }
 
       List<http.MultipartFile>? files;
       if (image != null) {
         files = [
           await http.MultipartFile.fromPath('image', image.path)
-              // Add content type if needed, though often inferred
-              // contentType: MediaType('image', image.path.split('.').last)
         ];
       }
 
-      // Signup doesn't need a JWT token or API Key typically
       final response = await _apiClient.multipartRequest(
         'POST',
         ApiEndpoints.signup,
-        token: null, // No token for signup
         fields: fields,
         files: files,
       );
@@ -100,13 +77,9 @@ class AuthService {
   }
 
   /// Fetches the profile data for the currently authenticated user.
-  /// Returns a Map representing the UserDisplay schema.
-  Future<Map<String, dynamic>> getCurrentUserProfile(String token) async {
+  Future<Map<String, dynamic>> getCurrentUserProfile() async {
     try {
-      final response = await _apiClient.get(
-        ApiEndpoints.currentUser,
-        token: token,
-      );
+      final response = await _apiClient.get(ApiEndpoints.currentUser);
       return response as Map<String, dynamic>;
     } catch (e) {
       print("AuthService: Fetch profile failed - $e");
@@ -115,25 +88,20 @@ class AuthService {
   }
 
   /// Updates the profile for the currently authenticated user.
-  /// [fieldsToUpdate] should only contain the fields that have changed.
-  /// Returns the updated user profile Map.
   Future<Map<String, dynamic>> updateUserProfile({
-    required String token,
-    required Map<String, String> fieldsToUpdate, // Pass only changed text fields
-    File? image, // Pass the image file if it changed
+    required Map<String, String> fieldsToUpdate,
+    File? image,
   }) async {
     try {
-       List<http.MultipartFile>? files;
-       if (image != null) {
-           files = [await http.MultipartFile.fromPath('image', image.path)];
-       }
+      List<http.MultipartFile>? files;
+      if (image != null) {
+        files = [await http.MultipartFile.fromPath('image', image.path)];
+      }
 
-       // Use multipart request because an image might be included
       final response = await _apiClient.multipartRequest(
         'PUT',
         ApiEndpoints.currentUser,
-        token: token,
-        fields: fieldsToUpdate, // Send only the fields that changed
+        fields: fieldsToUpdate,
         files: files,
       );
       return response as Map<String, dynamic>;
@@ -145,20 +113,17 @@ class AuthService {
 
   /// Changes the password for the currently authenticated user.
   Future<void> changePassword({
-    required String token,
     required String oldPassword,
     required String newPassword,
   }) async {
     try {
       await _apiClient.put(
         ApiEndpoints.changePassword,
-        token: token,
         body: {
           'old_password': oldPassword,
           'new_password': newPassword,
         },
       );
-      // PUT request returns 204 No Content on success, _handleResponse returns null
     } catch (e) {
       print("AuthService: Change password failed - $e");
       rethrow;
@@ -166,13 +131,9 @@ class AuthService {
   }
 
   /// Deletes the account of the currently authenticated user.
-  Future<void> deleteAccount({required String token}) async {
+  Future<void> deleteAccount() async {
     try {
-      await _apiClient.delete(
-        ApiEndpoints.currentUser,
-        token: token,
-      );
-      // DELETE request returns 204 No Content on success, _handleResponse returns null
+      await _apiClient.delete(ApiEndpoints.currentUser);
     } catch (e) {
       print("AuthService: Delete account failed - $e");
       rethrow;

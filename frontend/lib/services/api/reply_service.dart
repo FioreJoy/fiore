@@ -1,5 +1,3 @@
-// frontend/lib/services/api/reply_service.dart
-
 import '../api_client.dart';
 import '../api_endpoints.dart';
 // Import ReplyDisplay model if created
@@ -12,11 +10,10 @@ class ReplyService {
 
   /// Fetches replies for a specific post.
   /// Requires API Key. User token might be optional for public viewing.
-  Future<List<dynamic>> getRepliesForPost(int postId, {String? token}) async {
+  Future<List<dynamic>> getRepliesForPost(int postId) async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.repliesForPost(postId),
-        token: token, // Pass token if provided/needed
       );
       return response as List<dynamic>; // Expects List<ReplyDisplay>
     } catch (e) {
@@ -27,7 +24,6 @@ class ReplyService {
 
   /// Creates a new reply to a post. Requires user authentication.
   Future<Map<String, dynamic>> createReply({
-    required String token,
     required int postId,
     required String content,
     int? parentReplyId, // Optional ID of the reply being replied to
@@ -44,7 +40,6 @@ class ReplyService {
 
       final response = await _apiClient.post(
         ApiEndpoints.repliesBase,
-        token: token, // Auth token required
         body: body,
       );
       return response as Map<String, dynamic>; // Expects created ReplyDisplay
@@ -56,13 +51,11 @@ class ReplyService {
 
   /// Deletes a reply. Requires user authentication (author).
   Future<void> deleteReply({
-    required String token,
     required int replyId,
   }) async {
     try {
       await _apiClient.delete(
         ApiEndpoints.replyDetail(replyId), // Use endpoint for specific reply ID
-        token: token,
       );
       // Expects 204 No Content
     } catch (e) {
@@ -71,16 +64,16 @@ class ReplyService {
     }
   }
 
-  // --- Add Reply Favorite/Unfavorite methods if backend supports them ---
-  // Example:
-  // Future<void> favoriteReply(int replyId, String token) async {
-  //   try {
-  //     await _apiClient.post(ApiEndpoints.replyFavorite(replyId), token: token);
-  //   } catch (e) { rethrow; }
-  // }
-  // Future<void> unfavoriteReply(int replyId, String token) async {
-  //   try {
-  //     await _apiClient.delete(ApiEndpoints.replyFavorite(replyId), token: token);
-  //   } catch (e) { rethrow; }
-  // }
+// --- Add Reply Favorite/Unfavorite methods if backend supports them ---
+// Example:
+// Future<void> favoriteReply(int replyId) async {
+//   try {
+//     await _apiClient.post(ApiEndpoints.replyFavorite(replyId));
+//   } catch (e) { rethrow; }
+// }
+// Future<void> unfavoriteReply(int replyId) async {
+//   try {
+//     await _apiClient.delete(ApiEndpoints.replyFavorite(replyId));
+//   } catch (e) { rethrow; }
+// }
 }

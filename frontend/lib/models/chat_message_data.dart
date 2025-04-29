@@ -1,26 +1,33 @@
 import 'package:flutter/foundation.dart'; // For required annotation if needed
 
 class ChatMessageData {
-  final int message_id; // Use underscore to match backend JSON keys
-  final int? community_id;
-  final int? event_id;
-  final int user_id;
+  final int messageId; // <- renamed from message_id (no underscore for Dart best practices)
+  final int? communityId;
+  final int? eventId;
+  final int userId;
   final String username;
   final String content;
   final DateTime timestamp;
 
+  // --- New Attachment Fields ---
+  final String? attachmentUrl; // URL from MinIO
+  final String? attachmentType; // e.g., 'image', 'video', 'pdf', 'file'
+  final String? attachmentFilename; // Original filename for display
+
   ChatMessageData({
-    required this.message_id,
-    this.community_id,
-    this.event_id,
-    required this.user_id,
+    required this.messageId,
+    this.communityId,
+    this.eventId,
+    required this.userId,
     required this.username,
     required this.content,
     required this.timestamp,
+    this.attachmentUrl,
+    this.attachmentType,
+    this.attachmentFilename,
   });
 
   factory ChatMessageData.fromJson(Map<String, dynamic> json) {
-    // More robust check for null core fields
     if (json['message_id'] == null || json['user_id'] == null || json['content'] == null || json['timestamp'] == null) {
       print("Error parsing ChatMessageData: Missing required fields in JSON: $json");
       throw FormatException("Missing required fields in ChatMessageData JSON", json);
@@ -28,32 +35,42 @@ class ChatMessageData {
 
     DateTime parsedTimestamp;
     try {
-      // Ensure it handles potential timezone info correctly from ISO 8601
-      parsedTimestamp = DateTime.parse(json['timestamp'] as String).toLocal();
+      if (json['timestamp'] is String) {
+        parsedTimestamp = DateTime.parse(json['timestamp'] as String).toLocal();
+      } else if (json['timestamp'] is int) {
+        parsedTimestamp = DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int, isUtc: true).toLocal();
+      } else {
+        parsedTimestamp = DateTime.now();
+      }
     } catch (e) {
       print("Error parsing timestamp '${json['timestamp']}': $e. Using current time as fallback.");
-      parsedTimestamp = DateTime.now().toLocal(); // Fallback to local time
+      parsedTimestamp = DateTime.now().toLocal();
     }
 
     return ChatMessageData(
-      message_id: json['message_id'] as int,
-      community_id: json['community_id'] as int?,
-      event_id: json['event_id'] as int?,
-      user_id: json['user_id'] as int,
-      // Backend provides username directly in the chat message fetch
+      messageId: json['message_id'] as int,
+      communityId: json['community_id'] as int?,
+      eventId: json['event_id'] as int?,
+      userId: json['user_id'] as int,
       username: json['username'] as String? ?? 'Unknown User',
       content: json['content'] as String,
       timestamp: parsedTimestamp,
+      attachmentUrl: json['attachment_url'] as String?,
+      attachmentType: json['attachment_type'] as String?,
+      attachmentFilename: json['attachment_filename'] as String?,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'message_id': message_id,
-    'community_id': community_id,
-    'event_id': event_id,
-    'user_id': user_id,
+    'message_id': messageId,
+    'community_id': communityId,
+    'event_id': eventId,
+    'user_id': userId,
     'username': username,
     'content': content,
-    'timestamp': timestamp.toUtc().toIso8601String(), // Send as UTC ISO string
+    'timestamp': timestamp.toUtc().toIso8601String(),
+    'attachment_url': attachmentUrl,
+    'attachment_type': attachmentType,
+    'attachment_filename': attachmentFilename,
   };
 }

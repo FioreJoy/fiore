@@ -78,18 +78,20 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     final postService = Provider.of<PostService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    if (authProvider.token == null) {
+    // Still check if authenticated,ApiClient is needed
+    if (!authProvider.isAuthenticated || authProvider.apiClient == null) {
       setState(() {
-        _errorMessage = 'Authentication error. Please log in again.';
+        _errorMessage = 'Authentication error or configuration issue. Please log in again.';
         _isLoading = false;
       });
       return;
     }
 
     try {
-      // Call the specific service method
+      // <<< FIX: Removed explicit token parameter >>>
+      // Assumes PostService uses an ApiClient that handles auth
       final createdPostData = await postService.createPost(
-        token: authProvider.token!,
+        // token: authProvider.token!, // REMOVED
         title: _titleController.text.trim(),
         content: _contentController.text.trim(),
         communityId: widget.communityId, // Pass communityId if provided
@@ -116,6 +118,13 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           _isLoading = false;
         });
         print("CreatePostScreen: Unexpected error: $e");
+      }
+    } finally {
+      // Ensure loading state is always turned off if mounted
+      if (mounted && _isLoading) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
@@ -188,7 +197,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 isLoading: _isLoading,
                 type: ButtonType.primary,
                 isFullWidth: true,
-                height: 50,
+                //height: 50,
               ),
             ],
           ),

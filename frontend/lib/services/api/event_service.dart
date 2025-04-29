@@ -1,5 +1,3 @@
-// frontend/lib/services/api/event_service.dart
-
 import 'dart:io'; // For File type
 import 'package:http/http.dart' as http; // For MultipartFile
 import 'package:intl/intl.dart'; // For formatting dates if needed client-side
@@ -17,11 +15,10 @@ class EventService {
 
   /// Fetches details for a specific event.
   /// Requires API Key, token might be optional depending on backend setup.
-  Future<Map<String, dynamic>> getEventDetails(int eventId, {String? token}) async {
+  Future<Map<String, dynamic>> getEventDetails(int eventId) async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.eventDetail(eventId),
-        token: token,
       );
       return response as Map<String, dynamic>; // Expects EventDisplay schema
     } catch (e) {
@@ -32,11 +29,10 @@ class EventService {
 
   /// Fetches events for a specific community.
   /// Requires API Key, token might be optional.
-  Future<List<dynamic>> getCommunityEvents(int communityId, {String? token}) async {
+  Future<List<dynamic>> getCommunityEvents(int communityId) async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.communityListEvents(communityId), // Uses community-scoped endpoint
-        token: token,
       );
       return response as List<dynamic>; // Expects List<EventDisplay>
     } catch (e) {
@@ -48,7 +44,6 @@ class EventService {
   /// Creates a new event within a specific community.
   /// Requires authentication token and API Key.
   Future<Map<String, dynamic>> createCommunityEvent({
-    required String token,
     required int communityId,
     required String title,
     String? description,
@@ -78,7 +73,6 @@ class EventService {
       final response = await _apiClient.multipartRequest(
         'POST',
         ApiEndpoints.communityCreateEvent(communityId),
-        token: token,
         fields: fields,
         files: files,
       );
@@ -91,7 +85,6 @@ class EventService {
 
   /// Updates an existing event. Requires user authentication (creator).
   Future<Map<String, dynamic>> updateEvent({
-    required String token,
     required int eventId,
     // Pass only fields that can be updated
     String? title,
@@ -102,26 +95,25 @@ class EventService {
     File? image, // Optional new image
   }) async {
     try {
-        final fields = <String, String>{};
-        if (title != null) fields['title'] = title;
-        if (description != null) fields['description'] = description; // Allow clearing description
-        if (location != null) fields['location'] = location;
-        if (eventTimestamp != null) fields['event_timestamp'] = eventTimestamp.toUtc().toIso8601String();
-        if (maxParticipants != null) fields['max_participants'] = maxParticipants.toString();
+      final fields = <String, String>{};
+      if (title != null) fields['title'] = title;
+      if (description != null) fields['description'] = description; // Allow clearing description
+      if (location != null) fields['location'] = location;
+      if (eventTimestamp != null) fields['event_timestamp'] = eventTimestamp.toUtc().toIso8601String();
+      if (maxParticipants != null) fields['max_participants'] = maxParticipants.toString();
 
-       List<http.MultipartFile>? files;
-       if (image != null) {
-           files = [await http.MultipartFile.fromPath('image', image.path)];
-       }
+      List<http.MultipartFile>? files;
+      if (image != null) {
+        files = [await http.MultipartFile.fromPath('image', image.path)];
+      }
 
-       // Use multipart PUT request to handle optional image update
-       final response = await _apiClient.multipartRequest(
-         'PUT',
-         ApiEndpoints.eventDetail(eventId), // Endpoint for specific event
-         token: token,
-         fields: fields,
-         files: files,
-       );
+      // Use multipart PUT request to handle optional image update
+      final response = await _apiClient.multipartRequest(
+        'PUT',
+        ApiEndpoints.eventDetail(eventId), // Endpoint for specific event
+        fields: fields,
+        files: files,
+      );
       return response as Map<String, dynamic>; // Expects updated EventDisplay
     } catch (e) {
       print("EventService: Failed to update event $eventId - $e");
@@ -129,32 +121,28 @@ class EventService {
     }
   }
 
-   /// Deletes an event. Requires user authentication (creator).
-   Future<void> deleteEvent({
-     required String token,
-     required int eventId,
-   }) async {
-     try {
-       await _apiClient.delete(
-         ApiEndpoints.eventDetail(eventId), // Endpoint for specific event
-         token: token,
-       );
-       // Expects 204 No Content
-     } catch (e) {
-       print("EventService: Failed to delete event $eventId - $e");
-       rethrow;
-     }
-   }
-
+  /// Deletes an event. Requires user authentication (creator).
+  Future<void> deleteEvent({
+    required int eventId,
+  }) async {
+    try {
+      await _apiClient.delete(
+        ApiEndpoints.eventDetail(eventId), // Endpoint for specific event
+      );
+      // Expects 204 No Content
+    } catch (e) {
+      print("EventService: Failed to delete event $eventId - $e");
+      rethrow;
+    }
+  }
 
   // --- Event Participation ---
 
   /// Joins the current user to a specific event.
-  Future<void> joinEvent(int eventId, String token) async {
+  Future<void> joinEvent(int eventId) async {
     try {
       await _apiClient.post(
         ApiEndpoints.eventJoin(eventId),
-        token: token,
         // No body needed typically
       );
       // Expects 200 OK, _handleResponse returns message map or null
@@ -165,13 +153,12 @@ class EventService {
   }
 
   /// Makes the current user leave a specific event.
-  Future<void> leaveEvent(int eventId, String token) async {
+  Future<void> leaveEvent(int eventId) async {
     try {
       await _apiClient.delete(
         ApiEndpoints.eventLeave(eventId),
-        token: token,
       );
-       // Expects 200 OK, _handleResponse returns message map or null
+      // Expects 200 OK, _handleResponse returns message map or null
     } catch (e) {
       print("EventService: Failed to leave event $eventId - $e");
       rethrow;

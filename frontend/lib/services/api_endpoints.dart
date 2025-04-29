@@ -60,6 +60,7 @@ class ApiEndpoints {
 
   // --- Chat ---
   static const String chatMessages = '/chat/messages'; // GET (fetch history), POST (send via HTTP)
+  static const String uploadAttachment = '/chat/upload_attachment'; // Add this endpoint for file upload
 
   // --- Settings (Example Paths - Adjust to your actual backend routes) ---
   static const String notificationSettings = '/settings/notifications'; // GET, PUT

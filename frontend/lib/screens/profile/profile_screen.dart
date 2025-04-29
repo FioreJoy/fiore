@@ -68,7 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveCl
 
     try {
       // Call AuthService to get profile data
-      final data = await authService.getCurrentUserProfile(authProvider.token!);
+      final data = await authService.getCurrentUserProfile();
       if (mounted) {
         setState(() {
           _userData = data;

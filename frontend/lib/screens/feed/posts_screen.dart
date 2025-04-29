@@ -1,23 +1,29 @@
-import '../../services/api/post_service.dart';
-// frontend/lib/screens/posts_screen.dart
+// frontend/lib/screens/feed/posts_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
-import 'package:provider/provider.dart';
-import '../../services/api/REPLACE_WITH_SERVICE.dart';
+import 'package:intl/intl.dart';
+
+// --- Service Imports ---
+import '../../services/api/post_service.dart';
+import '../../services/api/vote_service.dart'; // Import VoteService
 import '../../services/auth_provider.dart';
+
+// --- Widget Imports ---
 import '../../widgets/post_card.dart';
-import '../../widgets/custom_card.dart'; // Keep if used for error/empty states
-import '../../widgets/custom_button.dart'; // Keep if used for error/empty states
+import '../../widgets/custom_card.dart';
+import '../../widgets/custom_button.dart';
+
+// --- Theme and Constants ---
 import '../../theme/theme_constants.dart';
-import 'create_post_screen.dart';
-import 'replies_screen.dart';
-import 'dart:math' as math; // For random colors/time ago
-import 'package:intl/intl.dart'; // For date formatting
+
+// --- Screen Imports ---
+import '../create/create_post_screen.dart';
+import '../replies_screen.dart';
 
 class PostsScreen extends StatefulWidget {
-  final int? communityId; // Optional community ID to filter posts
-  final String? communityName; // Optional name to display in AppBar
+  final int? communityId;
+  final String? communityName;
 
   const PostsScreen({
     Key? key,
@@ -33,18 +39,16 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
   @override
   bool get wantKeepAlive => true;
 
-  // Map to track VOTE DATA for each post
-  // Key: postId (String), Value: Map {'vote_type': bool?, 'upvotes': int, 'downvotes': int}
+  // Use String keys for consistency if IDs are strings in PostCard/VoteService
   final Map<String, Map<String, dynamic>> _postVoteData = {};
 
-  String _selectedFilter = 'all'; // Default filter
+  String _selectedFilter = 'all';
   Future<List<dynamic>>? _loadPostsFuture;
 
   final List<Map<String, dynamic>> _filterTabs = [
     {'id': 'all', 'label': 'All', 'icon': Icons.public},
     {'id': 'trending', 'label': 'Trending', 'icon': Icons.trending_up},
-    // {'id': 'following', 'label': 'Following', 'icon': Icons.favorite}, // Requires backend support
-    {'id': 'latest', 'label': 'Latest', 'icon': Icons.new_releases}, // Handled by 'all' endpoint sorting
+    {'id': 'latest', 'label': 'Latest', 'icon': Icons.new_releases},
   ];
 
   @override
@@ -59,85 +63,86 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
 
   void _triggerPostLoad() {
     if (!mounted) return;
-    final apiService = Provider.of<PostService>(context, listen: false);
+    final postService = Provider.of<PostService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    // No need to check apiClient here, assume AuthProvider manages it
+    if (!authProvider.isAuthenticated) {
+      print("PostsScreen: Not authenticated. Cannot load posts.");
+      setState(() { _loadPostsFuture = Future.value([]); }); // Return empty list
+      return;
+    }
+
     setState(() {
+      // TODO: Verify PostService method names and parameters for filters
       if (_selectedFilter == 'trending') {
-        _loadPostsFuture = apiService.fetchTrendingPosts(authProvider.token);
-        // Note: Trending endpoint might not support communityId filtering. Adjust if needed.
-      } else {
-        // 'all' and 'latest' use the default fetchPosts endpoint
-        _loadPostsFuture = apiService.fetchPosts(authProvider.token, communityId: widget.communityId);
+        print("Loading trending posts...");
+        // Assuming getTrendingPosts exists, otherwise use getPosts
+        _loadPostsFuture = postService.getTrendingPosts(communityId: widget.communityId);
+      } else if (_selectedFilter == 'latest') {
+        print("Loading latest posts (using getPosts)...");
+        _loadPostsFuture = postService.getPosts(communityId: widget.communityId /*, sortBy: 'latest' */);
+      } else { // Default to 'all'
+        print("Loading all posts...");
+        _loadPostsFuture = postService.getPosts(communityId: widget.communityId);
       }
     });
   }
 
   // --- Actions ---
-  Future<void> _voteOnPost(String postId, bool voteType) async {
+  // <<< FIX: Use int postId and VoteService >>>
+  Future<void> _voteOnPost(int postId, bool voteType) async {
     if (!mounted) return;
-    final apiService = Provider.of<PostService>(context, listen: false);
+    // <<< FIX: Get VoteService >>>
+    final voteService = Provider.of<VoteService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     if (!authProvider.isAuthenticated) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to vote.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please log in to vote.')));
       return;
     }
 
-    final currentVoteData = _postVoteData[postId] ?? {'vote_type': null, 'upvotes': 0, 'downvotes': 0};
-    final previousVoteType = currentVoteData['vote_type'] as bool?; // Explicit cast
+    final postIdStr = postId.toString(); // Use String for map key
+    final currentVoteData = _postVoteData[postIdStr] ?? {'vote_type': null, 'upvotes': 0, 'downvotes': 0};
+    final previousVoteType = currentVoteData['vote_type'] as bool?;
     final currentUpvotes = currentVoteData['upvotes'] as int? ?? 0;
     final currentDownvotes = currentVoteData['downvotes'] as int? ?? 0;
 
     // Optimistic UI update
     setState(() {
       final newData = Map<String, dynamic>.from(currentVoteData);
-      int newUpvotes = currentUpvotes;
-      int newDownvotes = currentDownvotes;
-
-      if (previousVoteType == voteType) { // Undoing vote
-        newData['vote_type'] = null;
-        if (voteType == true) newUpvotes--;
-        else newDownvotes--;
-      } else { // Casting new vote or switching vote
-        newData['vote_type'] = voteType;
-        if (voteType == true) { // Upvoting
-          newUpvotes++;
-          if (previousVoteType == false) newDownvotes--;
-        } else { // Downvoting
-          newDownvotes++;
-          if (previousVoteType == true) newUpvotes--;
-        }
-      }
-      newData['upvotes'] = newUpvotes < 0 ? 0 : newUpvotes;
-      newData['downvotes'] = newDownvotes < 0 ? 0 : newDownvotes;
-      _postVoteData[postId] = newData;
+      int newUpvotes = currentUpvotes; int newDownvotes = currentDownvotes;
+      if (previousVoteType == voteType) { newData['vote_type'] = null; if (voteType == true) newUpvotes--; else newDownvotes--; }
+      else { newData['vote_type'] = voteType; if (voteType == true) { newUpvotes++; if (previousVoteType == false) newDownvotes--; } else { newDownvotes++; if (previousVoteType == true) newUpvotes--; } }
+      newData['upvotes'] = newUpvotes < 0 ? 0 : newUpvotes; newData['downvotes'] = newDownvotes < 0 ? 0 : newDownvotes;
+      _postVoteData[postIdStr] = newData; // Use string key
     });
 
     try {
-      // API call uses int for postId
-      await apiService.vote(postId: int.parse(postId), voteType: voteType, token: authProvider.token!);
-      // Optional: Re-fetch posts or update counts from API response if needed for consistency
-      // _triggerPostLoad(); // Simple refresh (can be slow)
+      // <<< FIX: Call VoteService.castVote with named parameters >>>
+      await voteService.castVote(
+        postId: postId, // Pass int postId
+        replyId: null, // Explicitly null for post vote
+        voteType: voteType,
+      );
+      // Consider refreshing just the counts instead of all posts
+      // For now, simple refresh:
+      // _triggerPostLoad(); // Can cause flicker, maybe update counts from response
     } catch (e) {
       if (!mounted) return;
       // Revert UI on error
       setState(() {
-        final revertedData = Map<String, dynamic>.from(currentVoteData);
-        revertedData['vote_type'] = previousVoteType;
-        revertedData['upvotes'] = currentUpvotes;
-        revertedData['downvotes'] = currentDownvotes;
-        _postVoteData[postId] = revertedData;
+        _postVoteData[postIdStr] = currentVoteData; // Restore original data using string key
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Vote failed: ${e.toString()}'), backgroundColor: ThemeConstants.errorColor));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Vote failed: ${e.toString()}'), backgroundColor: ThemeConstants.errorColor));
     }
   }
 
-  void _navigateToReplies(String postId, String? postTitle) {
+  // <<< FIX: Changed postId parameter to int >>>
+  void _navigateToReplies(int postId, String? postTitle) {
     Navigator.push(
       context,
+      // <<< FIX: Pass int postId to RepliesScreen >>>
       MaterialPageRoute(builder: (context) => RepliesScreen(postId: postId, postTitle: postTitle)),
     );
   }
@@ -145,49 +150,45 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
   void _navigateToCreatePost() async {
     if (!mounted) return;
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (!authProvider.isAuthenticated) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You must be logged in to create posts.')),
-      );
-      return;
-    }
+    if (!authProvider.isAuthenticated) { /* Show login message */ return; }
+
+    // Navigate and wait for result
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => CreatePostScreen()),
+      MaterialPageRoute(builder: (context) => CreatePostScreen(communityId: widget.communityId, communityName: widget.communityName)),
     );
-    // Refresh list if a post might have been created
-    if (mounted) {
+    // Refresh if the create screen indicated success (e.g., returned true)
+    if (result == true && mounted) {
       _triggerPostLoad();
     }
   }
 
-  Future<void> _deletePost(String postId) async {
+  // <<< FIX: Changed postId parameter to int >>>
+  Future<void> _deletePost(int postId) async {
     if (!mounted) return;
-    final apiService = Provider.of<PostService>(context, listen: false);
+    final postService = Provider.of<PostService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    if (!authProvider.isAuthenticated) return;
+    if (!authProvider.isAuthenticated) return; // Silently return if not logged in
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Post?'),
-        content: const Text('Are you sure you want to delete this post? This action cannot be undone.'),
+        content: const Text('Are you sure you want to delete this post? This cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: ThemeConstants.errorColor)),
-          ),
+          TextButton( onPressed: () => Navigator.pop(context, true), child: const Text('Delete', style: TextStyle(color: ThemeConstants.errorColor)), ),
         ],
       ),
     );
 
     if (confirmed == true) {
       try {
-        await apiService.deletePost(postId, authProvider.token!);
+        // <<< FIX: Pass int postId using named parameter >>>
+        await postService.deletePost(postId: postId); // Assuming deletePost expects named param
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Post deleted successfully'), duration: Duration(seconds: 1)));
+            const SnackBar(content: Text('Post deleted'), duration: Duration(seconds: 1)));
         _triggerPostLoad(); // Refresh list
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -196,7 +197,7 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
     }
   }
 
-  // Format DateTime string
+  // Format DateTime string (Keep as before)
   String _formatTimeAgo(String? dateTimeString) {
     if (dateTimeString == null) return '';
     try {
@@ -208,10 +209,8 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
       if (difference.inMinutes < 60) return '${difference.inMinutes}m ago';
       if (difference.inHours < 24) return '${difference.inHours}h ago';
       if (difference.inDays < 7) return '${difference.inDays}d ago';
-      return DateFormat('MMM d, yyyy').format(dateTime); // Older than a week
-    } catch (e) {
-      return ''; // Return empty string on parsing error
-    }
+      return DateFormat('MMM d, yyyy').format(dateTime);
+    } catch (e) { return ''; }
   }
 
 
@@ -219,16 +218,17 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
   Widget build(BuildContext context) {
     super.build(context); // Keep state
 
-    final authProvider = Provider.of<AuthProvider>(context); // Use listener for auth state changes
+    final authProvider = Provider.of<AuthProvider>(context); // Listen for auth state changes if needed
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final communityColors = ThemeConstants.communityColors;
+    // <<< FIX: Get current user ID as int? >>>
+    final int? currentUserId = authProvider.userId;
 
     return Scaffold(
-      // Add AppBar only if it's a detail screen (e.g., showing posts for a specific community)
       appBar: widget.communityId != null ? AppBar(title: Text(widget.communityName ?? 'Community Posts')) : null,
       body: Column(
         children: [
-          // Filter tabs (Only show if not already filtered by communityId)
+          // Filter tabs (only show if not inside a specific community)
           if (widget.communityId == null)
             Container(
               height: 50,
@@ -243,22 +243,25 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4.0),
                     child: ChoiceChip(
-                      label: Text(filter['label']),
-                      avatar: Icon(filter['icon'], size: 16, color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.white70 : Colors.black54)),
+                      label: Text(filter['label'] as String),
+                      avatar: Icon(filter['icon'] as IconData?, size: 16, color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.white70 : Colors.black54)),
                       selected: isSelected,
                       onSelected: (selected) {
                         if (selected && _selectedFilter != filter['id']) {
                           setState(() { _selectedFilter = filter['id'] as String; });
-                          _triggerPostLoad();
+                          _triggerPostLoad(); // Reload posts when filter changes
                         }
                       },
-                      selectedColor: ThemeConstants.accentColor,
+                      selectedColor: ThemeConstants.accentColor.withOpacity(0.3),
                       backgroundColor: isDark ? ThemeConstants.backgroundDark : Colors.white,
                       labelStyle: TextStyle(
-                        color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.white : Colors.black87),
+                        fontSize: 13,
+                        color: isSelected ? ThemeConstants.primaryColor : (isDark ? Colors.white70 : Colors.black87),
                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: StadiumBorder(side: BorderSide(color: isDark ? Colors.grey.shade700 : Colors.grey.shade300)),
+                      showCheckmark: false, // Hide default checkmark
                     ),
                   );
                 },
@@ -272,83 +275,102 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
               child: FutureBuilder<List<dynamic>>(
                 future: _loadPostsFuture,
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting ) {
-                    return _buildLoadingShimmer();
+                  if (snapshot.connectionState == ConnectionState.waiting && (_loadPostsFuture == null || snapshot.data == null) ) {
+                    return _buildLoadingShimmer(); // Show shimmer on initial load
                   }
                   if (snapshot.hasError) {
                     return _buildErrorUI(snapshot.error, isDark);
                   }
-                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  // Check specifically for null data even if connection is done
+                  if (!snapshot.hasData && snapshot.connectionState == ConnectionState.done) {
+                    // Could be an error state not caught, or empty list returned legitimately
+                    print("FutureBuilder: snapshot has no data but connection is done.");
+                    return _buildEmptyUI(isDark, filter: _selectedFilter, communityName: widget.communityName);
+                  }
+                  if (snapshot.data == null || snapshot.data!.isEmpty) {
                     return _buildEmptyUI(isDark, filter: _selectedFilter, communityName: widget.communityName);
                   }
 
                   final posts = snapshot.data!;
 
-                  // Initialize/Update vote data after fetch completes
+                  // Update vote data map after posts are fetched
                   WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
                     bool needsUiUpdate = false;
-                    for (var post in posts) {
-                      final postId = post['id'].toString();
-                      final fetchedUpvotes = post['upvotes'] ?? 0;
-                      final fetchedDownvotes = post['downvotes'] ?? 0;
+                    for (var postDyn in posts) {
+                      // Ensure post is a map and has an ID
+                      if (postDyn is! Map<String, dynamic> || postDyn['id'] == null) continue;
+                      final post = postDyn; // Now we know it's a map
+                      final postIdStr = post['id'].toString(); // Use String key
+                      final fetchedUpvotes = post['upvotes'] as int? ?? 0;
+                      final fetchedDownvotes = post['downvotes'] as int? ?? 0;
+                      final fetchedVoteType = post['user_vote'] as bool?; // Assuming backend sends this
 
-                      if (!_postVoteData.containsKey(postId)) {
-                        _postVoteData[postId] = {
-                          'vote_type': null, // TODO: Fetch actual user vote status if possible
-                          'upvotes': fetchedUpvotes,
-                          'downvotes': fetchedDownvotes,
-                        };
+                      if (!_postVoteData.containsKey(postIdStr)) {
+                        _postVoteData[postIdStr] = { 'vote_type': fetchedVoteType, 'upvotes': fetchedUpvotes, 'downvotes': fetchedDownvotes };
                         needsUiUpdate = true;
                       } else {
-                        // Update counts if they differ from fetched data (e.g., after refresh)
-                        if (_postVoteData[postId]!['upvotes'] != fetchedUpvotes ||
-                            _postVoteData[postId]!['downvotes'] != fetchedDownvotes) {
-                          // Only update counts, preserve user's vote_type state
-                          _postVoteData[postId]!['upvotes'] = fetchedUpvotes;
-                          _postVoteData[postId]!['downvotes'] = fetchedDownvotes;
+                        final localVoteData = _postVoteData[postIdStr]!;
+                        // Update only if counts differ, keep local vote state unless server provides it
+                        if (localVoteData['upvotes'] != fetchedUpvotes || localVoteData['downvotes'] != fetchedDownvotes ) {
+                          _postVoteData[postIdStr]!['upvotes'] = fetchedUpvotes;
+                          _postVoteData[postIdStr]!['downvotes'] = fetchedDownvotes;
+                          // Optionally update vote_type if provided by backend, otherwise keep optimistic state
+                          if (localVoteData['vote_type'] != fetchedVoteType && fetchedVoteType != null) {
+                            _postVoteData[postIdStr]!['vote_type'] = fetchedVoteType;
+                          }
                           needsUiUpdate = true;
                         }
                       }
                     }
-                    // Trigger rebuild only if data was actually updated
-                    if (needsUiUpdate && mounted) {
-                      setState(() {});
-                    }
+                    if (needsUiUpdate && mounted) { setState(() {}); }
                   });
 
                   return ListView.builder(
                     padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
                     itemCount: posts.length,
                     itemBuilder: (context, index) {
-                      final post = posts[index];
-                      final postId = post['id'].toString();
+                      final postDyn = posts[index];
+                      // Add check for valid post data
+                      if (postDyn is! Map<String, dynamic> || postDyn['id'] == null) {
+                        return const SizedBox.shrink(); // Skip invalid items
+                      }
+                      final post = postDyn;
+                      // <<< FIX: Use int ID internally, convert to String for map key >>>
+                      final int postIdInt = post['id'] as int? ?? 0;
+                      final String postIdStr = postIdInt.toString();
 
-                      // Get vote data safely from the state map
-                      final voteData = _postVoteData[postId] ?? {'vote_type': null, 'upvotes': post['upvotes'] ?? 0, 'downvotes': post['downvotes'] ?? 0};
+
+                      final voteData = _postVoteData[postIdStr] ?? {'vote_type': null, 'upvotes': post['upvotes'] ?? 0, 'downvotes': post['downvotes'] ?? 0};
                       final bool hasUpvoted = voteData['vote_type'] == true;
                       final bool hasDownvoted = voteData['vote_type'] == false;
-                      final int displayUpvotes = voteData['upvotes'];
-                      final int displayDownvotes = voteData['downvotes'];
+                      final int displayUpvotes = voteData['upvotes'] ?? 0;
+                      final int displayDownvotes = voteData['downvotes'] ?? 0;
 
                       final communityName = post['community_name'] as String?;
-                      final Color? communityColor = communityName != null
+                      final Color? communityColor = communityName != null && post['community_id'] != null
                           ? communityColors[post['community_id'].hashCode % communityColors.length]
                           : null;
 
+                      // <<< FIX: Compare int? with post['user_id'] (which should also be int) >>>
                       final bool isPostOwner = authProvider.isAuthenticated &&
-                          authProvider.userId != null &&
-                          post['user_id'].toString() == authProvider.userId;
+                          currentUserId != null &&
+                          post['user_id'] == currentUserId; // Direct int comparison
+
+
+                      // Assume PostCard accepts a Map<String, dynamic> or a PostModel
+                      // If PostCard expects PostModel, map 'post' map to PostModel here
+                      // PostModel postModel = PostModel.fromJson(post); // Example
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: ThemeConstants.mediumPadding),
                         child: PostCard(
+                          // Option 1: Pass individual fields
+                          // postId: postIdStr, // Pass String ID if PostCard expects it
                           title: post['title'] ?? 'No Title',
-                          content: post['content'] ?? 'No Content',
+                          content: post['content'] ?? '',
                           authorName: post['author_name'] ?? 'Anonymous',
-                          // Construct full image URL if backend only provides path
-                          // Example: Assume image_path is relative path like "user_images/username_uuid.jpg"
-                          // authorAvatar: post['author_avatar'] != null ? '${AppConstants.baseUrl}/${post['author_avatar']}' : null,
-                          authorAvatar: post['author_avatar'], // Use as is if backend gives full URL or null
+                          authorAvatar: post['author_avatar_url'], // Use pre-generated URL if available
                           timeAgo: _formatTimeAgo(post['created_at']),
                           upvotes: displayUpvotes,
                           downvotes: displayDownvotes,
@@ -358,11 +380,17 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
                           isOwner: isPostOwner,
                           communityName: communityName,
                           communityColor: communityColor,
-                          onUpvote: () => _voteOnPost(postId, true),
-                          onDownvote: () => _voteOnPost(postId, false),
-                          onReply: () => _navigateToReplies(postId, post['title']),
-                          onDelete: isPostOwner ? () => _deletePost(postId) : null,
-                          onTap: () => _navigateToReplies(postId, post['title']),
+                          imageUrl: post['image_url'], // Use pre-generated URL if available
+
+                          // Option 2: Pass PostModel (if PostCard expects it)
+                          // post: postModel,
+
+                          // <<< FIX: Pass int ID to callbacks >>>
+                          onUpvote: () => _voteOnPost(postIdInt, true),
+                          onDownvote: () => _voteOnPost(postIdInt, false),
+                          onReply: () => _navigateToReplies(postIdInt, post['title']),
+                          onDelete: isPostOwner ? () => _deletePost(postIdInt) : null,
+                          onTap: () => _navigateToReplies(postIdInt, post['title']),
                         ),
                       );
                     },
@@ -378,7 +406,7 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
         child: const Icon(Icons.add),
         tooltip: "Create Post",
         backgroundColor: ThemeConstants.accentColor,
-        foregroundColor: ThemeConstants.primaryColor,
+        foregroundColor: Colors.white,
       ),
     );
   }
@@ -394,13 +422,13 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
       highlightColor: highlightColor,
       child: ListView.builder(
         padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-        itemCount: 5, // Number of shimmer placeholders
+        itemCount: 5, // Number of shimmer items
         itemBuilder: (_, __) => Padding(
           padding: const EdgeInsets.only(bottom: ThemeConstants.mediumPadding),
           child: Container(
             height: 180, // Adjust height to match PostCard estimate
             decoration: BoxDecoration(
-              color: Colors.white, // Base color for shimmer effect
+              color: Colors.white, // Base color for shimmer container
               borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius),
             ),
           ),
@@ -417,21 +445,20 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
         ? 'Be the first to post here!'
         : 'Try changing the filter or create a new post!';
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.article_outlined, size: 64, color: isDark ? Colors.grey.shade600 : Colors.grey.shade400),
-          const SizedBox(height: 16),
-          Text(message, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
-          const SizedBox(height: 8),
-          Text(
-            suggestion,
-            style: TextStyle(color: isDark ? Colors.grey.shade500 : Colors.grey.shade700),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          CustomButton(text: 'Create Post', icon: Icons.add, onPressed: _navigateToCreatePost, type: ButtonType.primary),
-        ],
+      child: SingleChildScrollView( // Allow scrolling if content overflows
+        padding: const EdgeInsets.all(ThemeConstants.largePadding),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.article_outlined, size: 64, color: isDark ? Colors.grey.shade600 : Colors.grey.shade400),
+            const SizedBox(height: 16),
+            Text(message, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
+            const SizedBox(height: 8),
+            Text( suggestion, style: TextStyle(color: isDark ? Colors.grey.shade500 : Colors.grey.shade700), textAlign: TextAlign.center, ),
+            const SizedBox(height: 24),
+            CustomButton(text: 'Create Post', icon: Icons.add, onPressed: _navigateToCreatePost, type: ButtonType.primary),
+          ],
+        ),
       ),
     );
   }
@@ -445,13 +472,13 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
             child: Padding(
               padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize: MainAxisSize.min, // Fit content
                 children: [
                   const Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 48),
                   const SizedBox(height: ThemeConstants.smallPadding),
                   Text('Failed to load posts', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
                   const SizedBox(height: ThemeConstants.smallPadding),
-                  Text(error.toString(), textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)),
+                  Text(error?.toString() ?? 'An unknown error occurred.', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)),
                   const SizedBox(height: ThemeConstants.mediumPadding),
                   CustomButton(text: 'Retry', icon: Icons.refresh, onPressed: _triggerPostLoad, type: ButtonType.primary),
                 ],
@@ -461,4 +488,4 @@ class _PostsScreenState extends State<PostsScreen> with AutomaticKeepAliveClient
         )
     );
   }
-}
+} // End of _PostsScreenState

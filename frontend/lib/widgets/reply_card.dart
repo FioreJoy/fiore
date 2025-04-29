@@ -42,7 +42,7 @@ class ReplyCard extends StatelessWidget {
   }) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) { // <<< context is available here
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final double indentPadding = indentLevel * 20.0; // Increase indent space slightly
     final Color cardBackgroundColor = isDark ? ThemeConstants.backgroundDark : Colors.white;
@@ -123,11 +123,14 @@ class ReplyCard extends StatelessWidget {
             padding: const EdgeInsets.only(left: 30.0), // Indent actions
             child: Row(
               children: [
-                _buildActionButton(icon: Icons.arrow_upward, label: upvotes.toString(), onTap: onUpvote, selected: hasUpvoted, selectedColor: ThemeConstants.accentColor),
+                // <<< FIX: Pass context to the helper method >>>
+                _buildActionButton(context, icon: Icons.arrow_upward, label: upvotes.toString(), onTap: onUpvote, selected: hasUpvoted, selectedColor: ThemeConstants.accentColor),
                 const SizedBox(width: 12),
-                _buildActionButton(icon: Icons.arrow_downward, label: downvotes.toString(), onTap: onDownvote, selected: hasDownvoted, selectedColor: ThemeConstants.errorColor),
+                // <<< FIX: Pass context to the helper method >>>
+                _buildActionButton(context, icon: Icons.arrow_downward, label: downvotes.toString(), onTap: onDownvote, selected: hasDownvoted, selectedColor: ThemeConstants.errorColor),
                 const SizedBox(width: 12),
-                _buildActionButton(icon: Icons.reply, label: 'Reply', onTap: onReply),
+                // <<< FIX: Pass context to the helper method >>>
+                _buildActionButton(context, icon: Icons.reply, label: 'Reply', onTap: onReply),
               ],
             ),
           ),
@@ -136,15 +139,17 @@ class ReplyCard extends StatelessWidget {
     );
   }
 
-  // Keep _buildActionButton helper
-  Widget _buildActionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback? onTap,
-    bool selected = false,
-    Color? selectedColor,
-  }) {
-    final theme = Theme.of(context); // Access theme here
+  // <<< FIX: Added BuildContext context as the first parameter >>>
+  Widget _buildActionButton(
+      BuildContext context, {
+        required IconData icon,
+        required String label,
+        required VoidCallback? onTap,
+        bool selected = false,
+        Color? selectedColor,
+      }) {
+    // <<< FIX: context is now available here >>>
+    final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final Color effectiveColor = selected
         ? (selectedColor ?? ThemeConstants.accentColor) // Use accent if selectedColor is null

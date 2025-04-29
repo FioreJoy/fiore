@@ -1,5 +1,3 @@
-// frontend/lib/screens/settings/settings_feature/account/edit_profile.dart
-
 import 'dart:io'; // For File type
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -82,7 +80,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
 
     try {
-      final data = await authService.getCurrentUserProfile(authProvider.token!);
+      final data = await authService.getCurrentUserProfile();
       if (!mounted) return;
 
       setState(() {
@@ -184,7 +182,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
     // --- End Prepare data ---
 
-
     setState(() => _isSaving = true);
     final authService = Provider.of<AuthService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -196,7 +193,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     try {
       final updatedUserData = await authService.updateUserProfile(
-        token: authProvider.token!,
         fieldsToUpdate: fieldsToUpdate,
         image: _pickedImageFile, // Pass selected File or null
       );
@@ -239,7 +235,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     } else if (locationData is String && locationData.isNotEmpty) return locationData;
     return ''; // Return empty string instead of N/A for editing
   }
-
 
   // --- Build Methods ---
   @override
@@ -290,41 +285,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             // Gender Dropdown
             DropdownButtonFormField<String>(
               value: _selectedGender, hint: const Text('Select Gender'),
-              decoration: InputDecoration( labelText: 'Gender', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0)), contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 16.0)),
-              items: _genders.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-              onChanged: (v) => setState(() => _selectedGender = v),
-              validator: (v) => v == null ? 'Required' : null,
+              decoration: InputDecoration( labelText: 'Gender', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0)), contentPadding: const EdgeInsets.symmetric(horizontal: 12)),
+              items: _genders.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (val) => setState(() => _selectedGender = val),
             ),
             const SizedBox(height: 16),
-            CustomTextField( controller: _locationController, labelText: 'Location (Optional)', hintText: '(longitude,latitude)', prefixIcon: Icon(Icons.location_on_outlined),
-              validator: (v) { if (v != null && v.isNotEmpty && !RegExp(r'^\s*\(\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*\)\s*$').hasMatch(v)) { return 'Use (lon,lat) format or leave blank'; } return null; },
+            // Interests (checkboxes/multiselect)
+            Wrap(
+              spacing: 8.0,
+              runSpacing: 8.0,
+              children: _allInterests.map((interest) => ChoiceChip(
+                label: Text(interest),
+                selected: _selectedInterests.contains(interest),
+                onSelected: (isSelected) {
+                  setState(() {
+                    isSelected
+                        ? _selectedInterests.add(interest)
+                        : _selectedInterests.remove(interest);
+                  });
+                },
+              )).toList(),
             ),
             const SizedBox(height: 24),
-
-            // Interests (Example using Chips - adapt as needed)
-            Text('Select Your Interests', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8.0),
-            Container( padding: const EdgeInsets.all(8.0), decoration: BoxDecoration( borderRadius: BorderRadius.circular(8.0), border: Border.all(color: Colors.grey.shade400),),
-              child: Wrap( spacing: 8.0, runSpacing: 4.0, children: _allInterests.map((interest) {
-                final isSelected = _selectedInterests.contains(interest); return FilterChip( label: Text(interest), selected: isSelected,
-                  onSelected: (bool selected) => setState(() { if (selected) _selectedInterests.add(interest); else _selectedInterests.remove(interest); }),
-                  selectedColor: ThemeConstants.accentColor.withOpacity(0.8), checkmarkColor: ThemeConstants.primaryColor, labelStyle: TextStyle(color: isSelected ? ThemeConstants.primaryColor : null, fontSize: 12),);
-              }).toList(),),),
-            const SizedBox(height: 24),
-
-            // Error Message Display
-            if (_errorMessage != null)
-              Padding( padding: const EdgeInsets.only(bottom: 15.0), child: Text( _errorMessage!, style: const TextStyle(color: ThemeConstants.errorColor, fontSize: 14), textAlign: TextAlign.center,),),
-
-
-            CustomButton(
-              text: 'Save Profile',
-              onPressed: _isSaving ? null : _saveProfile,
-              isLoading: _isSaving,
+            // Save Button
+            _isSaving
+                ? const Center(child: CircularProgressIndicator())
+                : CustomButton(
+              onPressed: _saveProfile,
+              text: 'Save Changes',
               type: ButtonType.primary,
-              isFullWidth: true,
+              isLoading: _isSaving,
             ),
-            const SizedBox(height: 20), // Bottom padding
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 16.0),
+                child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 14), textAlign: TextAlign.center),
+              )
           ],
         ),
       ),
@@ -332,10 +328,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Widget _buildErrorView() {
-    return Center( child: Padding( padding: const EdgeInsets.all(16.0), child: Column( mainAxisSize: MainAxisSize.min, children: [
-      const Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 48), const SizedBox(height: 16),
-      Text(_errorMessage ?? 'Failed to load profile data.', textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)), const SizedBox(height: 24),
-      CustomButton( text: 'Retry', icon: Icons.refresh, onPressed: _loadInitialUserData, type: ButtonType.secondary,),],),),);
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error, color: Colors.red, size: 50),
+          const SizedBox(height: 16),
+          Text(_errorMessage ?? 'Something went wrong', style: const TextStyle(color: Colors.red, fontSize: 18)),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _loadInitialUserData,
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
   }
-
 }

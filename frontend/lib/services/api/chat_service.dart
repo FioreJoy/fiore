@@ -1,96 +1,157 @@
-// frontend/lib/services/api/chat_service.dart
-
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:mime/mime.dart';
+import 'package:http_parser/http_parser.dart';
+import '../../models/chat_message_data.dart';
 import '../api_client.dart';
 import '../api_endpoints.dart';
-// Import ChatMessageData model if created
 
-/// Service responsible for HTTP-based chat actions
-/// (fetching history, potentially sending as fallback).
-/// Real-time messaging is handled by WebSocketService.
 class ChatService {
   final ApiClient _apiClient;
 
   ChatService(this._apiClient);
 
-  /// Fetches historical chat messages for a specific community or event room.
-  /// Requires authentication token and API Key.
-  ///
-  /// Provide exactly one of [communityId] or [eventId].
-  /// [limit] specifies the maximum number of messages to fetch.
-  /// [beforeId] can be used for pagination (fetches messages older than this ID).
-  Future<List<dynamic>> getChatMessages({
-    required String token,
+  /// Fetch chat messages
+  Future<List<ChatMessageData>> getMessages({
     int? communityId,
     int? eventId,
     int limit = 50,
     int? beforeId,
   }) async {
-    // Validate input: Ensure exactly one ID is provided
-    if (!((communityId != null && eventId == null) || (communityId == null && eventId != null))) {
-      throw ArgumentError("Must provide exactly one of communityId or eventId.");
-    }
+    final Map<String, String> queryParams = {
+      'limit': limit.toString(),
+      if (communityId != null) 'community_id': communityId.toString(),
+      if (eventId != null) 'event_id': eventId.toString(),
+      if (beforeId != null) 'before_id': beforeId.toString(),
+    };
 
     try {
-      final queryParams = <String, String>{ // Use String keys and values for query
-        'limit': limit.toString(),
-      };
-      if (communityId != null) queryParams['community_id'] = communityId.toString();
-      if (eventId != null) queryParams['event_id'] = eventId.toString();
-      if (beforeId != null) queryParams['before_id'] = beforeId.toString();
-
       final response = await _apiClient.get(
         ApiEndpoints.chatMessages,
-        token: token,
-        queryParams: queryParams,
+        queryParameters: queryParams.isNotEmpty ? queryParams : null,
       );
-      // Expects List<ChatMessageData> from backend
-      return response as List<dynamic>;
+
+      final data = response;
+      if (data is List) {
+        return data.map((json) => ChatMessageData.fromJson(json)).toList();
+      } else {
+        throw Exception('Unexpected response type from getMessages.');
+      }
     } catch (e) {
-      final room = communityId != null ? "community $communityId" : "event $eventId";
-      print("ChatService: Failed to fetch messages for $room - $e");
+      print('ChatService: Error fetching messages - $e');
       rethrow;
     }
   }
 
-  /// Sends a chat message via HTTP POST.
-  /// This might be used as a fallback if WebSocket fails, or if needed for other reasons.
-  /// Requires authentication token and API Key.
-  ///
-  /// Provide exactly one of [communityId] or [eventId].
+  /// Upload an attachment (e.g., image)
+  Future<Map<String, dynamic>> uploadAttachment(File file) async {
+    final uri = Uri.parse('${_apiClient.getBaseUrl()}${ApiEndpoints.uploadAttachment}');
+    var request = http.MultipartRequest('POST', uri);
+    request.headers.addAll(_apiClient.getHeaders());
+
+    final mimeType = lookupMimeType(file.path) ?? 'application/octet-stream';
+    final filePart = await http.MultipartFile.fromPath(
+      'image',
+      file.path,
+      contentType: MediaType.parse(mimeType),
+    );
+
+    request.files.add(filePart);
+
+    try {
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = jsonDecode(response.body);
+        if (responseData is Map<String, dynamic> &&
+            responseData.containsKey('url') &&
+            responseData.containsKey('type') &&
+            responseData.containsKey('filename')) {
+          return responseData;
+        } else {
+          throw Exception('Unexpected response format from upload.');
+        }
+      } else {
+        throw Exception('Failed to upload attachment: ${response.statusCode} ${response.body}');
+      }
+    } catch (e) {
+      print('ChatService: Error uploading attachment - $e');
+      throw Exception('Error uploading attachment: $e');
+    }
+  }
+
+  /// Send a chat message
   Future<Map<String, dynamic>> sendChatMessageHttp({
-    required String token,
     required String content,
     int? communityId,
     int? eventId,
   }) async {
-    // Validate input: Ensure exactly one ID is provided
     if (!((communityId != null && eventId == null) || (communityId == null && eventId != null))) {
-      throw ArgumentError("Must provide exactly one of communityId or eventId for sending message.");
+      throw ArgumentError('Provide exactly one of communityId or eventId.');
     }
 
+    final queryParams = <String, String>{};
+    if (communityId != null) queryParams['community_id'] = communityId.toString();
+    if (eventId != null) queryParams['event_id'] = eventId.toString();
+
+    final endpoint = Uri.parse(ApiEndpoints.chatMessages)
+        .replace(queryParameters: queryParams)
+        .path;
+
     try {
-       final queryParams = <String, String>{};
-       if (communityId != null) queryParams['community_id'] = communityId.toString();
-       if (eventId != null) queryParams['event_id'] = eventId.toString();
-
-       // Construct endpoint with query parameters
-       final endpoint = Uri.parse(ApiEndpoints.chatMessages).replace(queryParameters: queryParams).path;
-       // Query parameters are part of the path now for POST/PUT/DELETE if done this way,
-       // Alternatively, keep them in queryParams map and pass to apiClient.post if it supports it.
-       // Let's assume query params are needed for the POST endpoint structure based on backend router:
-       // POST /chat/messages?community_id=X or POST /chat/messages?event_id=X
-
       final response = await _apiClient.post(
-        endpoint, // Send endpoint path with query params appended
-        token: token,
-        body: {'content': content}, // JSON body with message content
-        // queryParams: queryParams // Pass queryParams if apiClient.post supports it directly
+        endpoint,
+        body: {'content': content},
       );
-      // Expects the created ChatMessageData as response
-      return response as Map<String, dynamic>;
+
+      final data = response;
+      if (data is Map<String, dynamic>) {
+        return data;
+      } else {
+        throw Exception('Unexpected response type from sendChatMessageHttp.');
+      }
     } catch (e) {
-       final room = communityId != null ? "community $communityId" : "event $eventId";
-      print("ChatService: Failed to send HTTP message to $room - $e");
+      final room = communityId != null ? 'community $communityId' : 'event $eventId';
+      print('ChatService: Failed to send message to $room - $e');
+      rethrow;
+    }
+  }
+
+  /// Fetch chat messages (alternative simpler version)
+  Future<List<dynamic>> getChatMessages({
+    int? communityId,
+    int? eventId,
+    int limit = 50,
+    int? beforeId,
+  }) async {
+    if (!((communityId != null && eventId == null) || (communityId == null && eventId != null))) {
+      throw ArgumentError('Provide exactly one of communityId or eventId.');
+    }
+
+    final queryParams = <String, String>{
+      'limit': limit.toString(),
+      if (communityId != null) 'community_id': communityId.toString(),
+      if (eventId != null) 'event_id': eventId.toString(),
+      if (beforeId != null) 'before_id': beforeId.toString(),
+    };
+
+    try {
+      final response = await _apiClient.get(
+        ApiEndpoints.chatMessages,
+        queryParameters: queryParams.isNotEmpty ? queryParams : null,
+      );
+
+      final data = response;
+      if (data is List) {
+        return data;
+      } else {
+        throw Exception('Unexpected response type from getChatMessages.');
+      }
+    } catch (e) {
+      final room = communityId != null ? 'community $communityId' : 'event $eventId';
+      print('ChatService: Failed to fetch messages for $room - $e');
       rethrow;
     }
   }

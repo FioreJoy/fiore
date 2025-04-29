@@ -1,5 +1,3 @@
-// frontend/lib/screens/settings/settings_feature/auth/logout_delete_page.dart
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -115,7 +113,7 @@ class _LogoutDeletePageState extends State<LogoutDeletePage> {
     }
 
     try {
-      await authService.deleteAccount(token: authProvider.token!);
+      await authService.deleteAccount();
       // If delete succeeds, perform logout and navigate
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -149,7 +147,6 @@ class _LogoutDeletePageState extends State<LogoutDeletePage> {
     // No finally needed for setting _isDeleting = false due to catch blocks
   }
 
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -160,7 +157,6 @@ class _LogoutDeletePageState extends State<LogoutDeletePage> {
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          // mainAxisAlignment: MainAxisAlignment.center, // Center content vertically? Or start from top?
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
@@ -205,8 +201,6 @@ class _LogoutDeletePageState extends State<LogoutDeletePage> {
               onPressed: _isDeleting ? null : _deleteAccount,
               icon: Icons.delete_forever,
               isLoading: _isDeleting,
-              //color: ThemeConstants.errorColor, // Custom color for delete button
-              //textColor: Colors.white,
               isFullWidth: true,
             ),
             const Spacer(), // Push content to top if not centered

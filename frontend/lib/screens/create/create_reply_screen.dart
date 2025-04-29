@@ -57,18 +57,20 @@ class _CreateReplyScreenState extends State<CreateReplyScreen> {
     final replyService = Provider.of<ReplyService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    if (authProvider.token == null) {
+    // Still check if authenticated, ApiClient is needed
+    if (!authProvider.isAuthenticated || authProvider.apiClient == null) {
       setState(() {
-        _errorMessage = 'Authentication error. Please log in again.';
+        _errorMessage = 'Authentication error or configuration issue. Please log in again.';
         _isLoading = false;
       });
       return;
     }
 
     try {
-      // Call the specific service method
+      // <<< FIX: Removed explicit token parameter >>>
+      // Assumes ReplyService uses an ApiClient that handles auth
       await replyService.createReply(
-        token: authProvider.token!,
+        // token: authProvider.token!, // REMOVED
         postId: widget.postId, // Use postId from widget constructor
         content: _contentController.text.trim(),
         parentReplyId: widget.parentReplyId, // Pass parentReplyId if provided
@@ -94,6 +96,13 @@ class _CreateReplyScreenState extends State<CreateReplyScreen> {
           _isLoading = false;
         });
         print("CreateReplyScreen: Unexpected error: $e");
+      }
+    } finally {
+      // Ensure loading state is always turned off if mounted
+      if (mounted && _isLoading) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
@@ -156,7 +165,7 @@ class _CreateReplyScreenState extends State<CreateReplyScreen> {
                 isLoading: _isLoading,
                 type: ButtonType.primary,
                 isFullWidth: true,
-                height: 50,
+                //height: 50, // Removed if not a valid parameter for CustomButton
               ),
             ],
           ),

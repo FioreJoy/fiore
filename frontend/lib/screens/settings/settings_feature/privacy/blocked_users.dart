@@ -43,13 +43,16 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
     final blockService = Provider.of<BlockService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    if (authProvider.token == null) {
-      setState(() { _isLoading = false; _error = "Not authenticated."; });
+    // Still need to check if authenticated before making the call
+    if (!authProvider.isAuthenticated || authProvider.apiClient == null) {
+      setState(() { _isLoading = false; _error = "Not authenticated or configuration error."; });
       return;
     }
 
     try {
-      final fetchedList = await blockService.getBlockedUsers(authProvider.token!);
+      // <<< FIX: Removed explicit token parameter >>>
+      // Assumes BlockService uses an ApiClient that handles auth
+      final fetchedList = await blockService.getBlockedUsers();
       if (mounted) {
         setState(() {
           // Assuming the list contains Maps matching BlockedUserDisplay schema
@@ -88,20 +91,19 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
 
     if (confirm != true || !mounted) return;
 
-
     final blockService = Provider.of<BlockService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    if (authProvider.token == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Authentication error.'), backgroundColor: Colors.red));
+    // Still need to check if authenticated before making the call
+    if (!authProvider.isAuthenticated || authProvider.apiClient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Authentication error or configuration error.'), backgroundColor: Colors.red));
       return;
     }
 
-    // Optionally show a temporary loading state on the specific list item?
-    // This is more complex UI state management. For now, we just refetch.
-
     try {
-      await blockService.unblockUser(token: authProvider.token!, userIdToUnblock: userIdToUnblock);
+      // <<< FIX: Removed explicit token parameter >>>
+      // Assumes BlockService uses an ApiClient that handles auth
+      await blockService.unblockUser(userIdToUnblock: userIdToUnblock);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

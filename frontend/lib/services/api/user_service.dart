@@ -1,5 +1,3 @@
-// frontend/lib/services/api/user_service.dart
-
 import '../api_client.dart';
 import '../api_endpoints.dart';
 // Import models if you create them (e.g., CommunityDisplay, EventDisplay, BlockedUserDisplay)
@@ -15,11 +13,10 @@ class UserService {
 
   /// Fetches the list of communities joined by the current user.
   /// Returns a list of Maps, expected to match CommunityDisplay schema.
-  Future<List<dynamic>> getMyJoinedCommunities(String token) async {
+  Future<List<dynamic>> getMyJoinedCommunities() async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.currentUserCommunities,
-        token: token,
       );
       // Backend returns List<CommunityDisplay> which gets decoded into List<dynamic> (List<Map<String, dynamic>>)
       return response as List<dynamic>;
@@ -31,11 +28,10 @@ class UserService {
 
   /// Fetches the list of events joined by the current user.
   /// Returns a list of Maps, expected to match EventDisplay schema.
-  Future<List<dynamic>> getMyJoinedEvents(String token) async {
+  Future<List<dynamic>> getMyJoinedEvents() async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.currentUserEvents, // Corrected endpoint name
-        token: token,
       );
       // Backend returns List<EventDisplay> which gets decoded into List<dynamic> (List<Map<String, dynamic>>)
       return response as List<dynamic>;
@@ -50,11 +46,10 @@ class UserService {
 
   /// Fetches the list of users blocked by the current user.
   /// Returns a list of Maps, expected to match BlockedUserDisplay schema.
-  Future<List<dynamic>> getBlockedUsers(String token) async {
+  Future<List<dynamic>> getBlockedUsers() async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.blockedUsers,
-        token: token,
       );
       return response as List<dynamic>;
     } catch (e) {
@@ -64,12 +59,10 @@ class UserService {
   }
 
   /// Blocks a specific user.
-  Future<void> blockUser(String token, int userIdToBlock) async {
+  Future<void> blockUser(int userIdToBlock) async {
     try {
       await _apiClient.post( // Assuming POST to block
         ApiEndpoints.blockUser(userIdToBlock),
-        token: token,
-        // Body might not be needed if user ID is in the path
       );
       // Expects 200 OK or 204 No Content, _handleResponse handles success/error
     } catch (e) {
@@ -79,11 +72,10 @@ class UserService {
   }
 
   /// Unblocks a specific user.
-  Future<void> unblockUser(String token, int userIdToUnblock) async {
+  Future<void> unblockUser(int userIdToUnblock) async {
     try {
       await _apiClient.delete( // Assuming DELETE to unblock
         ApiEndpoints.unblockUser(userIdToUnblock),
-        token: token,
       );
       // Expects 200 OK or 204 No Content
     } catch (e) {
@@ -92,6 +84,6 @@ class UserService {
     }
   }
 
-  // --- Add other user-related fetches if needed ---
-  // e.g., Future<Map<String, dynamic>> getPublicUserProfile(int userId, String token) async { ... }
+// --- Add other user-related fetches if needed ---
+// e.g., Future<Map<String, dynamic>> getPublicUserProfile(int userId) async { ... }
 }

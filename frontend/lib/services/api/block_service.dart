@@ -2,7 +2,6 @@
 
 import '../api_client.dart';
 import '../api_endpoints.dart';
-// Import BlockedUser model if created
 
 /// Service responsible for managing user blocking.
 class BlockService {
@@ -11,15 +10,9 @@ class BlockService {
   BlockService(this._apiClient);
 
   /// Fetches the list of users blocked by the currently authenticated user.
-  /// Requires authentication token and API Key.
-  /// Returns a list of Maps representing blocked user information.
-  Future<List<dynamic>> getBlockedUsers(String token) async {
+  Future<List<dynamic>> getBlockedUsers() async {
     try {
-      final response = await _apiClient.get(
-        ApiEndpoints.blockedUsers, // Adjust endpoint if different
-        token: token,
-      );
-      // Expects a List<BlockedUserDisplay> from backend
+      final response = await _apiClient.get(ApiEndpoints.blockedUsers);
       return response as List<dynamic>;
     } catch (e) {
       print("BlockService: Failed to fetch blocked users - $e");
@@ -28,19 +21,13 @@ class BlockService {
   }
 
   /// Blocks a user specified by [userIdToBlock].
-  /// Requires authentication token and API Key.
   Future<void> blockUser({
-    required String token,
     required int userIdToBlock,
   }) async {
     try {
-      // Assuming a POST request to the specific user block endpoint
       await _apiClient.post(
-        ApiEndpoints.blockUser(userIdToBlock), // Adjust endpoint if different
-        token: token,
-        // Body might not be required if ID is in path
+        ApiEndpoints.blockUser(userIdToBlock),
       );
-      // Expects 200 OK or 204 No Content
     } catch (e) {
       print("BlockService: Failed to block user $userIdToBlock - $e");
       rethrow;
@@ -48,18 +35,13 @@ class BlockService {
   }
 
   /// Unblocks a user specified by [userIdToUnblock].
-  /// Requires authentication token and API Key.
   Future<void> unblockUser({
-    required String token,
     required int userIdToUnblock,
   }) async {
     try {
-      // Assuming a DELETE request to the specific user unblock endpoint
       await _apiClient.delete(
-        ApiEndpoints.unblockUser(userIdToUnblock), // Adjust endpoint if different
-        token: token,
+        ApiEndpoints.unblockUser(userIdToUnblock),
       );
-      // Expects 200 OK or 204 No Content
     } catch (e) {
       print("BlockService: Failed to unblock user $userIdToUnblock - $e");
       rethrow;

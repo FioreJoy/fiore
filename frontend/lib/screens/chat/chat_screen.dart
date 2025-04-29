@@ -1,35 +1,34 @@
 // frontend/lib/screens/chat/chat_screen.dart
 
 import 'dart:async';
-import 'dart:io';
-import 'dart:convert';
+import 'dart:io'; // For File type
+import 'dart:convert'; // For jsonEncode
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:collection/collection.dart'; // For firstWhereOrNull
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
-// --- Service Imports ---
-import '../../services/api_client.dart'; // May not be needed directly if WebSocketService handles all
+// --- Service Imports (Using Relative Paths) ---
 import '../../services/websocket_service.dart';
 import '../../services/auth_provider.dart';
-import '../../services/api/user_service.dart'; // To fetch communities
-import '../../services/api/chat_service.dart'; // To fetch history
-import '../../services/api/event_service.dart'; // To fetch event details if needed
+import '../../services/api/user_service.dart';
+import '../../services/api/chat_service.dart';
+import '../../services/api/event_service.dart';
 
-// --- Model Imports ---
+// --- Model Imports (Using Relative Paths) ---
 import '../../models/chat_message_data.dart';
-import '../../models/event_model.dart'; // Keep for displaying selected event info
-import '../../models/message_model.dart'; // Used by ChatMessageBubble
+import '../../models/event_model.dart'; // Assuming this exists and is correct
 
-// --- Widget Imports ---
+// --- Widget Imports (Using Relative Paths) ---
 import '../../widgets/chat_message_bubble.dart';
-import '../../widgets/chat_event_card.dart'; // To display context if chatting in an event
+import '../../widgets/chat_event_card.dart';
 
 // --- Theme and Constants ---
-import '../../theme/theme_constants.dart';
-import '../../app_constants.dart';
-
-// --- Screen Imports ---
-// Removed internal tab controller logic
+import '../../theme/theme_constants.dart'; // Assuming this exists
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({Key? key}) : super(key: key);
@@ -43,31 +42,35 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   bool get wantKeepAlive => true; // Keep state when switching main tabs
 
   // --- State Variables ---
-  final TextEditingController _messageController = TextEditingController();
+  final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  bool _isDrawerOpen = false;
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>(); // For drawer control
+  final FocusNode _focusNode = FocusNode();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  // IDs for the current chat context
+  // Current chat context
   int? _selectedCommunityId;
-  int? _selectedEventId; // If non-null, we are in an event chat room
+  int? _selectedEventId;
 
   // Data & Loading States
   List<ChatMessageData> _messages = [];
-  List<Map<String, dynamic>> _userCommunities = []; // User's joined communities
-  EventModel? _selectedEventDetails; // Details of the event being chatted in
-
+  List<Map<String, dynamic>> _userCommunities = []; // Stores {'id': int, 'name': String, 'logo_url': String?}
+  EventModel? _selectedEventDetails;
   bool _isLoadingMessages = false;
   bool _isLoadingCommunities = true;
-  bool _isLoadingEventDetails = false; // For loading event card details
-  bool _isSendingMessage = false;
-  bool _canLoadMoreMessages = true; // Flag to prevent multiple pagination requests
+  bool _isLoadingEventDetails = false;
+  bool _canLoadMoreMessages = true;
 
-  // Service Listeners / Subscriptions
+  // Listeners for global WebSocketService streams
   StreamSubscription? _wsMessagesSubscription;
   StreamSubscription? _wsConnectionStateSubscription;
-  // Online count subscription might be needed if displaying it here
-  // StreamSubscription? _onlineCountSubscription;
+
+  // Feature States
+  bool _showEmojiPicker = false;
+  final SpeechToText _speechToText = SpeechToText();
+  bool _speechEnabled = false;
+  bool _isListening = false;
+  File? _pickedFile;
+  String? _uploadingFileName;
 
 
   // --- Lifecycle Methods ---
@@ -76,258 +79,348 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _initializeChat(); // Load initial data
-        _setupWebSocketListener(); // Start listening to WS service streams
+        _initializeChat(); // Loads communities, then connects WS if possible
+        _initSpeech();
       }
     });
     _scrollController.addListener(_scrollListener);
+    _focusNode.addListener(() {
+      // Hide emoji picker when text field gains focus
+      if (_focusNode.hasFocus && _showEmojiPicker && mounted) {
+        setState(() => _showEmojiPicker = false);
+      }
+    });
   }
 
   @override
   void dispose() {
     print("ChatScreen disposing...");
-    _messageController.dispose();
+    _textController.dispose();
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
-    _wsMessagesSubscription?.cancel();
-    _wsConnectionStateSubscription?.cancel();
-    // _onlineCountSubscription?.cancel();
-    // Note: WebSocket connection itself is managed by WebSocketService and disposed via Provider
+    _focusNode.dispose();
+    _cancelWebSocketListeners(); // Cancel listeners
+    // Don't dispose the global WS service here, Provider handles it
+    _speechToText.cancel();
     super.dispose();
   }
 
   // --- Initialization ---
   Future<void> _initializeChat() async {
-    // Load communities first to allow selection
     await _loadUserCommunities();
-    // If a community was selected/defaulted, load its messages and connect WS
     if (_selectedCommunityId != null && mounted) {
-       // Set the chat context label initially
-       _updateChatRoomLabel();
-      // Load initial history for the default/selected community
+      // A community was selected (or defaulted after load)
+      _updateChatRoomLabel();
       await _loadChatHistory(isInitialLoad: true);
-      // Connect WebSocket for the selected community
-      _connectWebSocket();
+      _connectAndListenWebSocket(); // Attempt connection
+    } else if (mounted) {
+      // No communities or none selected initially
+      setState(() {
+        _isLoadingMessages = false; // Ensure loading stops
+        _messages = []; // Clear any potential stale messages
+      });
     }
+    // Setup listeners regardless of initial connection success
+    _setupWebSocketListeners();
   }
 
-  // --- Service Listeners ---
-  void _setupWebSocketListener() {
+  // --- WebSocket Connection and Listening ---
+  void _connectAndListenWebSocket() {
     if (!mounted) return;
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final String? token = authProvider.token;
+    final String roomType = _selectedEventId != null ? 'event' : 'community';
+    final int? roomId = _selectedEventId ?? _selectedCommunityId;
+
+    if (roomId == null || token == null) {
+      print("ChatScreen: Cannot connect WebSocket - missing roomId or token.");
+      if (mounted) setState((){}); // Update UI to show disconnected state
+      return;
+    }
+
+    // Get the global WebSocketService instance provided in main.dart
     final wsService = Provider.of<WebSocketService>(context, listen: false);
 
-    // Listen to ALL incoming raw messages
+    print("ChatScreen: Calling wsService.connect for $roomType $roomId");
+    // Call the connect method on the global instance
+    wsService.connect(roomType, roomId, token);
+
+    // Listeners are set up in _setupWebSocketListeners
+    // Trigger a rebuild to update UI elements based on connection attempt/state
+    if (mounted) setState(() {});
+  }
+
+  void _setupWebSocketListeners() {
+    if (!mounted) return;
+    _cancelWebSocketListeners(); // Cancel existing before creating new ones
+
+    final wsService = Provider.of<WebSocketService>(context, listen: false);
+
+    // Listen to the rawMessages stream from the global service
     _wsMessagesSubscription = wsService.rawMessages.listen((messageMap) {
       if (!mounted) return;
-      print("ChatScreen received WS message map: $messageMap");
+      // Ensure it's a map before processing
+      if (messageMap is Map<String, dynamic>) {
+        final currentScreenKey = getRoomKey(_selectedEventId != null ? 'event' : 'community', _selectedEventId ?? _selectedCommunityId);
+        final messageRoomKey = getRoomKey(messageMap['event_id'] != null ? 'event' : 'community', messageMap['event_id'] ?? messageMap['community_id']);
 
-      // Determine if it's a chat message for the CURRENTLY VIEWED room
-      final currentKey = getRoomKey(_selectedEventId != null ? 'event' : 'community', _selectedEventId ?? _selectedCommunityId);
-      final messageRoomKey = getRoomKey(messageMap['event_id'] != null ? 'event' : 'community', messageMap['event_id'] ?? messageMap['community_id']);
-
-      if (messageMap.containsKey('message_id') && messageRoomKey == currentKey) {
-          // It's a chat message for our current room
+        // Process only if the message is for the currently displayed room
+        if (messageRoomKey == currentScreenKey && messageMap.containsKey('message_id')) {
           try {
-              final chatMessage = ChatMessageData.fromJson(messageMap);
-              setState(() {
-                  // Avoid duplicates
-                  if (!_messages.any((m) => m.message_id == chatMessage.message_id)) {
-                      _messages.add(chatMessage);
-                      // Keep messages sorted by timestamp
-                      _messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-                      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-                  }
-              });
-          } catch (e) {
-               print("ChatScreen: Error parsing incoming chat message: $e");
-          }
+            final newMessage = ChatMessageData.fromJson(messageMap);
+            // Avoid duplicates if server echoes back (check messageId)
+            bool alreadyExists = _messages.any((m) => m.messageId == newMessage.messageId);
+            if (!alreadyExists) {
+              setState(() => _messages.add(newMessage)); // Add to the end
+              WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+            }
+          } catch (e) { print("ChatScreen: Error parsing WS message JSON: $e"); }
+        } else if (messageMap.containsKey('error')) {
+          print("ChatScreen: WS Server Error: ${messageMap['error']}");
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chat Error: ${messageMap['error']}')));
+        } else if (messageRoomKey != currentScreenKey) {
+          // Silently ignore messages for other rooms in this screen instance
+          // print("ChatScreen: Ignored message for different room ($messageRoomKey vs $currentScreenKey)");
+        }
+      } else {
+        print("ChatScreen: Received non-map WS message: $messageMap");
       }
-      // NOTE: Presence updates are handled by listening to wsService.onlineCounts separately if needed
-      else if (messageMap['type'] == 'presence_update') {
-           // Handled by onlineCounts stream listener (add below if needed)
-           print("ChatScreen: Ignoring presence update in raw message listener.");
-      }
-      else {
-          print("ChatScreen: Received WS message for different room or unknown type.");
-      }
-
     }, onError: (error) {
       print("ChatScreen: Error on WS messages stream: $error");
-      // Show error? Connection state stream handles general disconnects.
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Chat connection error: $error')));
+      if (mounted) setState((){}); // Update UI state
     });
 
     // Listen to connection state changes
     _wsConnectionStateSubscription = wsService.connectionState.listen((state) {
-        if (!mounted) return;
-        print("ChatScreen: WS Connection State changed: $state");
-        // Update UI based on state (e.g., show indicator, enable/disable input)
-        // We also update button states directly in connect/disconnect methods
-        setState(() {}); // Trigger rebuild to reflect potential state changes
+      if (!mounted) return;
+      print("ChatScreen: WS Connection State changed: $state");
+      setState(() {}); // Rebuild to update based on connection state
     });
-
-     // Optional: Listen to online counts if displayed on this screen
-     // _onlineCountSubscription = wsService.onlineCounts.listen((countMap) {
-     //    final currentKey = getRoomKey(_selectedEventId != null ? 'event' : 'community', _selectedEventId ?? _selectedCommunityId);
-     //    if (currentKey != null && countMap.containsKey(currentKey)) {
-     //       final count = countMap[currentKey];
-     //       print("ChatScreen: Online count update for $currentKey: $count");
-     //       // Update state variable holding the online count for the current room
-     //       setState(() { _currentRoomOnlineCount = count; });
-     //    }
-     // });
   }
+
+
+  void _disconnectWebSocket() {
+    if(mounted){
+      final wsService = Provider.of<WebSocketService>(context, listen: false);
+      wsService.disconnect(); // Call disconnect on the global service
+    }
+  }
+
+  void _cancelWebSocketListeners() {
+    print("ChatScreen: Cancelling WS listeners.");
+    _wsMessagesSubscription?.cancel();
+    _wsConnectionStateSubscription?.cancel();
+    _wsMessagesSubscription = null;
+    _wsConnectionStateSubscription = null;
+  }
+
+  // --- Speech Recognition Logic ---
+  void _initSpeech() async {
+    try {
+      var status = await Permission.microphone.request();
+      if (status.isGranted) {
+        _speechEnabled = await _speechToText.initialize(
+            onError: (errorNotification) => print('Speech recognition error: ${errorNotification.errorMsg}'),
+            onStatus: (status) {
+              print('Speech recognition status: $status');
+              if (status == 'notListening' || status == 'done') {
+                if (mounted) setState(() => _isListening = false);
+              }
+            }
+        );
+        if (mounted) setState(() {});
+        print("Speech recognition initialized: $_speechEnabled");
+      } else {
+        print("Microphone permission denied");
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Microphone permission denied.')));
+      }
+    } catch (e) {
+      print("Error initializing speech: $e");
+      if (mounted) setState(() => _speechEnabled = false);
+    }
+  }
+
+  void _startListening() async {
+    if (!_speechEnabled) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Speech recognition not available.'))); return; }
+    if (_isListening) return;
+    if (mounted) setState(() => _isListening = true);
+    // Ensure mic is stopped before starting new listen session
+    await _speechToText.stop();
+    await _speechToText.listen( onResult: _onSpeechResult, listenFor: const Duration(seconds: 30), pauseFor: const Duration(seconds: 3), partialResults: true, localeId: 'en_US');
+  }
+
+  void _stopListening() async {
+    if (!_isListening) return;
+    await _speechToText.stop();
+    // State update handled by onStatus callback
+  }
+
+  void _onSpeechResult(SpeechRecognitionResult result) {
+    if (mounted) {
+      setState(() {
+        _textController.text = result.recognizedWords;
+        _textController.selection = TextSelection.fromPosition(TextPosition(offset: _textController.text.length));
+        // Don't set _isListening = false here, wait for onStatus 'notListening' or 'done'
+      });
+    }
+  }
+
 
   // --- Data Fetching ---
   Future<void> _loadUserCommunities() async {
     if (!mounted) return;
     setState(() => _isLoadingCommunities = true);
-    final userService = Provider.of<UserService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    // Create service instance with the ApiClient from AuthProvider
+    final userService = UserService(authProvider.apiClient);
 
-    if (!authProvider.isAuthenticated || authProvider.token == null) {
-      setState(() { _isLoadingCommunities = false; _userCommunities = []; _selectedCommunityId = null; _selectedEventId = null; });
+    if (!authProvider.isAuthenticated) {
+      if (mounted) setState(() { _isLoadingCommunities = false; _userCommunities = []; _selectedCommunityId = null; _selectedEventId = null; });
       return;
     }
 
     try {
-      final communitiesData = await userService.getMyJoinedCommunities(authProvider.token!);
+      // Get communities - expect List<dynamic> which should contain maps
+      final List<dynamic> communitiesData = await userService.getMyJoinedCommunities(); // No token needed
       if (!mounted) return;
 
-      _userCommunities = List<Map<String, dynamic>>.from(communitiesData);
-      int? initialCommunityId = _selectedCommunityId; // Preserve selection if possible
+      // Process into the expected format, ensuring correct types
+      _userCommunities = communitiesData.map((item) {
+        if (item is Map<String, dynamic>) {
+          // Attempt to get logo_url which should be pre-generated by the service/backend if possible
+          return {
+            'id': item['id'] as int? ?? 0,
+            'name': item['name'] as String? ?? 'Unknown',
+            'logo_url': item['logo_url'] as String?, // Use the provided URL
+          };
+        }
+        return <String, dynamic>{}; // Return empty map if item is not a map
+      }).where((item) => item.isNotEmpty && item['id'] != 0).toList(); // Filter out invalid items
 
+      int? initialCommunityId = _selectedCommunityId;
+
+      // Default to first community if none selected or previous selection is gone
       if (_userCommunities.isNotEmpty && (initialCommunityId == null || !_userCommunities.any((c) => c['id'] == initialCommunityId))) {
         initialCommunityId = _userCommunities.first['id'] as int?;
       } else if (_userCommunities.isEmpty) {
-        initialCommunityId = null;
+        initialCommunityId = null; // No communities, select nothing
       }
 
-      setState(() {
-        _selectedCommunityId = initialCommunityId;
-        _isLoadingCommunities = false;
-        _selectedEventId = null; // Reset event selection when communities load/reload
-      });
+      // Update state only if selection changed or still loading
+      if (mounted && (_selectedCommunityId != initialCommunityId || _isLoadingCommunities)) {
+        setState(() {
+          _selectedCommunityId = initialCommunityId;
+          _isLoadingCommunities = false; // Set loading false here
+          if (_selectedCommunityId != null) {
+            // Reset event selection when community changes
+            _selectedEventId = null;
+            _selectedEventDetails = null;
+          }
+        });
+      } else if (mounted) {
+        // Ensure loading is false even if selection didn't change
+        setState(() { _isLoadingCommunities = false; });
+      }
 
     } catch (e) {
       if (!mounted) return;
       print('ChatScreen: Error loading communities: $e');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error loading communities: $e')));
-      setState(() => _isLoadingCommunities = false);
+      if (mounted) setState(() => _isLoadingCommunities = false);
     }
   }
 
   Future<void> _loadChatHistory({bool isInitialLoad = false, int? beforeMessageId}) async {
-     // Determine current room context
-     final String roomType = _selectedEventId != null ? 'event' : 'community';
-     final int? roomId = _selectedEventId ?? _selectedCommunityId;
+    final String roomType = _selectedEventId != null ? 'event' : 'community';
+    final int? roomId = _selectedEventId ?? _selectedCommunityId;
 
-     if (!mounted || roomId == null) {
-       print("ChatScreen: Cannot load history, no room selected.");
-       setState(() { _messages = []; _isLoadingMessages = false; _canLoadMoreMessages = true; });
-       return;
-     }
+    if (!mounted || roomId == null) {
+      if (mounted) setState(() { _messages = []; _isLoadingMessages = false; _canLoadMoreMessages = true; });
+      return;
+    }
 
-     // Don't show full loading indicator for pagination
-     if (isInitialLoad) {
-       setState(() { _isLoadingMessages = true; _messages = []; _canLoadMoreMessages = true; });
-     } else if (_isLoadingMessages || !_canLoadMoreMessages) {
-       print("ChatScreen: Skipping load more messages (already loading or no more messages).");
-       return; // Prevent concurrent loads or loading when no more exist
-     } else {
-        setState(() => _isLoadingMessages = true); // Indicate loading more
-     }
+    if (isInitialLoad) {
+      if (mounted) setState(() { _isLoadingMessages = true; _messages.clear(); _canLoadMoreMessages = true; });
+    } else if (_isLoadingMessages || !_canLoadMoreMessages) {
+      return; // Prevent multiple loads or loading when no more messages
+    } else {
+      if (mounted) setState(() => _isLoadingMessages = true);
+    }
 
-     final chatService = Provider.of<ChatService>(context, listen: false);
-     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (!authProvider.isAuthenticated) {
+      if (mounted) setState(() { _isLoadingMessages = false; _messages = []; });
+      return;
+    }
+    final chatService = ChatService(authProvider.apiClient); // Use correct ApiClient
 
-     if (!authProvider.isAuthenticated || authProvider.token == null) {
-        setState(() { _isLoadingMessages = false; _messages = []; });
-        return;
-     }
+    try {
+      // Expect List<ChatMessageData> from service
+      final List<ChatMessageData> newMessages = await chatService.getMessages(
+        communityId: roomType == 'community' ? roomId : null,
+        eventId: roomType == 'event' ? roomId : null,
+        limit: 50, beforeId: beforeMessageId, // No token needed
+      );
+      if (!mounted) return;
 
-     try {
-       final List<dynamic> messagesData = await chatService.getChatMessages(
-         token: authProvider.token!,
-         communityId: roomType == 'community' ? roomId : null,
-         eventId: roomType == 'event' ? roomId : null,
-         limit: 50, // Fetch decent chunk
-         beforeId: beforeMessageId,
-       );
+      setState(() {
+        if (isInitialLoad) {
+          _messages = newMessages.reversed.toList(); // Replace existing messages
+        } else {
+          _messages.insertAll(0, newMessages.reversed); // Prepend older messages
+        }
+        _isLoadingMessages = false;
+        _canLoadMoreMessages = newMessages.length >= 50; // Check if more might exist
+      });
 
-       if (!mounted) return;
-
-       final newMessages = messagesData
-           .map((m) => ChatMessageData.fromJson(m as Map<String, dynamic>))
-           .toList();
-
-       // Sort oldest first for display
-       newMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-
-       setState(() {
-         if (isInitialLoad) {
-           _messages = newMessages;
-         } else {
-           // Prepend older messages
-           _messages.insertAll(0, newMessages);
-         }
-         _isLoadingMessages = false;
-         // If fewer messages than limit were returned, assume no more older ones
-         _canLoadMoreMessages = newMessages.length >= 50;
-       });
-
-        // Scroll control after loading
-       if (isInitialLoad) {
-         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(true)); // Jump to bottom on initial load
-       } else {
-         // Try to maintain scroll position (more complex, may need key-based approach)
-         print("ChatScreen: Older messages loaded.");
-       }
-
-     } catch (e) {
-       if (!mounted) return;
-       print("ChatScreen: Error loading chat history: $e");
-       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error loading messages: $e')));
-       setState(() { _isLoadingMessages = false; });
-     }
-   }
-
-   Future<void> _loadSelectedEventDetails() async {
-      if (!mounted || _selectedEventId == null) return;
-
-      setState(() => _isLoadingEventDetails = true);
-      final eventService = Provider.of<EventService>(context, listen: false);
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-       if (!authProvider.isAuthenticated || authProvider.token == null) {
-         setState(() { _isLoadingEventDetails = false; _selectedEventDetails = null; });
-         return;
-       }
-
-      try {
-          final eventData = await eventService.getEventDetails(_selectedEventId!, token: authProvider.token!);
-          if (mounted) {
-              setState(() {
-                  _selectedEventDetails = EventModel.fromJson(eventData);
-                  _isLoadingEventDetails = false;
-              });
-          }
-      } catch (e) {
-          print("ChatScreen: Error loading selected event details: $e");
-           if (mounted) {
-              setState(() { _isLoadingEventDetails = false; _selectedEventDetails = null; });
-              // Optionally show error to user
-          }
+      if (isInitialLoad) {
+        // Scroll after the frame builds
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(jump: true));
       }
-   }
+    } catch (e) {
+      if (!mounted) return;
+      print("ChatScreen: Error loading chat history: $e");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error loading messages: $e')));
+      if (mounted) setState(() => _isLoadingMessages = false);
+    }
+  }
 
+  Future<void> _loadSelectedEventDetails() async {
+    if (!mounted || _selectedEventId == null) return;
+    setState(() => _isLoadingEventDetails = true);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final eventService = EventService(authProvider.apiClient); // Use correct ApiClient
+    if (!authProvider.isAuthenticated) {
+      if (mounted) setState(() { _isLoadingEventDetails = false; _selectedEventDetails = null; });
+      return;
+    }
+    try {
+      // Expect Map<String, dynamic> from service
+      final eventData = await eventService.getEventDetails(_selectedEventId!); // No token needed
+      if (mounted) {
+        setState(() {
+          // Parse into EventModel
+          _selectedEventDetails = EventModel.fromJson(eventData);
+          _isLoadingEventDetails = false;
+        });
+      }
+    } catch (e) {
+      print("ChatScreen: Error loading selected event details: $e");
+      if (mounted) {
+        setState(() { _isLoadingEventDetails = false; _selectedEventDetails = null; });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not load event details.')));
+      }
+    }
+  }
 
-  // --- Scroll Listener for Pagination ---
+  // --- Scroll Listener ---
   void _scrollListener() {
-    // Load more when reaching near the top (e.g., first 100 pixels)
-    if (_scrollController.position.pixels < 100 &&
-        !_isLoadingMessages &&
-        _canLoadMoreMessages) {
-      final oldestMessageId = _messages.isNotEmpty ? _messages.first.message_id : null;
+    if (!_scrollController.hasClients) return;
+    // Load more when near the top (e.g., within 100 pixels)
+    if (_scrollController.position.pixels < 100 && !_isLoadingMessages && _canLoadMoreMessages) {
+      final oldestMessageId = _messages.isNotEmpty ? _messages.first.messageId : null;
       if (oldestMessageId != null) {
         print("ChatScreen: Reached top, loading older messages before ID: $oldestMessageId");
         _loadChatHistory(beforeMessageId: oldestMessageId);
@@ -335,516 +428,521 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     }
   }
 
-  // --- WebSocket Connection Control ---
-   void _connectWebSocket() {
-     final String? roomType = _selectedEventId != null ? 'event' : 'community';
-     final int? roomId = _selectedEventId ?? _selectedCommunityId;
-     final token = Provider.of<AuthProvider>(context, listen: false).token;
-
-     if (roomId != null && token != null) {
-        Provider.of<WebSocketService>(context, listen: false).connect(roomType!, roomId, token);
-     } else {
-         print("ChatScreen: Cannot connect WebSocket - room or token missing.");
-     }
-   }
-
-   void _disconnectWebSocket() {
-       Provider.of<WebSocketService>(context, listen: false).disconnect();
-   }
+  // --- Scroll to Bottom ---
+  void _scrollToBottom({bool jump = false}) {
+    if (!_scrollController.hasClients) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        final maxScroll = _scrollController.position.maxScrollExtent;
+        if (jump) {
+          _scrollController.jumpTo(maxScroll);
+        } else {
+          // Only auto-scroll if near the bottom or list is short
+          final currentScroll = _scrollController.position.pixels;
+          if ((maxScroll - currentScroll) < 200 || _messages.length < 10) {
+            _scrollController.animateTo(maxScroll, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+          }
+        }
+      }
+    });
+  }
 
   // --- UI Actions ---
   void _toggleDrawer() {
-     if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
-         Navigator.of(context).pop(); // Close drawer
-     } else {
-         _scaffoldKey.currentState?.openDrawer(); // Open drawer
-     }
-     setState(() => _isDrawerOpen = !_isDrawerOpen); // Toggle state if needed elsewhere
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    } else {
+      _scaffoldKey.currentState?.openDrawer();
+    }
   }
 
-  // Called when a community is selected from the drawer
   void _selectCommunity(int id) {
     if (_selectedCommunityId == id && _selectedEventId == null) {
-      Navigator.of(context).pop(); // Close drawer if same community tapped
-      return;
+      Navigator.of(context).pop(); return; // Already selected
     }
     if (!mounted) return;
-
-    print("ChatScreen: Switching to Community $id");
+    // Disconnect/Cancel listeners before changing context
+    _cancelWebSocketListeners();
     setState(() {
       _selectedCommunityId = id;
-      _selectedEventId = null; // Ensure event context is cleared
-      _messages = []; // Clear messages immediately
-      _selectedEventDetails = null;
-      _isLoadingMessages = true; // Show loading for messages
-      _canLoadMoreMessages = true; // Reset pagination flag
+      _selectedEventId = null; _selectedEventDetails = null;
+      _messages.clear(); _isLoadingMessages = true; _canLoadMoreMessages = true;
+      _pickedFile = null; _uploadingFileName = null; _showEmojiPicker = false;
     });
     Navigator.of(context).pop(); // Close drawer
     _updateChatRoomLabel();
-    _loadChatHistory(isInitialLoad: true); // Load history for new community
-    _connectWebSocket(); // Connect WS for the new community room
+    _loadChatHistory(isInitialLoad: true); // Fetch history for new room
+    _connectAndListenWebSocket(); // Connect WS for new room
   }
 
-  // Called when an event is selected (e.g., from EventListScreen or notification)
-  // This might be called via Navigator arguments or a Provider/state management solution
   void selectEvent(int eventId, int communityId) {
-     if (_selectedEventId == eventId) return; // Already viewing this event chat
-     if (!mounted) return;
-
-      print("ChatScreen: Switching to Event $eventId (Community $communityId)");
-     setState(() {
-        _selectedCommunityId = communityId; // Ensure parent community is set
-        _selectedEventId = eventId;
-        _messages = [];
-        _selectedEventDetails = null; // Clear previous event details
-        _isLoadingMessages = true;
-        _isLoadingEventDetails = true; // Load details for the card
-        _canLoadMoreMessages = true;
-     });
-      _updateChatRoomLabel();
-      _loadChatHistory(isInitialLoad: true); // Load event chat history
-      _loadSelectedEventDetails(); // Load details for the header card
-      _connectWebSocket(); // Connect WS for the event room
+    if (_selectedEventId == eventId) return;
+    if (!mounted) return;
+    _cancelWebSocketListeners();
+    setState(() {
+      _selectedCommunityId = communityId; _selectedEventId = eventId;
+      _messages.clear(); _selectedEventDetails = null;
+      _isLoadingMessages = true; _isLoadingEventDetails = true; _canLoadMoreMessages = true;
+      _pickedFile = null; _uploadingFileName = null; _showEmojiPicker = false;
+    });
+    _updateChatRoomLabel();
+    _loadChatHistory(isInitialLoad: true);
+    _loadSelectedEventDetails();
+    _connectAndListenWebSocket();
   }
 
-  // Selects the main community chat (deselects any event)
   void selectCommunityChat() {
-       if (_selectedEventId == null) return; // Already viewing community chat
-       if (!mounted) return;
-
-        print("ChatScreen: Switching back to Community $_selectedCommunityId chat");
-       setState(() {
-          _selectedEventId = null;
-          _selectedEventDetails = null;
-          _messages = [];
-          _isLoadingMessages = true;
-          _canLoadMoreMessages = true;
-       });
-       _updateChatRoomLabel();
-       _loadChatHistory(isInitialLoad: true); // Load community chat history
-       _connectWebSocket(); // Connect WS for the community room
+    if (_selectedEventId == null) return; // Already in community chat
+    if (!mounted) return;
+    _cancelWebSocketListeners();
+    setState(() {
+      _selectedEventId = null; _selectedEventDetails = null;
+      _messages.clear(); _isLoadingMessages = true; _canLoadMoreMessages = true;
+      _pickedFile = null; _uploadingFileName = null; _showEmojiPicker = false;
+    });
+    _updateChatRoomLabel();
+    _loadChatHistory(isInitialLoad: true);
+    _connectAndListenWebSocket();
   }
 
-  void _updateChatRoomLabel() {
-      // Update UI - This might be better handled via setState in the build method directly
-      // based on _selectedCommunityId and _selectedEventId
-  }
+  void _updateChatRoomLabel() { if (mounted) setState(() {}); } // Trigger rebuild for AppBar title
 
-
-  Future<void> _sendMessage() async {
-    final messageText = _messageController.text.trim();
-    if (messageText.isEmpty || !mounted || _isSendingMessage) return;
-
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (!authProvider.isAuthenticated) return; // Should be logged in
-
-    final wsService = Provider.of<WebSocketService>(context, listen: false);
-
-    // Ensure connected to the correct room before sending
-    final currentKey = getRoomKey(_selectedEventId != null ? 'event' : 'community', _selectedEventId ?? _selectedCommunityId);
-    if (wsService.currentRoomKey != currentKey || !wsService.isConnected) {
-         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not connected to this chat room.'), backgroundColor: Colors.orange));
-         // Optionally attempt to connect here
-         // _connectWebSocket();
-         return;
+  // --- Pick Attachment ---
+  Future<void> _pickAttachment() async {
+    PermissionStatus status;
+    if (Platform.isIOS || Platform.isAndroid) {
+      status = await Permission.storage.request(); // Request permission
+    } else {
+      status = PermissionStatus.granted; // Assume granted for desktop
     }
 
-    setState(() => _isSendingMessage = true);
+    if (!status.isGranted) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Storage/Photo permission required.')));
+      return;
+    }
 
     try {
-      // Backend expects JSON like {"content": "..."}
-      final messagePayload = {'content': messageText}; // Create Map
-      wsService.sendMessage(messagePayload); // Send the Map
-      _messageController.clear(); // Clear input on successful send attempt
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'avi', 'pdf'],
+      );
 
-    } catch (e) {
-      print("ChatScreen: Error sending message: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send: ${e.toString().replaceFirst("Exception: ","")}'), backgroundColor: Colors.red));
+      if (result != null && result.files.single.path != null) {
+        const maxSizeInBytes = 25 * 1024 * 1024; // 25MB limit
+        final file = File(result.files.single.path!);
+        final fileSize = await file.length();
+
+        if (fileSize > maxSizeInBytes) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File too large (Max 25MB).')));
+          return;
+        }
+
+        if (mounted) {
+          setState(() {
+            _pickedFile = file;
+            _showEmojiPicker = false; // Hide emoji picker
+            _focusNode.unfocus(); // Hide keyboard
+          });
+        }
+      } else {
+        print("File picking cancelled.");
       }
-    } finally {
+    } catch (e) {
+      print("Error picking file: $e");
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error picking file: $e')));
+    }
+  }
+
+
+  // --- Send Message ---
+  Future<void> _sendMessage() async {
+    final text = _textController.text.trim();
+    final fileToSend = _pickedFile; // Cache file before clearing state
+
+    if (text.isEmpty && fileToSend == null) return; // Nothing to send
+    if (!mounted) return;
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (!authProvider.isAuthenticated) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Login required.')));
+      return;
+    }
+
+    // Get the global WebSocketService instance
+    final wsService = Provider.of<WebSocketService>(context, listen: false);
+
+    if (!wsService.isConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not connected.'), backgroundColor: Colors.orange));
+      // Optionally try to reconnect?
+      // _connectAndListenWebSocket();
+      return;
+    }
+
+    // Attachment Upload Logic
+    String? attachmentUrl;
+    String? attachmentType;
+    String? attachmentFilename;
+    if (fileToSend != null) {
+      if (mounted) setState(() { _uploadingFileName = fileToSend.path.split(Platform.pathSeparator).last; _pickedFile = null; });
+      try {
+        final chatService = ChatService(authProvider.apiClient); // Use correct ApiClient instance
+        final uploadResult = await chatService.uploadAttachment(fileToSend); // Assume this exists
+        attachmentUrl = uploadResult['url'] as String?;
+        attachmentType = uploadResult['type'] as String?;
+        attachmentFilename = uploadResult['filename'] as String?;
+        if (attachmentUrl == null || attachmentType == null || attachmentFilename == null) throw Exception("Invalid upload response keys");
+        print("Attachment uploaded: $attachmentUrl");
+      } catch (e) {
+        print("Error uploading attachment: $e");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+          setState(() { _uploadingFileName = null; _pickedFile = fileToSend; }); // Restore file selection on failure
+        }
+        return; // Stop send if upload failed
+      } finally {
+        // Clear uploading indicator only if we aren't restoring the file
+        if (mounted && _pickedFile != fileToSend) {
+          setState(() { _uploadingFileName = null; });
+        }
+      }
+    }
+
+    // Prepare and Send message
+    final Map<String, dynamic> messagePayload = {
+      'content': text, // Send text even if only attachment exists
+      if (attachmentUrl != null) 'attachment_url': attachmentUrl,
+      if (attachmentType != null) 'attachment_type': attachmentType,
+      if (attachmentFilename != null) 'attachment_filename': attachmentFilename,
+    };
+
+    try {
+      final jsonPayload = jsonEncode(messagePayload);
+      print("WS Sending Payload: $jsonPayload");
+      wsService.sendMessage(jsonPayload); // Use the global service instance
       if (mounted) {
-        setState(() => _isSendingMessage = false);
+        _textController.clear();
+        // _pickedFile was already cleared when starting upload
+      }
+    } catch (e) {
+      print("ChatScreen: Error sending message via WebSocket: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Send failed: $e'), backgroundColor: Colors.red));
+        if (fileToSend != null && attachmentUrl != null) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File uploaded, but message send failed.'), backgroundColor: Colors.orange));
+        }
       }
     }
   }
 
 
-  // --- UI Build Methods ---
+  // --- Helper Build Methods ---
+  Widget _buildDrawer(bool isDark) {
+    return Drawer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(color: Theme.of(context).primaryColor.withOpacity(0.8)),
+            child: Text('Select Community', style: Theme.of(context).primaryTextTheme.headlineMedium?.copyWith(color: Theme.of(context).colorScheme.onPrimary)),
+          ),
+          Expanded(
+            child: _isLoadingCommunities
+                ? const Center(child: CircularProgressIndicator())
+                : _userCommunities.isEmpty
+                ? const Center(child: Padding( padding: EdgeInsets.all(16.0), child: Text('Join a community to start chatting!', textAlign: TextAlign.center)))
+                : ListView.builder(
+              padding: EdgeInsets.zero,
+              itemCount: _userCommunities.length,
+              itemBuilder: (context, index) {
+                final community = _userCommunities[index];
+                final int communityIdInt = community['id'] ?? 0;
+                final String communityName = community['name'] ?? 'Unknown';
+                final String? logoUrl = community['logo_url'];
+                final bool isSelected = (_selectedCommunityId == communityIdInt && _selectedEventId == null);
 
-  void _scrollToBottom([bool jump = false]) {
-    if (!_scrollController.hasClients) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-       if (_scrollController.hasClients) {
-          final maxScroll = _scrollController.position.maxScrollExtent;
-          if (jump) {
-            _scrollController.jumpTo(maxScroll);
-          } else {
-             // Only auto-scroll smoothly if near the bottom
-             final currentScroll = _scrollController.position.pixels;
-              if ((maxScroll - currentScroll) < 200) { // Adjust threshold as needed
-                  _scrollController.animateTo(maxScroll, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
-              }
-          }
-       }
-     });
-  }
-
-  String _getAppBarTitle() {
-      if (_selectedEventId != null && _selectedEventDetails != null) {
-          return _selectedEventDetails!.title; // Event Title
-      } else if (_selectedCommunityId != null) {
-           final community = _userCommunities.firstWhereOrNull((c) => c['id'] == _selectedCommunityId);
-           return community?['name'] ?? 'Community Chat'; // Community Name
-      } else {
-          return 'Chat'; // Default
-      }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context); // Keep state
-
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    // Listen to auth provider to potentially show login view if logged out
-    final authProvider = Provider.of<AuthProvider>(context);
-    // Listen to WS Service for connection state ONLY if needed for UI indication beyond buttons
-    // final wsService = Provider.of<WebSocketService>(context);
-
-    return Scaffold(
-      key: _scaffoldKey, // Assign key for drawer control
-      appBar: AppBar(
-        title: Text(_getAppBarTitle(), style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-        leading: IconButton(
-            icon: const Icon(Icons.menu), // Standard drawer icon
-            tooltip: "Select Community",
-            onPressed: _toggleDrawer // Use specific toggle function
-        ),
-        // Add actions if needed (e.g., search messages, room info)
-        actions: [
-           // Example: Show connection status icon
-           // Padding(
-           //   padding: const EdgeInsets.only(right: 16.0),
-           //   child: Icon(
-           //      wsService.isConnected ? Icons.wifi : Icons.wifi_off,
-           //      color: wsService.isConnected ? Colors.green : Colors.grey,
-           //      size: 20,
-           //    ),
-           // )
+                return ListTile(
+                  leading: CircleAvatar(
+                    radius: 20,
+                    backgroundColor: isSelected ? Theme.of(context).colorScheme.primaryContainer : Theme.of(context).colorScheme.surfaceVariant,
+                    backgroundImage: logoUrl != null && logoUrl.isNotEmpty ? NetworkImage(logoUrl) : null,
+                    child: logoUrl == null || logoUrl.isEmpty ? Text( communityName.isNotEmpty ? communityName[0].toUpperCase() : '?', style: TextStyle(color: isSelected ? Theme.of(context).colorScheme.onPrimaryContainer : Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold)) : null,
+                  ),
+                  title: Text(communityName, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                  selected: isSelected,
+                  selectedTileColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                  onTap: () => _selectCommunity(communityIdInt),
+                );
+              },
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.add_circle_outline),
+            title: const Text('Create/Manage Communities'), // Combined action
+            onTap: () {
+              Navigator.pop(context); // Close drawer
+              // TODO: Navigate to a screen that allows creating or managing joined communities
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Navigate to Manage Communities (Not Implemented)')));
+            },
+          ),
         ],
       ),
-      drawer: _buildDrawer(isDark), // Add the drawer widget
-      body: !authProvider.isAuthenticated
-          ? _buildNotLoggedInView(isDark) // Show if logged out
-          : Column(
-              children: [
-                 // Optional: Loading indicator for initial community load
-                 if (_isLoadingCommunities)
-                    const LinearProgressIndicator(minHeight: 2),
-
-                 // Display Event Context Card if chatting in an event room
-                 if (_selectedEventId != null)
-                    _buildSelectedEventCardContainer(isDark, authProvider.userId),
-
-                 // Message List Area
-                 Expanded(
-                   child: _buildMessagesListContainer(isDark, authProvider.userId ?? ''),
-                 ),
-
-                 // Message Input Area
-                 _buildMessageInput(isDark),
-              ],
-            ),
     );
   }
 
-  // --- Helper Build Methods ---
-
-  // Build Community Selection Drawer
-  Widget _buildDrawer(bool isDark) {
-     // Similar implementation to previous version, using _userCommunities
-      return Drawer(
-          child: Column(
-             crossAxisAlignment: CrossAxisAlignment.stretch,
-             children: [
-                DrawerHeader(
-                    decoration: BoxDecoration(color: Theme.of(context).primaryColor.withOpacity(0.8)),
-                    child: Text('Select Community', style: Theme.of(context).primaryTextTheme.headlineMedium),
-                ),
-                Expanded(
-                  child: _isLoadingCommunities
-                      ? const Center(child: CircularProgressIndicator())
-                      : _userCommunities.isEmpty
-                      ? const Center(child: Text('No communities joined yet.'))
-                      : ListView.builder(
-                    padding: EdgeInsets.zero,
-                    itemCount: _userCommunities.length,
-                    itemBuilder: (context, index) {
-                      final community = _userCommunities[index];
-                      final communityIdInt = community['id'] as int;
-                      // Check if this is the selected context (community chat, not event chat)
-                      final isSelected = (_selectedCommunityId == communityIdInt && _selectedEventId == null);
-                      final String? logoUrl = community['logo_url'];
-
-                      return ListTile(
-                        leading: CircleAvatar(
-                           backgroundColor: isSelected ? ThemeConstants.accentColor : (isDark ? ThemeConstants.backgroundDarker : Colors.grey.shade200),
-                           backgroundImage: logoUrl != null ? NetworkImage(logoUrl) : null,
-                           child: logoUrl == null ? Text((community['name'] as String)[0].toUpperCase(), style: TextStyle(color: isSelected ? Colors.white : null, fontWeight: FontWeight.bold)) : null,
-                         ),
-                        title: Text(community['name'] as String, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                        selected: isSelected,
-                        selectedTileColor: ThemeConstants.accentColor.withOpacity(0.1),
-                        onTap: () => _selectCommunity(communityIdInt),
-                      );
-                    },
-                  ),
-                ),
-                 const Divider(height: 1),
-                 ListTile( // Optional: Go to communities screen
-                    leading: const Icon(Icons.list_alt),
-                    title: const Text('Manage Communities'),
-                    onTap: () {
-                        Navigator.pop(context); // Close drawer
-                        // TODO: Navigate to CommunitiesScreen
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Navigate to Manage Communities')));
-                    },
-                 ),
-             ],
-          ),
-      );
-  }
-
-  // Build Event Context Card (when chatting in an event)
-  Widget _buildSelectedEventCardContainer(bool isDark, String? currentUserId) {
-    if (_isLoadingEventDetails) {
-      return const Padding(padding: EdgeInsets.all(8.0), child: Center(child: LinearProgressIndicator(minHeight: 2)));
-    }
+  Widget _buildSelectedEventCardContainer(bool isDark) {
+    if (_selectedEventId == null) return const SizedBox.shrink();
+    if (_isLoadingEventDetails) return const Padding(padding: EdgeInsets.symmetric(vertical: 8.0), child: LinearProgressIndicator(minHeight: 2));
     if (_selectedEventDetails == null) {
-      // Optionally show a placeholder if details couldn't load
-      // This already returns, which is good.
       return Container(
         margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
         padding: const EdgeInsets.all(12.0),
-        decoration: BoxDecoration(
-            color: isDark ? Colors.grey.shade800.withOpacity(0.5) : Colors.red.shade50,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: isDark ? Colors.grey.shade700 : Colors.red.shade100)
-        ),
-        child: const Text("Could not load event details.", style: TextStyle(color: Colors.redAccent)),
+        decoration: BoxDecoration( color: isDark ? Colors.grey.shade800.withOpacity(0.5) : Colors.red.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: isDark ? Colors.grey.shade700 : Colors.red.shade100) ),
+        child: Row( mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [ const Expanded(child: Text("Could not load event details.", style: TextStyle(color: Colors.redAccent))), TextButton( onPressed: selectCommunityChat, child: const Text('Back to Community'), ), ], ),
       );
     }
 
-    // Event found, display the card
-    final event = _selectedEventDetails!; // Use ! because we checked for null
+    final event = _selectedEventDetails!;
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final int? currentUserId = authProvider.userId; // Get int? ID
+    // Assuming event.participants is List<int>
     final bool isJoined = currentUserId != null && event.participants.contains(currentUserId);
 
-    // --- This is the main return path when event is found ---
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-      // decoration: BoxDecoration( ... ), // Optional styling
+      decoration: BoxDecoration( border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.5))) ),
       child: ChatEventCard(
         event: event,
         isJoined: isJoined,
-        isSelected: true, // You fixed this - make sure ChatEventCard accepts it
-        onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Tapped event card: ${event.title}')));
-        },
-        onJoin: () { /* If needed */ },
-        showJoinButton: false,
+        isSelected: true, // This card indicates the current chat context
+        onTap: () { /* Maybe navigate to full event details? */ },
+        onJoin: () { /* Optional join/leave directly from card? */ },
+        showJoinButton: false, // Usually false when it's the active chat context
         trailingWidget: TextButton(
           onPressed: selectCommunityChat,
-          child: const Text('Back to Community Chat'), // Improved text
+          child: const Text('Back to Community Chat'),
+          style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
         ),
       ),
     );
-
-    // --- ADD THIS FINAL FALLBACK RETURN (even though it might seem redundant) ---
-    // return const SizedBox.shrink();
-    // Alternatively, return an error widget if logic somehow fails above
-    // return const Center(child: Text("Error displaying event card"));
-  }
-  // Build Message List Container (Handles loading/empty states)
-  Widget _buildMessagesListContainer(bool isDark, String currentUserId) {
-     // Show loading indicator at the top if fetching older messages
-     bool showTopLoader = _isLoadingMessages && _messages.isNotEmpty;
-
-     return Column(
-       children: [
-         if (showTopLoader)
-           const Padding(
-             padding: EdgeInsets.symmetric(vertical: 8.0),
-             child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-           ),
-         Expanded(
-           child: (_isLoadingMessages && _messages.isEmpty)
-               ? const Center(child: CircularProgressIndicator())
-               : _messages.isEmpty
-                   ? Center(child: Text('No messages yet.', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)))
-                   : ListView.builder(
-                       controller: _scrollController,
-                       padding: const EdgeInsets.symmetric(horizontal: ThemeConstants.smallPadding, vertical: 8.0),
-                       itemCount: _messages.length,
-                       itemBuilder: (context, index) {
-                         final messageData = _messages[index];
-                         final bool isCurrentUserMessage = currentUserId.isNotEmpty && (messageData.user_id.toString() == currentUserId);
-
-                         // Adapt ChatMessageData to MessageModel if ChatMessageBubble expects it
-                         final displayMessage = MessageModel(
-                           id: messageData.message_id.toString(), userId: messageData.user_id.toString(),
-                           username: isCurrentUserMessage ? "Me" : messageData.username, content: messageData.content,
-                           timestamp: messageData.timestamp, isCurrentUser: isCurrentUserMessage,
-                         );
-                         return ChatMessageBubble(message: displayMessage);
-                       },
-                     ),
-         ),
-       ],
-     );
   }
 
-  // Build Message Input Row
-  Widget _buildMessageInput(bool isDark) {
-    // Use StreamBuilder to listen to connection state changes
-    return StreamBuilder<String>(
-      // Get the stream from the WebSocketService provider
-      stream: Provider.of<WebSocketService>(context, listen: false).connectionState,
-      initialData: 'disconnected', // Assume disconnected initially
-     builder: (context, snapshot) {
-    final wsService = Provider.of<WebSocketService>(context, listen: false);
-    final connectionState = snapshot.data;
-    final bool isWsConnected = connectionState == 'connected';
-
-    // --- CORRECTED KEY CALCULATION AND COMPARISON ---
-    // Calculate the target room key in 'type_id' format based on UI state
-    final String? targetRoomKey = getRoomKey(
-        _selectedEventId != null ? 'event' : 'community',
-        _selectedEventId ?? _selectedCommunityId
-    );
-
-    // Get the currently connected room key from the service (also in 'type_id' format)
-    final String? connectedRoomKey = wsService.currentRoomKey; // Assuming service stores 'type_id'
-
-    // Check if connected AND the connected room matches the target room
-    final bool isConnectedToCurrentRoom = isWsConnected && (connectedRoomKey == targetRoomKey) && targetRoomKey != null;
-    // --- END CORRECTION ---
-
-    final bool canSend = isConnectedToCurrentRoom && !_isSendingMessage;
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-          decoration: BoxDecoration(
-              color: isDark ? ThemeConstants.backgroundDarker : Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 5, offset: const Offset(0, -2))]
+  Widget _buildMessagesListContainer(bool isDark, int? currentUserId) {
+    bool showTopLoader = _isLoadingMessages && _messages.isNotEmpty;
+    return Column(
+      children: [
+        if (showTopLoader) const Padding( padding: EdgeInsets.symmetric(vertical: 8.0), child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))), ),
+        Expanded(
+          child: (_isLoadingMessages && _messages.isEmpty)
+              ? const Center(child: CircularProgressIndicator())
+              : _messages.isEmpty
+              ? Center(child: Text('No messages yet in this chat.', style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)))
+              : ListView.builder(
+            controller: _scrollController,
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+            itemCount: _messages.length,
+            itemBuilder: (context, index) {
+              final messageData = _messages[index];
+              return ChatMessageBubble(
+                message: messageData,
+                currentUserId: currentUserId, // Pass int?
+              );
+            },
           ),
-          child: SafeArea(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      // Update hint text based on actual connection state to selected room
-                      hintText: canSend ? 'Type a message...' : 'Connect to this room to chat...',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
-                      filled: true,
-                      fillColor: isDark ? ThemeConstants.backgroundDark : Colors.grey.shade100,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      isDense: true,
-                    ),
-                    minLines: 1,
-                    maxLines: 5,
-                    textCapitalization: TextCapitalization.sentences,
-                    textInputAction: TextInputAction.send,
-                    // Use canSend to determine if onSubmitted works
-                    onSubmitted: canSend ? (_) => _sendMessage() : null,
-                    // Use canSend for enabled state
-                    enabled: canSend,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                CircleAvatar(
-                  radius: 22,
-                  // Dim button if cannot send
-                  backgroundColor: canSend ? ThemeConstants.accentColor : Colors.grey,
-                  child: _isSendingMessage
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : IconButton(
-                    icon: const Icon(Icons.send),
-                    color: Colors.white,
-                    tooltip: "Send Message",
-                    // Use canSend for onPressed
-                    onPressed: canSend ? _sendMessage : null,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+        ),
+      ],
     );
   }
 
-  // Build Not Logged In View
-  // Place this method inside the State class (e.g., _ChatScreenState)
+  Widget _buildInputArea(bool isDark) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (!authProvider.isAuthenticated) return const SizedBox.shrink();
+
+    // Watch the global service for connection state changes
+    final wsService = context.watch<WebSocketService>();
+    final bool isWsConnected = wsService.isConnected;
+
+    final defaultIconColor = Theme.of(context).iconTheme.color ?? Colors.grey;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    // Input is enabled only if connected AND a specific chat room is selected
+    final bool inputEnabled = isWsConnected && (_selectedCommunityId != null || _selectedEventId != null);
+    final bool canSendMessage = inputEnabled && (_textController.text.trim().isNotEmpty || _pickedFile != null || _uploadingFileName != null);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        boxShadow: [ BoxShadow( offset: const Offset(0, -1), blurRadius: 4, color: Colors.black.withOpacity(0.1), ), ],
+      ),
+      child: SafeArea(
+        bottom: true, // Ensure padding at bottom
+        top: false, // No padding needed at top
+        child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Uploading Indicator
+              if (_uploadingFileName != null)
+                Padding( padding: const EdgeInsets.only(bottom: 8.0, left: 8.0, right: 8.0), child: Row( children: [ const SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 2)), const SizedBox(width: 8), Expanded(child: Text('Uploading $_uploadingFileName...', style: Theme.of(context).textTheme.bodySmall, overflow: TextOverflow.ellipsis)), ], ), ),
+              // Picked File Preview
+              if (_pickedFile != null && _uploadingFileName == null)
+                Padding( padding: const EdgeInsets.only(bottom: 8.0, left: 8.0, right: 8.0), child: Container( padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration( border: Border.all(color: Theme.of(context).dividerColor), borderRadius: BorderRadius.circular(4) ), child: Row( children: [ Icon(Icons.attach_file, size: 18, color: defaultIconColor), const SizedBox(width: 8), Expanded(child: Text(_pickedFile!.path.split(Platform.pathSeparator).last, style: Theme.of(context).textTheme.bodySmall, overflow: TextOverflow.ellipsis)), IconButton( icon: Icon(Icons.close, size: 18, color: defaultIconColor), onPressed: () { if (mounted) setState(() => _pickedFile = null);}, tooltip: 'Remove', padding: EdgeInsets.zero, constraints: const BoxConstraints(), visualDensity: VisualDensity.compact ), ], ), ), ),
+              // Main Input Row
+              Row( crossAxisAlignment: CrossAxisAlignment.end, children: [
+                IconButton( // Emoji Button
+                  icon: Icon( _showEmojiPicker ? Icons.keyboard_alt_outlined : Icons.emoji_emotions_outlined, color: defaultIconColor.withOpacity(inputEnabled ? 1.0 : 0.5), ),
+                  tooltip: _showEmojiPicker ? "Keyboard" : "Emoji",
+                  onPressed: !inputEnabled ? null : () {
+                    if (!_showEmojiPicker) { _focusNode.unfocus(); Future.delayed(const Duration(milliseconds: 100), () { if (mounted) setState(() => _showEmojiPicker = true); }); }
+                    else { if (mounted) setState(() => _showEmojiPicker = false); Future.delayed(const Duration(milliseconds: 100), () { _focusNode.requestFocus(); }); }
+                  },
+                ),
+                Expanded( child: TextField( // Text Field
+                  enabled: inputEnabled,
+                  controller: _textController, focusNode: _focusNode,
+                  decoration: InputDecoration( hintText: inputEnabled ? 'Type message...' : (wsService.isConnected ? 'Select room...' : 'Connecting...'), border: InputBorder.none, filled: true, fillColor: (isDark ? ThemeConstants.backgroundDark : Colors.grey.shade100).withOpacity(inputEnabled ? 1.0 : 0.5), contentPadding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 12.0), isDense: true, enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none), disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none), ),
+                  textCapitalization: TextCapitalization.sentences, minLines: 1, maxLines: 5,
+                  onTap: () { if (_showEmojiPicker && mounted) setState(() => _showEmojiPicker = false); },
+                  onSubmitted: (_) => canSendMessage ? _sendMessage() : null,
+                  textInputAction: TextInputAction.send,
+                )),
+                if (_speechEnabled) IconButton( // Voice Button
+                  icon: Icon( _isListening ? Icons.mic_off_outlined : Icons.mic_none_outlined, color: _isListening ? primaryColor.withOpacity(inputEnabled ? 1.0 : 0.5) : defaultIconColor.withOpacity(inputEnabled ? 1.0 : 0.5), ),
+                  onPressed: !inputEnabled ? null : (_isListening ? _stopListening : _startListening),
+                  tooltip: _isListening ? 'Stop' : 'Voice input',
+                ),
+                IconButton( // Attach Button
+                  icon: Icon( Icons.attach_file_outlined, color: defaultIconColor.withOpacity(inputEnabled ? 1.0 : 0.5), ),
+                  onPressed: !inputEnabled || _uploadingFileName != null ? null : _pickAttachment,
+                  tooltip: 'Attach file',
+                ),
+                IconButton( // Send Button
+                  icon: Icon( Icons.send_outlined, color: primaryColor.withOpacity(canSendMessage ? 1.0 : 0.5), ),
+                  onPressed: canSendMessage ? _sendMessage : null,
+                  tooltip: 'Send',
+                ),
+              ]),
+            ]),
+      ),
+    );
+  }
+
   Widget _buildNotLoggedInView(bool isDark) {
-    final theme = Theme.of(context); // Get theme inside build method or context
+    final theme = Theme.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.lock_outline, // Or another appropriate icon
-              size: 80,
-              color: isDark ? Colors.grey.shade700 : Colors.grey.shade400,
-            ),
+            Icon( Icons.chat_bubble_outline, size: 80, color: isDark ? Colors.grey.shade700 : Colors.grey.shade400, ),
             const SizedBox(height: 20),
-            Text(
-              'Login Required',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
-              ),
-              textAlign: TextAlign.center,
-            ),
+            Text( 'Login to Chat', style: theme.textTheme.headlineSmall?.copyWith( fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade400 : Colors.grey.shade700, ), textAlign: TextAlign.center, ),
             const SizedBox(height: 8),
-            Text(
-              'Please log in to access this feature.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
-              ),
-              textAlign: TextAlign.center,
-            ),
+            Text( 'Please log in to join conversations.', style: theme.textTheme.bodyMedium?.copyWith( color: isDark ? Colors.grey.shade500 : Colors.grey.shade600, ), textAlign: TextAlign.center, ),
             const SizedBox(height: 30),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.login),
-              label: const Text('Go to Login'),
-              // Use Navigator to go back to the root (where login screen is shown)
-              // pushNamedAndRemoveUntil is safer than pushReplacementNamed('/')
-              onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
-                  '/login', // Assuming '/login' route exists or handle differently
-                      (route) => false // Remove all routes below login
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: ThemeConstants.accentColor,
-                foregroundColor: Colors.white, // Use onPrimary color from theme if defined
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                textStyle: const TextStyle(fontSize: 16),
-              ),
-            ),
+            ElevatedButton.icon( icon: const Icon(Icons.login), label: const Text('Go to Login'), onPressed: () { Navigator.of(context).pushNamedAndRemoveUntil( '/login', (route) => false ); }, style: ElevatedButton.styleFrom( backgroundColor: ThemeConstants.accentColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12), textStyle: const TextStyle(fontSize: 16), ), ),
           ],
         ),
       ),
     );
   }
-  // Helper to generate room key string
-  String? getRoomKey(String? type, int? id) { // Make params nullable
-    if (type == null || id == null || id <= 0) return null;
-    return "${type}_${id}";
+
+  String? getRoomKey(String? type, int? id) {
+    return type != null && id != null && id > 0 ? "${type}_$id" : null;
   }
 
+  String _getAppBarTitle() {
+    if (_selectedEventId != null && _selectedEventDetails != null) { return _selectedEventDetails!.title; }
+    else if (_selectedCommunityId != null) { final community = _userCommunities.firstWhereOrNull((c) => c['id'] == _selectedCommunityId); return community?['name'] as String? ?? 'Community Chat'; }
+    else if (_isLoadingCommunities || _isLoadingMessages) { return 'Loading Chat...'; }
+    else { return 'Select Community'; }
+  }
+
+
+  // --- Main Build Method ---
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // Keep state
+
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final authProvider = context.watch<AuthProvider>(); // Watch auth state changes
+    final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    // Use int? for userId from AuthProvider
+    final int? currentUserId = authProvider.userId;
+
+    return Scaffold(
+      key: _scaffoldKey,
+      appBar: AppBar(
+        title: Text(_getAppBarTitle(), style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+        leading: IconButton(icon: const Icon(Icons.menu), tooltip: "Select Community", onPressed: _toggleDrawer),
+        elevation: 0.5,
+      ),
+      drawer: _buildDrawer(isDark),
+      body: !authProvider.isAuthenticated
+          ? _buildNotLoggedInView(isDark)
+          : Column(
+        children: [
+          // Event Context Card
+          _buildSelectedEventCardContainer(isDark), // Doesn't need userId directly
+
+          // Message List Area
+          Expanded(
+              child: GestureDetector(
+                onTap: () { // Dismiss keyboard/emoji on list tap
+                  _focusNode.unfocus();
+                  if (_showEmojiPicker && mounted) setState(() => _showEmojiPicker = false);
+                },
+                child: _buildMessagesListContainer(isDark, currentUserId), // Pass int? userId
+              )),
+
+          // Input Area
+          _buildInputArea(isDark),
+
+          // Emoji Picker
+          Offstage(
+            offstage: !_showEmojiPicker || keyboardVisible, // Hide if keyboard is visible
+            child: SizedBox(
+              height: keyboardVisible ? 0 : (isPortrait ? 270 : 180), // Adjust height
+              child: EmojiPicker(
+                textEditingController: _textController,
+                onBackspacePressed: () {
+                  // Manually handle backspace for controller
+                  _textController.text = _textController.text.characters.skipLast(1).toString();
+                  _textController.selection = TextSelection.fromPosition(TextPosition(offset: _textController.text.length));
+                },
+                config: Config(
+                  height: isPortrait ? 270 : 180,
+                  checkPlatformCompatibility: true,
+                  emojiViewConfig: EmojiViewConfig(
+                    emojiSizeMax: 28 * (Platform.isIOS ? 1.20 : 1.0),
+                    columns: isPortrait ? 8 : 12,
+                    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                  ),
+                  swapCategoryAndBottomBar: false,
+                  skinToneConfig: const SkinToneConfig(enabled: false),
+                  categoryViewConfig: CategoryViewConfig(
+                    backgroundColor: Theme.of(context).cardColor,
+                    indicatorColor: Theme.of(context).colorScheme.primary,
+                    iconColorSelected: Theme.of(context).colorScheme.primary,
+                    iconColor: Theme.of(context).iconTheme.color ?? Colors.grey,
+                    dividerColor: Theme.of(context).dividerColor.withOpacity(0.5),
+                  ),
+                  bottomActionBarConfig: const BottomActionBarConfig(
+                    enabled: true, showBackspaceButton: true, showSearchViewButton: false,
+                    backgroundColor: Colors.transparent, buttonColor: Colors.transparent, buttonIconColor: Colors.grey,
+                  ),
+                  searchViewConfig: SearchViewConfig(
+                    backgroundColor: Theme.of(context).cardColor,
+                    buttonColor: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 } // End of _ChatScreenState
