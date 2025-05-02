@@ -67,7 +67,12 @@ class CommunityType:
     online_count: int = 0 # From graph (if implemented)
     # Field indicating if the *requesting* user is a member of *this* community
     is_member_by_viewer: Optional[bool] = None # Needs context in resolver
-
+    # --- NEW FIELD ---
+    @strawberry.field
+    async def members(self, info: strawberry.Info, limit: int = 10, offset: int = 0) -> List["UserType"]:
+        # 'self' here is the CommunityType instance (contains self.id)
+        from . import gql_resolvers # Local import to avoid circularity at module level
+        return await gql_resolvers.get_community_members_resolver(info, self.id, limit, offset)
     # @strawberry.field
     # async def creator(self, info: strawberry.Info) -> UserType:
     #     # Fetch user details for self.created_by_id

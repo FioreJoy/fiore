@@ -236,11 +236,28 @@ async def get_communities(info: strawberry.Info) -> List[CommunityType]:
             db_comm_with_counts = dict(db_comm); db_comm_with_counts.update(counts)
             gql_comm = map_db_community_to_gql_community(db_comm_with_counts)
             if gql_comm:
+
+
+
                 if viewer_id:
-                    cypher_q = f"RETURN EXISTS((:User {{id:{viewer_id}}})-[:MEMBER_OF]->(:Community {{id:{comm_id_int}}})) as member"
-                    member_res = execute_cypher(cursor, cypher_q, fetch_one=True)
-                    member_map = member_res if isinstance(member_res, dict) else {}
-                    gql_comm.is_member_by_viewer = bool(member_map.get('member', False))
+                    try:
+                        # Simpler test query: Can we find the community node?
+                        test_cypher = f"MATCH (c:Community {{id: {comm_id_int}}}) RETURN count(c) as ct"
+                        test_res = execute_cypher(cursor, test_cypher, fetch_one=True)
+                        print(f"DEBUG: Test MATCH Community {comm_id_int} result: {test_res}")
+                        if test_res is None: raise Exception("Community node not found in graph for check")
+
+                        # Now try the EXISTS check again
+                        cypher_q = f"RETURN EXISTS((:User {{id:{viewer_id}}})-[:MEMBER_OF]->(:Community {{id:{comm_id_int}}})) as member"
+                        member_res = execute_cypher(cursor, cypher_q, fetch_one=True)
+                        member_map = member_res if isinstance(member_res, dict) else {}
+                        gql_community.is_member_by_viewer = bool(member_map.get('member', False))
+                        print(f"DEBUG: Membership check result for viewer {viewer_id} in comm {comm_id_int}: {gql_community.is_member_by_viewer}")
+
+                    except Exception as check_err:
+                        print(f"ERROR during viewer status check for community {comm_id_int}: {check_err}")
+                        gql_community.is_member_by_viewer = False # Default on error
+
                 else:
                     gql_comm.is_member_by_viewer = False
                 gql_communities.append(gql_comm)
@@ -277,6 +294,43 @@ async def get_trending_communities_resolver(info: strawberry.Info) -> List[Commu
                 gql_communities.append(gql_comm)
         return gql_communities
     except Exception as e: print(f"Error in get_trending_communities resolver: {e}"); return []
+    finally:
+        if conn: conn.close()
+
+from .crud._community import get_community_members_graph # NEW CRUD function needed
+
+async def get_community_members_resolver(info: strawberry.Info, community_id_str: strawberry.ID, limit: int, offset: int) -> List[UserType]:
+    print(f"Resolver: get_community_members(comm_id={community_id_str}, limit={limit}, offset={offset})")
+    conn = None
+    viewer_id: Optional[int] = info.context.get("user_id")
+    try:
+        comm_id_int = int(community_id_str) # Convert GQL ID back to int
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # NEW CRUD function needed: get_community_members_graph
+        # This function should query AGE:
+        # MATCH (u:User)-[:MEMBER_OF]->(:Community {id: comm_id_int})
+        # RETURN u.id, u.username, u.name, u.image_path ORDER BY u.username LIMIT limit OFFSET offset
+        db_members = await crud.get_community_members_graph(cursor, comm_id_int, limit, offset) # Assumes async crud or wrap sync
+
+        gql_members: List[UserType] = []
+        for db_member in db_members:
+            # Map basic data (counts not needed here usually)
+            gql_user = map_db_user_to_gql_user(db_member)
+            if gql_user:
+                # Check follow status if needed (N+1 again!)
+                if viewer_id is not None and viewer_id != db_member['id']:
+                    cypher_q = f"RETURN EXISTS((:User {{id: {viewer_id}}})-[:FOLLOWS]->(:User {{id: {db_member['id']}}})) as following"
+                    follow_res = execute_cypher(cursor, cypher_q, fetch_one=True)
+                    follow_map = follow_res if isinstance(follow_res, dict) else {}
+                    gql_user.is_followed_by_viewer = bool(follow_map.get('following', False))
+                else:
+                    gql_user.is_followed_by_viewer = False
+                gql_members.append(gql_user)
+        return gql_members
+    except ValueError: return [] # Invalid ID
+    except Exception as e: print(f"Error get_community_members: {e}"); return []
     finally:
         if conn: conn.close()
 

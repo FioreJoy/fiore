@@ -211,7 +211,18 @@ def get_community_details_db(cursor: psycopg2.extensions.cursor, community_id: i
     combined_data.update(counts)
     return combined_data
 
-
+async def get_community_members_graph(cursor, community_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
+    # Example implementation (adjust RETURN properties as needed)
+    cypher_q = f"""
+         MATCH (u:User)-[:MEMBER_OF]->(c:Community {{id: {community_id}}})
+         RETURN u.id as id, u.username as username, u.name as name, u.image_path as image_path
+         ORDER BY u.username
+         SKIP {offset}
+         LIMIT {limit}
+     """
+    results_agtype = execute_cypher(cursor, cypher_q, fetch_all=True)
+    # Results are list of maps like {'id': 1, 'username': 'x', ...}
+    return results_agtype if isinstance(results_agtype, list) else []
 def delete_community_db(cursor: psycopg2.extensions.cursor, community_id: int) -> bool:
     """Deletes community from public.communities AND AGE graph."""
     # 1. Delete from AGE graph
