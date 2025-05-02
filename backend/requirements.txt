@@ -1,5 +1,6 @@
 uvicorn
 fastapi
+strawberry-graphql[fastapi]
 psycopg2-binary
 SQLAlchemy
 python-dotenv

@@ -9,7 +9,7 @@ class LocationService {
   final String _nominatimBase = 'https://nominatim.openstreetmap.org';
   final String _photonBase = 'https://photon.komoot.io/api';
   final Map<String, String> _headers = {
-    'User-Agent': 'ConnectionsApp/1.0 (Connections Contact: your-email@example.com)' // Replace placeholders
+    'User-Agent': 'ConnectionsApp/1.0 (Fiore Contact: divanshthebest@gmail.com)' // Replace placeholders
   };
 
   Future<Map<String, dynamic>?> getAddressFromCoordinates(double latitude, double longitude) async {
