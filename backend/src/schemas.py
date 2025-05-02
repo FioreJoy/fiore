@@ -263,3 +263,4 @@ class UserDisplay(UserBase):
     interests: List[str] = []
     followers_count: int = 0
     following_count: int = 0
+    is_following: bool = False # Add this field
