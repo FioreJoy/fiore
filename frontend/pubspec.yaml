@@ -9,25 +9,26 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  cached_network_image: ^3.3.1
   cupertino_icons: ^1.0.5
-  provider: ^6.1.2
+  flutter_keyboard_visibility: ^6.0.0 # Keep this at ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+  flutter_markdown: ^0.6.17+1
+  flutter_secure_storage: ^9.0.0
+  flutter_svg: ^2.0.9
+  flutter_typeahead: ^5.2.0 # <-- Upgrade this line as suggested
+  geolocator: ^11.0.0
   http: ^1.2.0
   http_parser: ^4.0.2
-  path_provider: ^2.1.2
   image_picker: ^1.0.7
-  cached_network_image: ^3.3.1
-  flutter_svg: ^2.0.9
   intl: ^0.18.1
-  shimmer: ^3.0.0
-  flutter_markdown: ^0.6.17+1
-  url_launcher: ^6.2.5
-  flutter_typeahead: ^4.0.0
+  path_provider: ^2.1.2
+  provider: ^6.1.2
+  rxdart: ^0.27.7
   shared_preferences: ^2.2.3
-  flutter_secure_storage: ^9.0.0
+  shimmer: ^3.0.0
+  url_launcher: ^6.2.5
   web_socket_channel: ^2.4.0
-  flutter_launcher_icons: ^0.14.3
-  geolocator: ^11.0.0
-  rxdart: ^0.27.7 # Or latest version
 
 
 dev_dependencies:

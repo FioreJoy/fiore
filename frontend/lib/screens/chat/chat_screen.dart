@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:collection/collection.dart'; // For firstWhereOrNull
 
+//--- Import pages ----
+import 'community_members.dart';
 // --- Service Imports ---
 import '../../services/api_client.dart'; // May not be needed directly if WebSocketService handles all
 import '../../services/websocket_service.dart';
@@ -23,10 +25,45 @@ import '../../models/message_model.dart'; // Used by ChatMessageBubble
 // --- Widget Imports ---
 import '../../widgets/chat_message_bubble.dart';
 import '../../widgets/chat_event_card.dart'; // To display context if chatting in an event
+import '../../widgets/create_event_dialog.dart'; // For event creation dialog
 
 // --- Theme and Constants ---
 import '../../theme/theme_constants.dart';
 import '../../app_constants.dart';
+
+// Custom AnimatedRotation widget for compatibility with older Flutter versions
+class AnimatedRotation extends StatelessWidget {
+  final Widget child;
+  final double turns;
+  final Duration duration;
+  final Curve curve;
+
+  const AnimatedRotation({
+    Key? key,
+    required this.child,
+    required this.turns,
+    required this.duration,
+    this.curve = Curves.easeInOut,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: turns),
+      duration: duration,
+      curve: curve,
+      builder: (context, value, child) {
+        return Transform.rotate(
+          angle: value * 2 * 3.14159, // Convert turns to radians
+          child: child,
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+
 
 // --- Screen Imports ---
 // Removed internal tab controller logic
@@ -38,7 +75,7 @@ class ChatScreen extends StatefulWidget {
   _ChatScreenState createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMixin {
+class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   @override
   bool get wantKeepAlive => true; // Keep state when switching main tabs
 
@@ -47,6 +84,9 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   final ScrollController _scrollController = ScrollController();
   bool _isDrawerOpen = false;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>(); // For drawer control
+
+  // Added for toggle buttons
+  bool _showChatView = true; // True for chat, false for event creation
 
   // IDs for the current chat context
   int? _selectedCommunityId;
@@ -62,6 +102,10 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   bool _isLoadingEventDetails = false; // For loading event card details
   bool _isSendingMessage = false;
   bool _canLoadMoreMessages = true; // Flag to prevent multiple pagination requests
+
+  // For attachment menu animations and state
+  bool _showAttachments = false;
+  final _attachmentAnimationDuration = const Duration(milliseconds: 300);
 
   // Service Listeners / Subscriptions
   StreamSubscription? _wsMessagesSubscription;
@@ -81,6 +125,18 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       }
     });
     _scrollController.addListener(_scrollListener);
+
+    // Add keyboard listener to close attachment menu when keyboard shows
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  // Override the didChangeMetrics method from WidgetsBindingObserver
+  @override
+  void didChangeMetrics() {
+    if (mounted && _showAttachments && MediaQuery.of(context).viewInsets.bottom > 0) {
+      // Keyboard is visible, close attachment menu
+      setState(() => _showAttachments = false);
+    }
   }
 
   @override
@@ -92,9 +148,42 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     _wsMessagesSubscription?.cancel();
     _wsConnectionStateSubscription?.cancel();
     // _onlineCountSubscription?.cancel();
+
+    // Remove keyboard observer
+    WidgetsBinding.instance.removeObserver(this);
+
     // Note: WebSocket connection itself is managed by WebSocketService and disposed via Provider
     super.dispose();
   }
+
+  void _showLeaveConfirmationDialog() {
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        title: const Text('Leave Community'),
+        content: const Text(
+            'Are you sure you want to leave this community? You will no longer receive messages from this group.'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text('Leave Community not implemented yet')),
+              );
+            },
+            child: const Text('LEAVE', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      );
+    },
+  );
+}
 
   // --- Initialization ---
   Future<void> _initializeChat() async {
@@ -110,7 +199,6 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
       _connectWebSocket();
     }
   }
-
   // --- Service Listeners ---
   void _setupWebSocketListener() {
     if (!mounted) return;
@@ -469,6 +557,108 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     }
   }
 
+  // Build toggle buttons for Chat/Create Event
+  Widget _buildToggleButtons(bool isDark) {
+    if (_selectedCommunityId == null) {
+      return const SizedBox.shrink(); // Don't show if no community is selected
+    }
+
+    return Container(
+      height: 48,
+      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.grey.shade800.withOpacity(0.3) : Colors.grey.shade200.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(24.0),
+      ),
+      child: Row(
+        children: [
+          // Chat button
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showChatView = true;
+                });
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  color: _showChatView
+                      ? (isDark ? ThemeConstants.accentColor : ThemeConstants.primaryColor)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(24.0),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  'Chat',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: _showChatView
+                        ? Colors.white
+                        : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Create Event button
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showChatView = false;
+                });
+                _showCreateEventDialog();
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  color: !_showChatView
+                      ? (isDark ? ThemeConstants.accentColor : ThemeConstants.primaryColor)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(24.0),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  'Create Event',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: !_showChatView
+                        ? Colors.white
+                        : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Show create event dialog
+  void _showCreateEventDialog() {
+    if (_selectedCommunityId == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Prevent dismissing by tapping outside
+      builder: (context) => CreateEventDialog(
+        communityId: _selectedCommunityId.toString(), // Convert to string since dialog expects string
+        onSubmit: (title, description, location, dateTime, maxParticipants) {
+          // Handle event creation
+          // Here we'd typically call an API to create the event
+          // For now, just show a success message and return to chat
+          Navigator.of(context).pop(); // Close dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Event created successfully')),
+          );
+          setState(() {
+            _showChatView = true; // Switch back to chat view
+          });
+        },
+      ),
+    );
+  }
 
   // --- UI Build Methods ---
 
@@ -513,27 +703,122 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
     // final wsService = Provider.of<WebSocketService>(context);
 
     return Scaffold(
-      key: _scaffoldKey, // Assign key for drawer control
-      appBar: AppBar(
-        title: Text(_getAppBarTitle(), style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-        leading: IconButton(
-            icon: const Icon(Icons.menu), // Standard drawer icon
-            tooltip: "Select Community",
-            onPressed: _toggleDrawer // Use specific toggle function
-        ),
-        // Add actions if needed (e.g., search messages, room info)
-        actions: [
-           // Example: Show connection status icon
-           // Padding(
-           //   padding: const EdgeInsets.only(right: 16.0),
-           //   child: Icon(
-           //      wsService.isConnected ? Icons.wifi : Icons.wifi_off,
-           //      color: wsService.isConnected ? Colors.green : Colors.grey,
-           //      size: 20,
-           //    ),
-           // )
+       key: _scaffoldKey, // Assign key for drawer control
+  appBar: AppBar(
+    title: GestureDetector(
+      onTap: () {
+        if (_selectedCommunityId != null && _selectedEventId == null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CommunityMembersPage(communityId: _selectedCommunityId!),
+            ),
+          );
+        }
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _getAppBarTitle(),
+            style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          if (_selectedCommunityId != null && _selectedEventId == null)
+            const Icon(Icons.arrow_drop_down, size: 20),
         ],
       ),
+    ),
+    leading: IconButton(
+      icon: const Icon(Icons.menu),
+      tooltip: "Select Community",
+      onPressed: _toggleDrawer,
+    ),
+    actions: [
+      PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert),
+        tooltip: "More options",
+        onSelected: (value) {
+          switch (value) {
+            case 'members':
+              if (_selectedCommunityId != null) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CommunityMembersPage(communityId: _selectedCommunityId!),
+                  ),
+                );
+              }
+              break;
+            case 'info':
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Community Info not implemented yet')),
+              );
+              break;
+            case 'media':
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Media Gallery not implemented yet')),
+              );
+              break;
+            case 'clear':
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Clear Chat not implemented yet')),
+              );
+              break;
+            case 'leave':
+              _showLeaveConfirmationDialog();
+              break;
+          }
+        },
+        itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+          const PopupMenuItem<String>(
+            value: 'members',
+            child: ListTile(
+              leading: Icon(Icons.people),
+              title: Text('Community Members'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+          const PopupMenuItem<String>(
+            value: 'info',
+            child: ListTile(
+              leading: Icon(Icons.info_outline),
+              title: Text('Community Info'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+          const PopupMenuItem<String>(
+            value: 'media',
+            child: ListTile(
+              leading: Icon(Icons.photo_library),
+              title: Text('Media, Links & Docs'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+          const PopupMenuItem<String>(
+            value: 'clear',
+            child: ListTile(
+              leading: Icon(Icons.delete_outline),
+              title: Text('Clear Chat'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+          const PopupMenuItem<String>(
+            value: 'leave',
+            child: ListTile(
+              leading: Icon(Icons.exit_to_app, color: Colors.red),
+              title: Text('Leave Community', style: TextStyle(color: Colors.red)),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+        ],
+      ),
+    ],
+  ),
       drawer: _buildDrawer(isDark), // Add the drawer widget
       body: !authProvider.isAuthenticated
           ? _buildNotLoggedInView(isDark) // Show if logged out
@@ -543,17 +828,22 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
                  if (_isLoadingCommunities)
                     const LinearProgressIndicator(minHeight: 2),
 
+                 // Toggle buttons for Chat / Create Event
+                 _buildToggleButtons(isDark),
+
                  // Display Event Context Card if chatting in an event room
                  if (_selectedEventId != null)
                     _buildSelectedEventCardContainer(isDark, authProvider.userId),
 
                  // Message List Area
-                 Expanded(
-                   child: _buildMessagesListContainer(isDark, authProvider.userId ?? ''),
-                 ),
+                 if (_showChatView)
+                   Expanded(
+                     child: _buildMessagesListContainer(isDark, authProvider.userId ?? ''),
+                   ),
 
                  // Message Input Area
-                 _buildMessageInput(isDark),
+                 if (_showChatView)
+                   _buildMessageInput(isDark),
               ],
             ),
     );
@@ -721,6 +1011,10 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
   );
 }
 
+  // For attachment menu animations and state
+  //bool _showAttachments = false;
+  //final _attachmentAnimationDuration = const Duration(milliseconds: 300);
+
   // Build Message Input Row
   Widget _buildMessageInput(bool isDark) {
     // Use StreamBuilder to listen to connection state changes
@@ -749,58 +1043,194 @@ class _ChatScreenState extends State<ChatScreen> with AutomaticKeepAliveClientMi
 
     final bool canSend = isConnectedToCurrentRoom && !_isSendingMessage;
 
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-          decoration: BoxDecoration(
-              color: isDark ? ThemeConstants.backgroundDarker : Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 5, offset: const Offset(0, -2))]
-          ),
-          child: SafeArea(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      // Update hint text based on actual connection state to selected room
-                      hintText: canSend ? 'Type a message...' : 'Connect to this room to chat...',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
-                      filled: true,
-                      fillColor: isDark ? ThemeConstants.backgroundDark : Colors.grey.shade100,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      isDense: true,
-                    ),
-                    minLines: 1,
-                    maxLines: 5,
-                    textCapitalization: TextCapitalization.sentences,
-                    textInputAction: TextInputAction.send,
-                    // Use canSend to determine if onSubmitted works
-                    onSubmitted: canSend ? (_) => _sendMessage() : null,
-                    // Use canSend for enabled state
-                    enabled: canSend,
-                  ),
+        return Column(
+          children: [
+            // Attachment Options Panel - Animated
+            AnimatedContainer(
+              duration: _attachmentAnimationDuration,
+              curve: Curves.easeInOut,
+              height: _showAttachments ? 120 : 0, // Height when expanded/collapsed
+              padding: EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: _showAttachments ? 16 : 0
+              ),
+              decoration: BoxDecoration(
+                color: isDark ? ThemeConstants.backgroundDarker : Colors.white,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
                 ),
-                const SizedBox(width: 8),
-                CircleAvatar(
-                  radius: 22,
-                  // Dim button if cannot send
-                  backgroundColor: canSend ? ThemeConstants.accentColor : Colors.grey,
-                  child: _isSendingMessage
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : IconButton(
-                    icon: const Icon(Icons.send),
-                    color: Colors.white,
-                    tooltip: "Send Message",
-                    // Use canSend for onPressed
-                    onPressed: canSend ? _sendMessage : null,
-                  ),
-                ),
-              ],
+                boxShadow: _showAttachments ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 5,
+                    offset: const Offset(0, -2)
+                  )
+                ] : null,
+              ),
+              child: _showAttachments ? _buildAttachmentOptions(isDark) : null,
             ),
-          ),
+
+            // Message Input Bar
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+              decoration: BoxDecoration(
+                  color: isDark ? ThemeConstants.backgroundDarker : Colors.white,
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 5, offset: const Offset(0, -2))]
+              ),
+              child: SafeArea(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    // Attachment Button
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: isDark
+                          ? Colors.grey.shade800
+                          : Colors.grey.shade200,
+                      child: IconButton(
+                        icon: AnimatedRotation(
+                          turns: _showAttachments ? 0.125 : 0, // 45 degrees rotation when open
+                          duration: _attachmentAnimationDuration,
+                          child: Icon(
+                            _showAttachments ? Icons.close : Icons.add,
+                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                            size: 22,
+                          ),
+                        ),
+                        tooltip: _showAttachments ? "Close" : "Attachments",
+                        onPressed: () {
+                          setState(() {
+                            _showAttachments = !_showAttachments;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // Message Text Field
+                    Expanded(
+                      child: TextField(
+                        controller: _messageController,
+                        decoration: InputDecoration(
+                          // Update hint text based on actual connection state to selected room
+                          hintText: canSend ? 'Type a message...' : 'Connect to this room to chat...',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                          filled: true,
+                          fillColor: isDark ? ThemeConstants.backgroundDark : Colors.grey.shade100,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          isDense: true,
+                        ),
+                        minLines: 1,
+                        maxLines: 5,
+                        textCapitalization: TextCapitalization.sentences,
+                        textInputAction: TextInputAction.send,
+                        // Use canSend to determine if onSubmitted works
+                        onSubmitted: canSend ? (_) => _sendMessage() : null,
+                        // Use canSend for enabled state
+                        enabled: canSend,
+                        onTap: () {
+                          // Close attachment menu when typing
+                          if (_showAttachments) {
+                            setState(() => _showAttachments = false);
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // Send Button
+                    CircleAvatar(
+                      radius: 22,
+                      // Dim button if cannot send
+                      backgroundColor: canSend ? ThemeConstants.accentColor : Colors.grey,
+                      child: _isSendingMessage
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : IconButton(
+                        icon: const Icon(Icons.send),
+                        color: Colors.white,
+                        tooltip: "Send Message",
+                        // Use canSend for onPressed
+                        onPressed: canSend ? _sendMessage : null,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         );
       },
+    );
+  }
+
+  // Build attachment options grid
+  Widget _buildAttachmentOptions(bool isDark) {
+    final attachmentOptions = [
+      {'icon': Icons.photo, 'label': 'Gallery', 'color': Colors.purple},
+      {'icon': Icons.camera_alt, 'label': 'Camera', 'color': Colors.pink},
+      {'icon': Icons.insert_drive_file, 'label': 'Document', 'color': Colors.blue},
+      {'icon': Icons.location_on, 'label': 'Location', 'color': Colors.green},
+    ];
+
+    return GridView.builder(
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+      ),
+      itemCount: attachmentOptions.length,
+      itemBuilder: (context, index) {
+        final option = attachmentOptions[index];
+        return _buildAttachmentOption(
+          icon: option['icon'] as IconData,
+          label: option['label'] as String,
+          color: option['color'] as Color,
+          isDark: isDark,
+          onTap: () {
+            // Handle attachment option tap
+            setState(() => _showAttachments = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('${option['label']} attachment selected')),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Single attachment option item
+  Widget _buildAttachmentOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: color.withOpacity(0.2),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

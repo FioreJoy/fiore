@@ -7,6 +7,8 @@ import bcrypt # Import bcrypt here for password check
 from .utils import get_minio_url # Import the URL generator
 from .utils import format_location_for_db # Ensure this is imported
 from . import schemas
+#from sqlalchemy.orm import Session
+#from . import models
 # --- User CRUD ---
 
 def get_user_by_email(cursor: psycopg2.extensions.cursor, email: str) -> Optional[Dict[str, Any]]:
@@ -718,4 +720,13 @@ def get_followers(cursor, user_id: int):
         JOIN users u ON f.follower_id = u.id
         WHERE f.following_id = %s
     """, (user_id,))
+    return cursor.fetchall()
+
+def get_users_in_community(cursor, community_id: int):
+    cursor.execute("""
+        SELECT u.id, u.name, u.username, u.gender
+        FROM community_members cm
+        JOIN users u ON cm.user_id = u.id
+        WHERE cm.community_id = %s;
+    """, (community_id,))
     return cursor.fetchall()

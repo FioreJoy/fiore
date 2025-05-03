@@ -263,3 +263,12 @@ class UserDisplay(UserBase):
     interests: List[str] = []
     followers_count: int = 0
     following_count: int = 0
+
+class UserPublic(BaseModel):
+    id: int
+    name: str
+    username: str
+    gender: str  # Make sure your frontend expects this as `bool`
+
+    class Config:
+        from_attributes = True

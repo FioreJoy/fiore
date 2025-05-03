@@ -335,6 +335,20 @@ async def unfollow_user_route(user_id: int, current_user_id: int = Depends(auth.
     finally:
         if conn: conn.close()
 
+@router.get("/community/{community_id}/members", response_model=List[schemas.UserPublic])
+async def get_community_members_route(community_id: int, current_user_id: int = Depends(auth.get_current_user)):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        members = crud.get_users_in_community(cursor, community_id)
+        return [dict(row) for row in members]
+    except Exception as e:
+        print(f"Error fetching members for community {community_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch community members")
+    finally:
+        if conn: conn.close()
+
 # --- ADD get_following endpoint (similar to get_followers) ---
 # @router.get("/{user_id}/following", response_model=List[schemas.UserBase])
 # async def get_following_route(user_id: int, current_user_id: int = Depends(auth.get_current_user)):

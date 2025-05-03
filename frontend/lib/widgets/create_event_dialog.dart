@@ -16,7 +16,7 @@ class CreateEventDialog extends StatefulWidget {
   _CreateEventDialogState createState() => _CreateEventDialogState();
 }
 
-class _CreateEventDialogState extends State<CreateEventDialog> {
+class _CreateEventDialogState extends State<CreateEventDialog> with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -27,12 +27,29 @@ class _CreateEventDialogState extends State<CreateEventDialog> {
   TimeOfDay _selectedTime = TimeOfDay.now();
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _titleController.dispose();
     _descriptionController.dispose();
     _locationController.dispose();
     _maxParticipantsController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    // If you have _showAttachments and want to close attachments on keyboard open, do it here
+    // Example:
+    // final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    // if (_showAttachments && bottomInset > 0) {
+    //   setState(() => _showAttachments = false);
+    // }
   }
 
   Future<void> _selectDate(BuildContext context) async {
