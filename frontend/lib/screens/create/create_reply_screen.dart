@@ -3,22 +3,23 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-// --- Updated Service Imports ---
-import '../../services/api/reply_service.dart'; // Use specific ReplyService
+// --- Service Imports ---
+import '../../services/api/reply_service.dart';
 import '../../services/auth_provider.dart';
 
 // --- Widget Imports ---
-import '../../widgets/custom_text_field.dart'; // Assuming path is correct
-import '../../widgets/custom_button.dart'; // Assuming path is correct
+import '../../widgets/custom_text_field.dart';
+import '../../widgets/custom_button.dart';
 
 // --- Theme and Constants ---
 import '../../theme/theme_constants.dart';
 
 class CreateReplyScreen extends StatefulWidget {
+  // Use int type consistent with backend/models
   final int postId;
-  final int? parentReplyId; // ID of the reply being replied to (optional)
-  final String? postTitle; // For display in AppBar (optional)
-  final String? parentReplyContent; // For context (optional)
+  final int? parentReplyId;
+  final String? postTitle;
+  final String? parentReplyContent;
 
   const CreateReplyScreen({
     Key? key,
@@ -58,27 +59,30 @@ class _CreateReplyScreenState extends State<CreateReplyScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     if (authProvider.token == null) {
-      setState(() {
-        _errorMessage = 'Authentication error. Please log in again.';
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Authentication error. Please log in again.';
+          _isLoading = false;
+        });
+      }
       return;
     }
 
     try {
-      // Call the specific service method
+      // Call the API service method
       await replyService.createReply(
         token: authProvider.token!,
-        postId: widget.postId, // Use postId from widget constructor
+        postId: widget.postId,
         content: _contentController.text.trim(),
-        parentReplyId: widget.parentReplyId, // Pass parentReplyId if provided
+        parentReplyId: widget.parentReplyId,
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Reply posted successfully!'), backgroundColor: ThemeConstants.successColor)
         );
-        Navigator.pop(context, true); // Pop back and indicate success
+        // Pop back and indicate success (true)
+        Navigator.pop(context, true);
       }
     } on Exception catch (e) {
       if (mounted) {
@@ -103,22 +107,24 @@ class _CreateReplyScreenState extends State<CreateReplyScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final title = widget.parentReplyId != null
         ? 'Reply to Reply'
-        : (widget.postTitle != null ? 'Reply to "${widget.postTitle}"' : 'Create Reply');
+        : (widget.postTitle != null && widget.postTitle!.isNotEmpty
+        ? 'Reply to "${widget.postTitle}"'
+        : 'Create Reply'); // Handle potentially empty post title
 
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
         elevation: 1,
       ),
-      body: SingleChildScrollView( // Allow scrolling if keyboard appears
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // Optionally display the content being replied to for context
-              if (widget.parentReplyContent != null)
+              // Display content being replied to (if available)
+              if (widget.parentReplyContent != null && widget.parentReplyContent!.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 16),
@@ -135,28 +141,38 @@ class _CreateReplyScreenState extends State<CreateReplyScreen> {
                   ),
                 ),
 
-              CustomTextField( // Or TextFormField
+              // Reply input field
+              CustomTextField(
                 controller: _contentController,
                 labelText: 'Your Reply *',
                 hintText: 'Write your reply here...',
-                maxLines: 6, // Allow ample space for reply content
+                maxLines: 6,
                 minLines: 3,
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'Reply content cannot be empty' : null,
-                // autofocus: true, // Focus field immediately?
+                autofocus: true, // Focus field immediately
               ),
               const SizedBox(height: 24),
 
               // Error Message Display
               if (_errorMessage != null)
-                Padding( padding: const EdgeInsets.only(bottom: 15.0), child: Text( _errorMessage!, style: const TextStyle(color: ThemeConstants.errorColor, fontSize: 14), textAlign: TextAlign.center,),),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 15.0),
+                  child: Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: ThemeConstants.errorColor, fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
 
-              CustomButton( // Or ElevatedButton
+              // Submit Button
+              CustomButton(
                 text: 'Post Reply',
-                onPressed: _isLoading ? null : _submitReply,
+                // Wrap the async call in a standard VoidCallback
+                onPressed: _isLoading ? () {} : () => _submitReply(),
                 isLoading: _isLoading,
                 type: ButtonType.primary,
                 isFullWidth: true,
-                height: 50,
+                // Removed height parameter
               ),
             ],
           ),

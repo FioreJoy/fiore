@@ -84,6 +84,30 @@ def get_event_by_id(cursor: psycopg2.extensions.cursor, event_id: int) -> Option
     )
     return cursor.fetchone()
 
+# --- NEW Graph Query Function ---
+def get_event_participants_graph(cursor: psycopg2.extensions.cursor, event_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
+    """Fetches participants (basic User info) of an event from the AGE graph."""
+    # Select properties needed by the UserType GQL type
+    cypher_q = f"""
+        MATCH (u:User)-[r:PARTICIPATED_IN]->(e:Event {{id: {event_id}}})
+        RETURN u.id as id,
+               u.username as username,
+               u.name as name,
+               u.image_path as image_path
+               // Add other User vertex properties if needed by GQL type
+        ORDER BY r.joined_at DESC // Order by join time (most recent first)
+        SKIP {offset}
+        LIMIT {limit}
+    """
+    try:
+        results_agtype = execute_cypher(cursor, cypher_q, fetch_all=True)
+        # Results are list of maps like {'id': 1, 'username': 'x', ...}
+        return results_agtype if isinstance(results_agtype, list) else []
+    except Exception as e:
+        print(f"CRUD Error getting event participants graph for E:{event_id}: {e}")
+        raise # Re-raise for transaction handling
+# --- END NEW FUNCTION ---
+
 # --- Fetch event participant count from graph ---
 def get_event_participant_count(cursor: psycopg2.extensions.cursor, event_id: int) -> int:
     """ Fetches participant count for an event from AGE graph. """

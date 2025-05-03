@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 # Import graph helpers and quote helper from the _graph module within the same package
 from ._graph import execute_cypher, build_cypher_set_clauses, get_graph_counts
 from .. import utils # Import root utils for quote_cypher_string if needed
+from . import _community, _event
 
 # =========================================
 # User CRUD (Relational + Graph)
@@ -159,6 +160,76 @@ def delete_user(cursor: psycopg2.extensions.cursor, user_id: int) -> bool:
 
     return rows_deleted > 0
 
+# --- NEW Graph Query Functions for User's Relations ---
+
+def get_user_joined_communities_graph(cursor: psycopg2.extensions.cursor, user_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
+    """Fetches communities (basic info) a user is a member of from AGE graph."""
+    # Select properties needed by the CommunityType GQL type that are stored in the graph node
+    cypher_q = f"""
+        MATCH (u:User {{id: {user_id}}})-[:MEMBER_OF]->(c:Community)
+        RETURN c.id as id,
+               c.name as name,
+               c.interest as interest
+               // Fetch logo_path if stored in graph, otherwise join needed
+               // c.logo_path as logo_path
+        ORDER BY c.name // Or maybe by joined_at from edge property?
+        SKIP {offset}
+        LIMIT {limit}
+    """
+    try:
+        results_agtype = execute_cypher(cursor, cypher_q, fetch_all=True)
+        # Results are list of maps like {'id': 1, 'name': 'x', ...}
+        communities_basic_info = results_agtype if isinstance(results_agtype, list) else []
+
+        # OPTIONAL: Augment with full details from relational table if needed
+        # This adds N+1 queries but provides complete data
+        # augmented_communities = []
+        # for comm_basic in communities_basic_info:
+        #     comm_details = _community.get_community_details_db(cursor, comm_basic['id']) # Fetch full details
+        #     if comm_details:
+        #         augmented_communities.append(comm_details)
+        # return augmented_communities
+
+        # Return basic info directly from graph for now
+        return communities_basic_info
+
+    except Exception as e:
+        print(f"CRUD Error getting user joined communities graph for U:{user_id}: {e}")
+        raise # Re-raise for transaction handling
+
+def get_user_participated_events_graph(cursor: psycopg2.extensions.cursor, user_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
+    """Fetches events (basic info) a user participated in from AGE graph."""
+    # Select properties needed by the EventType GQL type stored in graph node
+    cypher_q = f"""
+        MATCH (u:User {{id: {user_id}}})-[:PARTICIPATED_IN]->(e:Event)
+        RETURN e.id as id,
+               e.title as title,
+               e.event_timestamp as event_timestamp
+               // Fetch other props like location, community_id if stored/needed
+        ORDER BY e.event_timestamp DESC // Or by joined_at edge property?
+        SKIP {offset}
+        LIMIT {limit}
+    """
+    try:
+        results_agtype = execute_cypher(cursor, cypher_q, fetch_all=True)
+        events_basic_info = results_agtype if isinstance(results_agtype, list) else []
+
+        # OPTIONAL: Augment with full details
+        # augmented_events = []
+        # for event_basic in events_basic_info:
+        #     event_details = _event.get_event_details_db(cursor, event_basic['id'])
+        #     if event_details:
+        #         augmented_events.append(event_details)
+        # return augmented_events
+
+        # Return basic info for now
+        return events_basic_info
+
+    except Exception as e:
+        print(f"CRUD Error getting user participated events graph for U:{user_id}: {e}")
+        raise # Re-raise for transaction handling
+
+# --- END NEW FUNCTIONS ---
 # =========================================
 # Follower CRUD (Graph Operations)
 # =========================================

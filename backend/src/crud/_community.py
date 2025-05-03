@@ -1,11 +1,12 @@
 # backend/src/crud/_community.py
 import psycopg2
 import psycopg2.extras
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any # Ensure these are imported
+# from datetime import datetime, timezone
 
 # Import graph helpers and quote helper from the _graph module
 from ._graph import execute_cypher, build_cypher_set_clauses, get_graph_counts
+
 from .. import utils # Import root utils for quote_cypher_string if needed
 
 # =========================================
@@ -293,3 +294,27 @@ def remove_post_from_community_db(cursor: psycopg2.extensions.cursor, community_
     result_map = utils.parse_agtype(result_agtype)
     deleted_count = int(result_map.get('deleted_count', 0)) if isinstance(result_map, dict) else 0
     return deleted_count > 0
+
+# --- NEW Graph Query Function ---
+def get_community_members_graph(cursor: psycopg2.extensions.cursor, community_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
+    """Fetches members (basic User info) of a community from the AGE graph."""
+    # Select properties needed by the UserType GQL type (or a simpler FollowerInfo type)
+    cypher_q = f"""
+        MATCH (u:User)-[:MEMBER_OF]->(c:Community {{id: {community_id}}})
+        RETURN u.id as id,
+               u.username as username,
+               u.name as name,
+               u.image_path as image_path
+               // Add other User vertex properties if needed by GQL type
+        ORDER BY u.username
+        SKIP {offset}
+        LIMIT {limit}
+    """
+    try:
+        results_agtype = execute_cypher(cursor, cypher_q, fetch_all=True)
+        # Results are list of maps like {'id': 1, 'username': 'x', ...}
+        return results_agtype if isinstance(results_agtype, list) else []
+    except Exception as e:
+        print(f"CRUD Error getting community members graph for C:{community_id}: {e}")
+        raise # Re-raise for transaction handling
+# --- END NEW FUNCTION ---

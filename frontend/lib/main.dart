@@ -21,6 +21,7 @@ import 'services/api/chat_service.dart';
 import 'services/api/settings_service.dart';
 import 'services/api/block_service.dart';
 import 'services/api/location_service.dart';
+import 'services/api/favorite_service.dart';
 
 
 // --- Theme Imports ---

@@ -5,21 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
-// --- Updated Service Imports ---
-import '../../services/api/post_service.dart'; // Use specific PostService
+// --- Service Imports ---
+import '../../services/api/post_service.dart';
 import '../../services/auth_provider.dart';
 
 // --- Widget Imports ---
-import '../../widgets/custom_text_field.dart'; // Assuming path is correct
-import '../../widgets/custom_button.dart'; // Assuming path is correct
+import '../../widgets/custom_text_field.dart';
+import '../../widgets/custom_button.dart';
 
 // --- Theme and Constants ---
 import '../../theme/theme_constants.dart';
 
 class CreatePostScreen extends StatefulWidget {
-  // Optional: Pass communityId if creating post directly within a community context
   final int? communityId;
-  final String? communityName; // Optional: For display
+  final String? communityName;
 
   const CreatePostScreen({
     Key? key,
@@ -36,7 +35,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
 
-  File? _postImageFile; // Store the selected image file
+  File? _postImageFile;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -50,7 +49,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     try {
-      final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80); // Slightly higher quality for posts?
+      final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
       if (pickedFile != null && mounted) {
         setState(() {
           _postImageFile = File(pickedFile.path);
@@ -67,40 +66,45 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   Future<void> _submitPost() async {
+    // Clear previous error and ensure form is valid
     setState(() => _errorMessage = null);
-
     if (!_formKey.currentState!.validate() || _isLoading) {
       return;
     }
 
+    // Set loading state
     setState(() => _isLoading = true);
 
     final postService = Provider.of<PostService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
+    // Check authentication
     if (authProvider.token == null) {
-      setState(() {
-        _errorMessage = 'Authentication error. Please log in again.';
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Authentication error. Please log in again.';
+          _isLoading = false;
+        });
+      }
       return;
     }
 
     try {
-      // Call the specific service method
+      // Call the API service method
       final createdPostData = await postService.createPost(
         token: authProvider.token!,
         title: _titleController.text.trim(),
         content: _contentController.text.trim(),
-        communityId: widget.communityId, // Pass communityId if provided
-        image: _postImageFile, // Pass the File object
+        communityId: widget.communityId,
+        image: _postImageFile,
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Post "${createdPostData['title']}" created!'), backgroundColor: ThemeConstants.successColor)
         );
-        Navigator.pop(context, true); // Pop back and indicate success
+        // Pop back and indicate success (true) to the previous screen
+        Navigator.pop(context, true);
       }
     } on Exception catch (e) {
       if (mounted) {
@@ -144,7 +148,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               CustomTextField(
                 controller: _contentController,
                 labelText: 'Post Content *',
-                maxLines: 8, // Allow more lines for content
+                maxLines: 8,
                 minLines: 3,
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'Content is required' : null,
               ),
@@ -160,35 +164,47 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius),
                   color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
                 ),
-                child: InkWell( // Make the area tappable
+                child: InkWell(
                   onTap: _pickImage,
                   child: _postImageFile == null
-                      ? const Center(child: Icon(Icons.add_photo_alternate_outlined, size: 50, color: Colors.grey))
-                      : ClipRRect( // Show preview
-                    borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius - 1), // Subtract border width
-                    child: Image.file(_postImageFile!, fit: BoxFit.cover, width: double.infinity, height: 150,),
+                      ? Center(child: Icon(Icons.add_photo_alternate_outlined, size: 50, color: Colors.grey.shade500))
+                      : ClipRRect(
+                    borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius - 1),
+                    child: Image.file(_postImageFile!, fit: BoxFit.cover, width: double.infinity, height: 150),
                   ),
                 ),
               ),
               if (_postImageFile != null)
-                TextButton.icon(
-                  icon: const Icon(Icons.clear, size: 18, color: ThemeConstants.errorColor),
-                  label: const Text("Remove Image", style: TextStyle(color: ThemeConstants.errorColor, fontSize: 12)),
-                  onPressed: () => setState(() => _postImageFile = null),
+                Align( // Align button to the right or center
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.clear, size: 18, color: ThemeConstants.errorColor),
+                    label: const Text("Remove Image", style: TextStyle(color: ThemeConstants.errorColor, fontSize: 12)),
+                    onPressed: () => setState(() => _postImageFile = null),
+                  ),
                 ),
               const SizedBox(height: 24),
 
               // Error Message Display
               if (_errorMessage != null)
-                Padding( padding: const EdgeInsets.only(bottom: 15.0), child: Text( _errorMessage!, style: const TextStyle(color: ThemeConstants.errorColor, fontSize: 14), textAlign: TextAlign.center,),),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 15.0),
+                  child: Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: ThemeConstants.errorColor, fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
 
+              // Submit Button
               CustomButton(
                 text: 'Submit Post',
-                onPressed: _isLoading ? null : _submitPost,
+                // Wrap the async call in a standard VoidCallback
+                onPressed: _isLoading ? () {} : () => _submitPost(),
                 isLoading: _isLoading,
                 type: ButtonType.primary,
                 isFullWidth: true,
-                height: 50,
+                // Removed height parameter
               ),
             ],
           ),

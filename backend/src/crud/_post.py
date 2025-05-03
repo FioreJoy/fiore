@@ -173,5 +173,49 @@ def delete_post_db(cursor: psycopg2.extensions.cursor, post_id: int) -> bool:
 
     return rows_deleted > 0
 
+# --- NEW Complex Graph Query Function ---
+def get_followed_posts_in_community_graph(cursor: psycopg2.extensions.cursor, viewer_id: int, community_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
+    """
+    Fetches posts in a specific community authored by users the viewer follows.
+    Includes basic post/author info and graph-based counts.
+    """
+    # This query combines following, authorship, community membership, and counts
+    cypher_q = f"""
+        MATCH (viewer:User {{id: {viewer_id}}})-[:FOLLOWS]->(author:User)-[:WROTE]->(p:Post)
+        // Ensure post is in the target community using the graph relationship
+        MATCH (c:Community {{id: {community_id}}})-[:HAS_POST]->(p)
+
+        // Use OPTIONAL MATCH for counts to include posts with 0 counts
+        OPTIONAL MATCH (p)<-[:REPLIED_TO]-(rep:Reply)
+        OPTIONAL MATCH (upvoter:User)-[:VOTED {{vote_type: true}}]->(p)
+        OPTIONAL MATCH (downvoter:User)-[:VOTED {{vote_type: false}}]->(p)
+        OPTIONAL MATCH (favUser:User)-[:FAVORITED]->(p)
+
+        // Aggregation using WITH clause
+        WITH p, author, c, // Pass through nodes
+             count(DISTINCT rep) as reply_count,
+             count(DISTINCT upvoter) as upvotes,
+             count(DISTINCT downvoter) as downvotes,
+             count(DISTINCT favUser) as favorite_count
+
+        // Return data needed for PostType and potentially nested Author/Community types
+        RETURN p.id as id, p.title as title, p.created_at as created_at, p.image_path as image_path,
+               author.id as user_id, author.username as author_name, author.image_path as author_avatar,
+               c.id as community_id, c.name as community_name, // Include community info
+               reply_count, upvotes, downvotes, favorite_count
+
+        ORDER BY p.created_at DESC
+        SKIP {offset}
+        LIMIT {limit}
+    """
+    try:
+        print(f"CRUD: Fetching followed posts in comm {community_id} for viewer {viewer_id}")
+        results_agtype = execute_cypher(cursor, cypher_q, fetch_all=True)
+        # Results are list of maps with all returned fields
+        return results_agtype if isinstance(results_agtype, list) else []
+    except Exception as e:
+        print(f"CRUD Error getting followed posts graph for V:{viewer_id}, C:{community_id}: {e}")
+        raise # Re-raise for transaction handling
+# --- END NEW FUNCTION ---
 # Note: Functions for voting on posts or favoriting posts will be in _vote.py and _favorite.py (or combined).
 # Note: Functions for adding/removing post from community are in _community.py
