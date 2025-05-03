@@ -11,7 +11,8 @@ from typing import Optional, Dict, Any # <-- Add Any
 from minio import Minio
 from minio.error import S3Error
 from dotenv import load_dotenv
-from datetime import timedelta, datetime, timezone
+from datetime import date, timedelta, datetime, timezone
+import mimetypes # To guess mime type if not provided
 
 load_dotenv()
 
@@ -48,24 +49,66 @@ else:
 # --- MinIO Upload Utility (Keep as is) ---
 async def upload_file_to_minio(
         file: UploadFile,
-        object_name_prefix: str = "uploads/"
-) -> Optional[str]:
+        # Define base path structure based on type
+        base_path: str = "media/general", # e.g., "media/posts", "media/avatars"
+        item_id: Optional[Any] = None, # Optional ID of related item (post_id, user_id)
+        generate_uuid_filename: bool = True
+) -> Optional[Dict[str, Any]]:
+    """
+    Uploads file to MinIO under a structured path.
+    Returns dict with object_name, mime_type, size, original_filename or None on failure.
+    """
     if not minio_client or not file or not file.filename:
         print("MinIO client not available or invalid file.")
         return None
+
     try:
-        file_extension = os.path.splitext(file.filename)[1].lower()
-        unique_filename = f"{uuid.uuid4()}{file_extension}"
-        object_name = os.path.join(object_name_prefix, unique_filename).replace("\\", "/")
+        # Generate filename and path
+        original_filename = file.filename
+        file_extension = os.path.splitext(original_filename)[1].lower()
+        if generate_uuid_filename:
+            unique_filename = f"{uuid.uuid4()}{file_extension}"
+        else:
+            # Use original filename (sanitize carefully if doing this)
+            # Be cautious about collisions or malicious filenames
+            safe_filename = "".join(c for c in original_filename if c.isalnum() or c in ['.', '_', '-']).strip()
+            if not safe_filename: safe_filename = f"{uuid.uuid4()}{file_extension}" # Fallback
+            unique_filename = safe_filename
+
+        # Construct path: base_path / [item_id /] unique_filename
+        object_name_parts = [base_path]
+        if item_id is not None:
+            object_name_parts.append(str(item_id))
+        object_name_parts.append(unique_filename)
+        object_name = "/".join(p for p in object_name_parts if p) # Join non-empty parts with /
+
+        # Read file content
         contents = await file.read()
         file_size = len(contents)
+
+        # Determine MIME type
         content_type = file.content_type
+        if not content_type or content_type == 'application/octet-stream':
+            # Guess based on extension if fastapi didn't provide good one
+            content_type, _ = mimetypes.guess_type(original_filename)
+            content_type = content_type or 'application/octet-stream' # Default if guess fails
+
+        # Use put_object with BytesIO
         minio_client.put_object(
-            MINIO_BUCKET, object_name, io.BytesIO(contents),
-            length=file_size, content_type=content_type
+            MINIO_BUCKET,
+            object_name,
+            io.BytesIO(contents),
+            length=file_size,
+            content_type=content_type
         )
-        print(f"✅ Successfully uploaded {object_name} to MinIO bucket {MINIO_BUCKET}")
-        return object_name
+        print(f"✅ Successfully uploaded {object_name} ({content_type}, {file_size} bytes) to MinIO bucket {MINIO_BUCKET}")
+
+        return {
+            "minio_object_name": object_name,
+            "mime_type": content_type,
+            "file_size_bytes": file_size,
+            "original_filename": original_filename
+        }
     except S3Error as e:
         print(f"❌ MinIO S3 Error during upload: {e}")
         return None
@@ -172,7 +215,16 @@ def parse_agtype(value: Any) -> Any:
         return value
 
 # --- *** END NEW HELPER *** ---
-
+# --- Helper to safely quote strings for embedding in Cypher ---
+def quote_cypher_string(value):
+    if value is None: return 'null'
+    if isinstance(value, (datetime, date)): return f"'{value.isoformat()}'"
+    if isinstance(value, bool): return 'true' if value else 'false'
+    if isinstance(value, (int, float)): return str(value)
+    str_val = str(value).replace("'", "''") # Escape for SQL embedding first
+    # Further escape for Cypher string literal if needed, though $$ usually handles it
+    # str_val = str_val.replace("\\", "\\\\").replace("'", "\\'") # Cypher escaping
+    return f"'{str_val}'" # Return as SQL literal string
 # --- Image Saving Helpers (Remove if using MinIO exclusively) ---
 # def save_image_from_base64(...) # Remove if not used
 # async def save_image_multipart(...) # Remove if not used

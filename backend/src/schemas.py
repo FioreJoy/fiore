@@ -153,16 +153,16 @@ class CommunityDisplay(CommunityBase):
 class VoteCreate(BaseModel):
     post_id: Optional[int] = None
     reply_id: Optional[int] = None
-    vote_type: bool # True for upvote, False for downvote
+    vote_type: bool
 
-    @validator('post_id', 'reply_id', always=True)
-    def check_one_target(cls, v: Any, values: Dict[str, Any]) -> Any:
-        post_id = values.get('post_id')
-        reply_id = values.get('reply_id')
-        if (post_id is not None and reply_id is not None) or \
-                (post_id is None and reply_id is None):
-            raise ValueError('Must vote on exactly one of post_id or reply_id')
-        return v # Return the validated value itself (post_id or reply_id)
+    # @validator('post_id', 'reply_id', always=True) # <-- COMMENT OUT or DELETE
+    # def check_one_target(cls, v: Any, values: Dict[str, Any]) -> Any:
+    #     post_id = values.get('post_id')
+    #     reply_id = values.get('reply_id')
+    #     if (post_id is not None and reply_id is not None) or \
+    #             (post_id is None and reply_id is None):
+    #         raise ValueError('Must vote on exactly one of post_id or reply_id')
+    #     return v
 
 
 class VoteDisplay(BaseModel):
@@ -264,3 +264,27 @@ class UserDisplay(UserBase):
     followers_count: int = 0
     following_count: int = 0
     is_following: bool = False # Add this field
+
+class BlockedUserDisplay(BaseModel):
+    blocked_id: int
+    blocked_at: datetime
+    blocked_username: str
+    blocked_name: Optional[str] = None # Make optional if name can be null
+    blocked_user_avatar_url: Optional[str] = None
+
+    class Config:
+        from_attributes = True # Pydantic v2
+        # orm_mode = True # Pydantic v1
+
+class MediaItemDisplay(BaseModel):
+    id: int
+    url: Optional[str] # Pre-signed URL from MinIO
+    mime_type: str
+    file_size_bytes: Optional[int] = None
+    original_filename: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration_seconds: Optional[float] = None
+    created_at: datetime
+
+    class Config: from_attributes = True

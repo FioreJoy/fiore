@@ -24,18 +24,9 @@ async def create_reply(
     conn = None
     reply_id = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Optional: Add validation here if needed (e.g., check if post exists)
-        # post_exists = crud.get_post_by_id(cursor, reply_data.post_id)
-        # if not post_exists:
-        #     raise HTTPException(status_code=404, detail="Post not found")
-        # If parent_reply_id is given, check if it exists and belongs to the same post
-        # ...
-
-        # Call the combined create function
-        reply_id = crud.create_reply_db(
+        conn = get_db_connection(); cursor = conn.cursor()
+        # Call the combined create function (relational + graph)
+        reply_id = crud.create_reply_db( # Use crud prefix
             cursor,
             post_id=reply_data.post_id,
             user_id=current_user_id,
@@ -94,53 +85,41 @@ async def create_reply(
 @router.get("/{post_id}", response_model=List[schemas.ReplyDisplay])
 async def get_replies_for_post(
         post_id: int,
-        # Keep auth optional depending on whether public viewing is allowed
-        current_user_id: Optional[int] = Depends(auth.get_current_user_optional) # Use Optional Auth
+        current_user_id: Optional[int] = Depends(auth.get_current_user_optional)
 ):
-    """ Fetches replies for a specific post. Includes graph counts and author avatars."""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # get_replies_for_post_db now fetches relational data + graph counts
+        # This fetch includes counts now
         replies_db = crud.get_replies_for_post_db(cursor, post_id)
 
         processed_replies = []
-        # TODO: Optimize fetching user's vote/favorite status for *all* replies in one go if possible
         for reply in replies_db:
             reply_data = dict(reply)
-            # Generate URLs
-            reply_data['author_avatar_url'] = get_minio_url(reply.get('author_avatar'))
+            reply_data['author_avatar_url'] = utils.get_minio_url(reply.get('author_avatar'))
 
-            # Fetch user's vote/favorite status IF authenticated
-            # This currently involves N+1 queries, consider optimizing later
-            has_upvoted = False
-            has_downvoted = False
+            # Get viewer status using CRUD functions if authenticated
+            viewer_vote = None
             is_favorited = False
             if current_user_id is not None:
                 reply_id = reply_data['id']
-                # Check vote
-                cypher_vote = f"MATCH (:User {{id:{current_user_id}}})-[r:VOTED]->(:Reply {{id:{reply_id}}}) RETURN r.vote_type as vt"
-                vote_res = crud.execute_cypher(cursor, cypher_vote, fetch_one=True)
-                vote_map = utils.parse_agtype(vote_res)
-                if isinstance(vote_map, dict) and 'vt' in vote_map:
-                    has_upvoted = vote_map['vt'] == True
-                    has_downvoted = vote_map['vt'] == False
+                # **** USE CRUD FUNCTIONS ****
+                viewer_vote = crud.get_viewer_vote_status(cursor, current_user_id, post_id=None, reply_id=reply_id) # Pass post_id=None
+                is_favorited = crud.get_viewer_favorite_status(cursor, current_user_id, post_id=None, reply_id=reply_id) # Pass post_id=None
+                # **************************
 
-                # Check favorite
-                cypher_fav = f"RETURN EXISTS( (:User {{id:{current_user_id}}})-[:FAVORITED]->(:Reply {{id:{reply_id}}}) ) as fav"
-                fav_res = crud.execute_cypher(cursor, cypher_fav, fetch_one=True)
-                fav_map = utils.parse_agtype(fav_res)
-                is_favorited = fav_map.get('fav', False) if isinstance(fav_map, dict) else False
+            reply_data['viewer_vote_type'] = 'UP' if viewer_vote is True else ('DOWN' if viewer_vote is False else None)
+            reply_data['viewer_has_favorited'] = is_favorited
+            # Ensure schema has this field:
+            # reply_data.setdefault('is_favorited', is_favorited)
 
-            reply_data['has_upvoted'] = has_upvoted
-            reply_data['has_downvoted'] = has_downvoted
-            reply_data['is_favorited'] = is_favorited # Add to schema if not present
 
-            processed_replies.append(schemas.ReplyDisplay(**reply_data)) # Validate
+            processed_replies.append(schemas.ReplyDisplay(**reply_data))
 
         print(f"✅ Fetched {len(processed_replies)} replies for post {post_id}")
         return processed_replies
+    # ... (keep existing error handling) ...
     except Exception as e:
         print(f"❌ Error fetching replies for post {post_id}: {e}")
         import traceback

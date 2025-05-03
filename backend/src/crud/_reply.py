@@ -5,26 +5,25 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 
 # Import graph helpers and utils
-from ._graph import execute_cypher, build_cypher_set_clauses, get_graph_counts
-from .. import utils # Import root utils for quote_cypher_string
+from ._graph import execute_cypher, build_cypher_set_clauses
+from .. import utils
 
 # =========================================
-# Reply CRUD (Relational + Graph)
+# Reply CRUD (Relational + Graph + Media Link)
 # =========================================
 
 def create_reply_db(
-    cursor: psycopg2.extensions.cursor, post_id: int, user_id: int, content: str,
-    parent_reply_id: Optional[int]
+        cursor: psycopg2.extensions.cursor, post_id: int, user_id: int, content: str,
+        parent_reply_id: Optional[int]
+        # Media linking handled separately by router
 ) -> Optional[int]:
     """
-    Creates reply in public.replies, :Reply vertex, :WROTE edge, and :REPLIED_TO edge.
+    Creates reply in public.replies, :Reply vertex, :WROTE edge, :REPLIED_TO edge.
     Requires CALLING function to handle transaction commit/rollback.
     """
     reply_id = None
-    # No try/except here, let caller handle transaction
+    # No outer try/except, let caller handle transaction
     # 1. Insert into public.replies
-    # We still insert parent_reply_id here for potential relational queries or easier data access,
-    # even though the graph also stores this relationship.
     cursor.execute(
         """
         INSERT INTO public.replies (post_id, user_id, content, parent_reply_id)
@@ -38,72 +37,85 @@ def create_reply_db(
     created_at = result['created_at']
     print(f"CRUD: Inserted reply {reply_id} into public.replies.")
 
-    # 2. Create :Reply vertex
-    reply_props = {'id': reply_id, 'created_at': created_at} # Store minimal props
-    set_clauses_str = build_cypher_set_clauses('r', reply_props)
-    cypher_q_vertex = f"CREATE (r:Reply {{id: {reply_id}}})"
-    if set_clauses_str: cypher_q_vertex += f" SET {set_clauses_str}"
-    print(f"CRUD: Creating AGE vertex for reply {reply_id}...")
-    execute_cypher(cursor, cypher_q_vertex)
-    print(f"CRUD: AGE vertex created for reply {reply_id}.")
+    # 2. Create :Reply vertex (Wrap in try/except)
+    try:
+        reply_props = {'id': reply_id, 'created_at': created_at}
+        set_clauses_str = build_cypher_set_clauses('r', reply_props)
+        cypher_q_vertex = f"CREATE (r:Reply {{id: {reply_id}}})"
+        if set_clauses_str: cypher_q_vertex += f" SET {set_clauses_str}"
+        print(f"CRUD: Creating AGE vertex for reply {reply_id}...")
+        execute_cypher(cursor, cypher_q_vertex)
+        print(f"CRUD: AGE vertex created for reply {reply_id}.")
+    except Exception as age_err:
+        print(f"CRUD WARNING: Failed create AGE vertex reply {reply_id}: {age_err}")
+        raise age_err # Fail the whole create if graph fails here
 
-    # 3. Create :WROTE edge (User -> Reply)
-    created_at_quoted = utils.quote_cypher_string(created_at)
-    cypher_q_wrote = f"""
-        MATCH (u:User {{id: {user_id}}})
-        MATCH (rep:Reply {{id: {reply_id}}})
-        MERGE (u)-[r:WROTE]->(rep)
-        SET r.created_at = {created_at_quoted}
-    """
-    execute_cypher(cursor, cypher_q_wrote)
-    print(f"CRUD: :WROTE edge created for reply {reply_id}.")
+    # 3. Create :WROTE edge (User -> Reply) (Wrap in try/except)
+    try:
+        created_at_quoted = utils.quote_cypher_string(created_at)
+        cypher_q_wrote = f"""
+            MATCH (u:User {{id: {user_id}}}) MATCH (rep:Reply {{id: {reply_id}}})
+            MERGE (u)-[r:WROTE]->(rep) SET r.created_at = {created_at_quoted} """
+        execute_cypher(cursor, cypher_q_wrote)
+        print(f"CRUD: :WROTE edge created for reply {reply_id}.")
+    except Exception as age_err:
+        print(f"CRUD WARNING: Failed create :WROTE edge reply {reply_id}: {age_err}")
+        raise age_err
 
-    # 4. Create :REPLIED_TO edge (Reply -> Post or Reply -> Reply)
-    target_id = parent_reply_id if parent_reply_id is not None else post_id
-    target_label = "Reply" if parent_reply_id is not None else "Post"
-    cypher_q_replied = f"""
-        MATCH (child:Reply {{id: {reply_id}}})
-        MATCH (parent:{target_label} {{id: {target_id}}})
-        MERGE (child)-[r:REPLIED_TO]->(parent)
-        SET r.created_at = {created_at_quoted}
-    """
-    execute_cypher(cursor, cypher_q_replied)
-    print(f"CRUD: :REPLIED_TO edge created for reply {reply_id} -> {target_label} {target_id}.")
+    # 4. Create :REPLIED_TO edge (Reply -> Post or Reply -> Reply) (Wrap in try/except)
+    try:
+        target_id = parent_reply_id if parent_reply_id is not None else post_id
+        target_label = "Reply" if parent_reply_id is not None else "Post"
+        cypher_q_replied = f"""
+            MATCH (child:Reply {{id: {reply_id}}}) MATCH (parent:{target_label} {{id: {target_id}}})
+            MERGE (child)-[r:REPLIED_TO]->(parent) SET r.created_at = {created_at_quoted} """
+        execute_cypher(cursor, cypher_q_replied)
+        print(f"CRUD: :REPLIED_TO edge created reply {reply_id} -> {target_label} {target_id}.")
+    except Exception as age_err:
+        print(f"CRUD WARNING: Failed create :REPLIED_TO edge reply {reply_id}: {age_err}")
+        raise age_err
 
-    return reply_id # Return ID on success
+    return reply_id # Return ID
 
 def get_reply_by_id(cursor: psycopg2.extensions.cursor, reply_id: int) -> Optional[Dict[str, Any]]:
     """Fetches reply details from relational table ONLY."""
-    # Graph counts fetched separately
     cursor.execute(
         "SELECT id, user_id, post_id, content, parent_reply_id, created_at FROM public.replies WHERE id = %s",
         (reply_id,)
     )
     return cursor.fetchone()
 
-# --- Fetch reply counts from graph ---
+# --- Fetch reply counts from graph (Python counting) ---
 def get_reply_counts(cursor: psycopg2.extensions.cursor, reply_id: int) -> Dict[str, int]:
-    """Fetches vote counts and potentially nested reply counts for a reply from AGE graph."""
-    # Add favorite count if needed
-    count_specs = [
-        {'name': 'upvotes', 'pattern': '(uv:User)-[:VOTED {vote_type: true}]->(n)', 'distinct_var': 'uv'},
-        {'name': 'downvotes', 'pattern': '(dv:User)-[:VOTED {vote_type: false}]->(n)', 'distinct_var': 'dv'},
-        {'name': 'favorite_count', 'pattern': '(fv:User)-[:FAVORITED]->(n)', 'distinct_var': 'fv'},
-        # Add count for direct replies TO this reply if needed for UI
-        # {'name': 'nested_reply_count', 'pattern': '(child:Reply)-[:REPLIED_TO]->(n)', 'distinct_var': 'child'},
-    ]
-    return get_graph_counts(cursor, 'Reply', reply_id, count_specs)
+    """Fetches vote and favorite counts for a reply by counting results."""
+    counts = {"upvotes": 0, "downvotes": 0, "favorite_count": 0}
+    try:
+        # Upvotes
+        cypher_u = f"MATCH (uv:User)-[:VOTED {{vote_type: true}}]->(rep:Reply {{id: {reply_id}}}) RETURN uv.id"
+        res_u = execute_cypher(cursor, cypher_u, fetch_all=True) or []
+        counts['upvotes'] = len(res_u)
+        # Downvotes
+        cypher_d = f"MATCH (dv:User)-[:VOTED {{vote_type: false}}]->(rep:Reply {{id: {reply_id}}}) RETURN dv.id"
+        res_d = execute_cypher(cursor, cypher_d, fetch_all=True) or []
+        counts['downvotes'] = len(res_d)
+        # Favorites
+        cypher_f = f"MATCH (fv:User)-[:FAVORITED]->(rep:Reply {{id: {reply_id}}}) RETURN fv.id"
+        res_f = execute_cypher(cursor, cypher_f, fetch_all=True) or []
+        counts['favorite_count'] = len(res_f)
+    except Exception as e:
+        print(f"Warning: Failed getting graph counts for reply {reply_id}: {e}")
+    return counts
 
-# --- Fetch list of replies for a post (combines relational + graph) ---
+# --- Fetch list of replies for a post (Combines relational + graph counts) ---
 def get_replies_for_post_db(cursor: psycopg2.extensions.cursor, post_id: int) -> List[Dict[str, Any]]:
     """ Fetches replies from relational table, adds graph counts and author info."""
-    # 1. Fetch relational reply data including author info
-    # Order by created_at is important for displaying threads correctly
+    # Fetch relational reply data including author info
     sql = """
         SELECT
             r.id, r.post_id, r.user_id, r.content, r.parent_reply_id, r.created_at,
             u.username AS author_name,
-            u.image_path AS author_avatar -- Fetch path for URL generation
+            -- Fetch author's user ID to get avatar path separately if needed
+            u.id AS author_id
         FROM public.replies r
         JOIN public.users u ON r.user_id = u.id
         WHERE r.post_id = %s
@@ -112,46 +124,55 @@ def get_replies_for_post_db(cursor: psycopg2.extensions.cursor, post_id: int) ->
     cursor.execute(sql, (post_id,))
     replies_relational = cursor.fetchall()
 
-    # 2. Augment with graph counts for each reply
     augmented_replies = []
+    # Fetch author avatars in a batch for efficiency (Optional Optimization)
+    # author_ids = {r['author_id'] for r in replies_relational if r.get('author_id')}
+    # avatars = get_user_avatars(cursor, list(author_ids)) # Need a new batch fetch function
+
     for reply_rel in replies_relational:
         reply_data = dict(reply_rel)
         reply_id = reply_data['id']
+        author_id = reply_data.get('author_id')
+
         # Fetch counts for this reply
+        counts = {"upvotes": 0, "downvotes": 0, "favorite_count": 0}
         try:
             counts = get_reply_counts(cursor, reply_id)
-            reply_data.update(counts)
         except Exception as e:
-             print(f"CRUD Warning: Failed to get graph counts for reply {reply_id}: {e}")
-             # Add default counts if graph query fails
-             reply_data.update({"upvotes": 0, "downvotes": 0, "favorite_count": 0}) # Add defaults
+            print(f"CRUD Warning: Failed get counts for reply {reply_id}: {e}")
+        reply_data.update(counts)
+
+        # Fetch author avatar path (if not batch fetched)
+        # Need to fetch user details to get image_path if not included above
+        if author_id:
+            author_details = crud.get_user_by_id(cursor, author_id) # This is N+1 !
+            reply_data['author_avatar'] = author_details.get('image_path') if author_details else None
+        else:
+            reply_data['author_avatar'] = None
 
         augmented_replies.append(reply_data)
 
-    # 3. Return the augmented list (still ordered by created_at)
-    # The frontend will need to reconstruct the thread hierarchy based on parent_reply_id
     return augmented_replies
 
+# --- delete_reply_db ---
 def delete_reply_db(cursor: psycopg2.extensions.cursor, reply_id: int) -> bool:
     """
-    Deletes reply from public.replies AND AGE graph (:Reply vertex and relationships).
-    Requires CALLING function to handle transaction commit/rollback.
+    Deletes reply from public.replies AND AGE graph.
+    Requires CALLING function to handle media item deletion.
     """
-    # 1. Delete from AGE graph using DETACH DELETE
-    # This will remove :WROTE, :VOTED, :FAVORITED, and :REPLIED_TO edges connected to this reply
+    # 1. Delete from AGE graph
     cypher_q = f"MATCH (r:Reply {{id: {reply_id}}}) DETACH DELETE r"
-    print(f"CRUD: Deleting AGE vertex and edges for reply {reply_id}...")
-    execute_cypher(cursor, cypher_q) # Assumes raises on error
-    print(f"CRUD: AGE vertex/edges deleted for reply {reply_id}.")
+    print(f"CRUD: Deleting AGE vertex/edges for reply {reply_id}...")
+    try:
+        execute_cypher(cursor, cypher_q)
+        print(f"CRUD: AGE vertex/edges deleted for reply {reply_id}.")
+    except Exception as age_err:
+        print(f"CRUD WARNING: Failed delete AGE vertex for reply {reply_id}: {age_err}")
+        raise age_err
 
     # 2. Delete from relational table
-    # Foreign key constraints from votes/favorites tables were likely dropped,
-    # but CASCADE delete from posts/users should still be handled by postgres if set up.
-    # We still keep parent_reply_id potentially, so no cascade needed there unless dropped.
     cursor.execute("DELETE FROM public.replies WHERE id = %s;", (reply_id,))
     rows_deleted = cursor.rowcount
-    print(f"CRUD: Deleted reply {reply_id} from public.replies (Rows affected: {rows_deleted}).")
+    print(f"CRUD: Deleted reply {reply_id} from public.replies (Rows: {rows_deleted}).")
 
     return rows_deleted > 0
-
-# Note: Functions for voting on replies or favoriting replies will be in _vote.py / _favorite.py

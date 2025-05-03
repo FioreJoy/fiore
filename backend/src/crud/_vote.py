@@ -86,5 +86,29 @@ def remove_vote_db(
         print(f"CRUD Error removing vote (U:{user_id} -> {target_label}:{target_id}): {e}")
         raise # Re-raise for transaction rollback
 
+def get_viewer_vote_status(cursor, viewer_id: int, post_id: Optional[int] = None, reply_id: Optional[int] = None) -> Optional[bool]:
+    """Checks the viewer's vote status (True=up, False=down, None=no vote) for an item."""
+    target_id = post_id if post_id is not None else reply_id
+    target_label = "Post" if post_id is not None else "Reply"
+    if target_id is None: return None
+
+    cypher_vote = f"MATCH (:User {{id:{viewer_id}}})-[r:VOTED]->(:{target_label} {{id:{target_id}}}) RETURN r.vote_type as vt"
+    try:
+        vote_res_agtype = execute_cypher(cursor, cypher_vote, fetch_one=True)
+        # Parse the result *here* in CRUD
+        parsed_res = utils.parse_agtype(vote_res_agtype) # Use the helper
+
+        if isinstance(parsed_res, dict) and 'vt' in parsed_res:
+            # AGE might return bool directly or string 'true'/'false' in map
+            vote_val = parsed_res['vt']
+            if isinstance(vote_val, bool): return vote_val
+            if isinstance(vote_val, str): return vote_val.lower() == 'true'
+            return None # Unexpected type in map
+        elif isinstance(parsed_res, bool): # Handle direct boolean return from AGE/parse_agtype
+            return parsed_res
+        return None # No vote found or unexpected format
+    except Exception as e:
+        print(f"Error checking vote status V:{viewer_id} -> {target_label}:{target_id} : {e}")
+        return None
 # Note: Getting vote counts is handled by get_post_counts and get_reply_counts
 # in their respective files (_post.py, _reply.py)

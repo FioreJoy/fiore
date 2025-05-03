@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 
 # Import graph helpers and utils
-from ._graph import execute_cypher, build_cypher_set_clauses, get_graph_counts
+from ._graph import execute_cypher, build_cypher_set_clauses#, get_graph_counts
 from .. import utils # Import root utils for quote_cypher_string
 
 # =========================================
@@ -110,29 +110,35 @@ def get_event_participants_graph(cursor: psycopg2.extensions.cursor, event_id: i
 
 # --- Fetch event participant count from graph ---
 def get_event_participant_count(cursor: psycopg2.extensions.cursor, event_id: int) -> int:
-    """ Fetches participant count for an event from AGE graph. """
-    count_specs = [
-        {'name': 'participant_count', 'pattern': '(p:User)-[:PARTICIPATED_IN]->(n)', 'distinct_var': 'p'}
-    ]
-    counts = get_graph_counts(cursor, 'Event', event_id, count_specs)
-    return counts.get('participant_count', 0)
+    """Fetches participant count for an event from AGE graph by counting results."""
+    cypher_q = f"MATCH (p:User)-[:PARTICIPATED_IN]->(e:Event {{id: {event_id}}}) RETURN p.id"
+    try:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True)
+        return len(results) if results else 0
+    except Exception as e:
+        print(f"Warning: Failed getting participant count for event {event_id}: {e}")
+        return 0
+
+# --- NEW: Check participation status ---
+def check_is_participating(cursor: psycopg2.extensions.cursor, viewer_id: int, event_id: int) -> bool:
+    """Checks if viewer is participating in event using graph."""
+    cypher_q = f"MATCH (viewer:User {{id: {viewer_id}}})-[:PARTICIPATED_IN]->(event:Event {{id: {event_id}}}) RETURN viewer.id"
+    try:
+        result = execute_cypher(cursor, cypher_q, fetch_one=True)
+        return result is not None
+    except Exception as e:
+        print(f"Error checking participation status (U:{viewer_id}-E:{event_id}): {e}")
+        return False
 
 # --- Fetch event details including participant count ---
 def get_event_details_db(cursor: psycopg2.extensions.cursor, event_id: int) -> Optional[Dict[str, Any]]:
-    """ Fetches event details from public.events AND participant count from graph."""
-    # 1. Fetch relational data
-    event_relational = get_event_by_id(cursor, event_id)
-    if not event_relational:
-        return None
-
-    # 2. Fetch participant count from graph
-    participant_count = get_event_participant_count(cursor, event_id)
-
-    # 3. Combine
-    combined_data = dict(event_relational)
-    combined_data['participant_count'] = participant_count
+    # ... fetch relational data ...
+    event_relational = crud.get_event_by_id(cursor, event_id) # Use crud prefix if needed
+    if not event_relational: return None
+    # ... call FIXED get_event_participant_count ...
+    participant_count = get_event_participant_count(cursor, event_id) # Direct call within module
+    combined_data = dict(event_relational); combined_data['participant_count'] = participant_count
     return combined_data
-
 # --- Fetch list of events for a community (combines relational + graph counts) ---
 def get_events_for_community_db(cursor: psycopg2.extensions.cursor, community_id: int) -> List[Dict[str, Any]]:
     """ Fetches events list from public.events, augments with participant count from graph."""
@@ -235,45 +241,37 @@ def delete_event_db(cursor: psycopg2.extensions.cursor, event_id: int) -> bool:
 # --- Event Participation (Graph Operations) ---
 
 def join_event_db(cursor: psycopg2.extensions.cursor, event_id: int, user_id: int) -> bool:
-    """Creates :PARTICIPATED_IN edge in AGE graph."""
-    # Need to check max_participants against current count BEFORE creating edge
-    # 1. Get current participant count and max participants
-    event_details = get_event_details_db(cursor, event_id) # Fetches combined data
-    if not event_details:
-        raise ValueError(f"Event {event_id} not found.") # Or specific exception
+    """Creates :PARTICIPATED_IN edge, checking capacity first."""
+    try:
+        # 1. Check Capacity (use the combined details function)
+        event_details = crud.get_event_details_db(cursor, event_id) # Use crud. prefix
+        if not event_details: raise ValueError(f"Event {event_id} not found.")
+        current_participants = event_details.get('participant_count', 0)
+        max_p = event_details.get('max_participants', 0)
+        if current_participants >= max_p: raise ValueError("Event is full")
 
-    current_participants = event_details.get('participant_count', 0)
-    max_p = event_details.get('max_participants', 0)
-
-    if current_participants >= max_p:
-        print(f"CRUD Info: Event {event_id} is full ({current_participants}/{max_p}). Cannot join.")
-        # Throw a specific exception or return a specific status
-        raise ValueError("Event is full") # Let router handle this specific case
-
-    # 2. If not full, create the edge
-    now_iso = datetime.now(timezone.utc).isoformat()
-    joined_at_quoted = utils.quote_cypher_string(now_iso)
-    cypher_q = f"""
-        MATCH (u:User {{id: {user_id}}})
-        MATCH (e:Event {{id: {event_id}}})
-        MERGE (u)-[r:PARTICIPATED_IN]->(e)
-        SET r.joined_at = {joined_at_quoted}
-    """
-    # Assumes execute_cypher raises on error (e.g., if user/event nodes don't exist)
-    execute_cypher(cursor, cypher_q)
-    print(f"CRUD: User {user_id} joined event {event_id}.")
-    return True # Indicate success
+        # 2. Create Edge
+        now_iso = datetime.now(timezone.utc).isoformat()
+        joined_at_quoted = utils.quote_cypher_string(now_iso)
+        cypher_q = f"""
+            MATCH (u:User {{id: {user_id}}}) MATCH (e:Event {{id: {event_id}}})
+            MERGE (u)-[r:PARTICIPATED_IN]->(e) SET r.joined_at = {joined_at_quoted} """
+        success = execute_cypher(cursor, cypher_q)
+        if success: print(f"CRUD: User {user_id} joined event {event_id}.")
+        return success
+    except ValueError as ve: # Catch specific errors
+        print(f"CRUD Info joining event (U:{user_id}, E:{event_id}): {ve}")
+        raise ve # Re-raise for router to handle specific status codes
+    except Exception as e: print(f"Error joining event (U:{user_id}, E:{event_id}): {e}"); raise
 
 def leave_event_db(cursor: psycopg2.extensions.cursor, event_id: int, user_id: int) -> bool:
-    """Deletes :PARTICIPATED_IN edge in AGE graph."""
-    cypher_q = f"""
-        MATCH (u:User {{id: {user_id}}})-[r:PARTICIPATED_IN]->(e:Event {{id: {event_id}}})
-        DELETE r
-        RETURN count(r) as deleted_count
-    """
-    result_agtype = execute_cypher(cursor, cypher_q, fetch_one=True)
-    if result_agtype is None: return False # Edge didn't exist
-    result_map = utils.parse_agtype(result_agtype)
-    deleted_count = int(result_map.get('deleted_count', 0)) if isinstance(result_map, dict) else 0
-    print(f"CRUD: User {user_id} left event {event_id}. Deleted count: {deleted_count}")
-    return deleted_count > 0
+    """Deletes :PARTICIPATED_IN edge."""
+    # Avoid count()
+    cypher_q = f"MATCH (u:User {{id: {user_id}}})-[r:PARTICIPATED_IN]->(e:Event {{id: {event_id}}}) DELETE r"
+    try:
+        success = execute_cypher(cursor, cypher_q)
+        print(f"CRUD: User {user_id} left event {event_id}. Success: {success}")
+        return success # Return status based on execute_cypher
+    except Exception as e: print(f"Error leaving event (U:{user_id}, E:{event_id}): {e}"); raise
+
+# Ensure get_event_details_db calls the fixed get_event_participant_count

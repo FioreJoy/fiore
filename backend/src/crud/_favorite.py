@@ -84,5 +84,20 @@ def remove_favorite_db(
         print(f"CRUD Error removing favorite (U:{user_id} -> {target_label}:{target_id}): {e}")
         raise # Re-raise for transaction rollback
 
+def get_viewer_favorite_status(cursor, viewer_id: int, post_id: Optional[int] = None, reply_id: Optional[int] = None) -> bool:
+    """Checks if the viewer has favorited an item using MATCH."""
+    target_id = post_id if post_id is not None else reply_id
+    target_label = "Post" if post_id is not None else "Reply"
+    if target_id is None: return False
+
+    # Use MATCH and check if a result exists
+    cypher_fav = f"MATCH (:User {{id:{viewer_id}}})-[:FAVORITED]->(target:{target_label} {{id:{target_id}}}) RETURN target.id"
+    try:
+        fav_res = execute_cypher(cursor, cypher_fav, fetch_one=True)
+        # If the MATCH succeeds and returns the target ID, the edge exists
+        return fav_res is not None
+    except Exception as e:
+        print(f"Error checking favorite status V:{viewer_id} -> {target_label}:{target_id} : {e}")
+        return False
 # Note: Getting favorite counts is handled by get_post_counts and get_reply_counts
 # in their respective files (_post.py, _reply.py) via the get_graph_counts helper.

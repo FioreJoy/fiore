@@ -24,6 +24,8 @@ from .routers import events as events_router
 from .routers import chat as chat_router
 from .routers import websocket as websocket_router
 from .routers import users as users_router
+from .routers import settings as settings_router
+from .routers import block as block_router
 
 # --- GraphQL Schema Import ---
 from .gql_schema import schema as gql_schema
@@ -112,6 +114,8 @@ app.include_router(votes_router.router, dependencies=common_api_dependencies)
 app.include_router(events_router.router, dependencies=common_api_dependencies)
 app.include_router(chat_router.router, dependencies=common_api_dependencies)
 app.include_router(websocket_router.router) # No dependencies needed here
+app.include_router(settings_router.router, dependencies=common_api_dependencies) # Add settings router
+app.include_router(block_router.router) # Add block router (doesn't need common deps if prefix includes /users/me)
 
 # --- Mount Static Files (Keep as is) ---
 IMAGE_DIR_RELATIVE = utils.IMAGE_DIR

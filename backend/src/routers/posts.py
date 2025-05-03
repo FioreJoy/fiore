@@ -22,91 +22,94 @@ async def create_post(
         title: str = Form(...),
         content: str = Form(...),
         community_id: Optional[int] = Form(None),
-        image: Optional[UploadFile] = File(None)
+        files: List[UploadFile] = File(default=[]) # Accept multiple files
 ):
     conn = None
-    minio_image_path = None
-    post_id = None # Keep track of ID for potential rollback cleanup
+    post_id = None
+    media_ids_created = [] # Keep track of created media for potential rollback
+    minio_objects_created = []
+
     try:
-        # 1. Handle Image Upload to MinIO first (if provided)
-        if image and utils.minio_client:
-            # Fetch username for path prefix (optional)
-            # This requires a DB call - consider if needed or just use user_id
-            temp_conn_user = get_db_connection()
-            temp_cursor_user = temp_conn_user.cursor()
-            user_info = crud.get_user_by_id(temp_cursor_user, current_user_id) # Use relational get
-            username = user_info.get('username', f'user_{current_user_id}') if user_info else f'user_{current_user_id}'
-            temp_cursor_user.close()
-            temp_conn_user.close()
+        conn = get_db_connection(); cursor = conn.cursor()
 
-            object_name_prefix = f"users/{username}/posts/"
-            minio_image_path = await utils.upload_file_to_minio(image, object_name_prefix)
-            if minio_image_path is None:
-                print(f"⚠️ Warning: MinIO post image upload failed for user {current_user_id}")
-                # Fail fast if image upload fails? Or allow post without image?
-                # raise HTTPException(status_code=500, detail="Image upload failed")
-        else:
-            minio_image_path = None # Ensure it's None if no image or no minio client
-
-        # 2. Proceed with DB insertion (Relational + Graph)
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # create_post_db now handles both relational insert and graph creation
+        # 1. Create the post entry (relational + graph vertex + WROTE edge)
         post_id = crud.create_post_db(
-            cursor, user_id=current_user_id, title=title, content=content,
-            image_path=minio_image_path, community_id=community_id
+            cursor, user_id=current_user_id, title=title, content=content
+            # community_id is linked later if needed
         )
         if post_id is None:
-            # If DB insert failed, try to clean up uploaded image
-            if minio_image_path: delete_from_minio(minio_image_path)
-            raise HTTPException(status_code=500, detail="Post creation failed in database")
+            raise HTTPException(status_code=500, detail="Post base creation failed")
 
-        # 3. Fetch the created post details for the response
-        # Use the combined fetch function
-        created_post_db = crud.get_posts_db(cursor, post_id=post_id) # Assuming get_posts_db handles single ID fetch
-        if not created_post_db:
-            # This shouldn't happen if insert succeeded, but handle defensively
-            conn.rollback()
-            if minio_image_path: delete_from_minio(minio_image_path)
-            raise HTTPException(status_code=500, detail="Could not retrieve created post after insertion")
+        # 2. Handle File Uploads and Linking
+        for file in files:
+            if file and file.filename:
+                # Define path based on post ID
+                object_name_prefix = f"media/posts/{post_id}"
+                upload_info = await utils.upload_file_to_minio(file, object_name_prefix)
 
-        conn.commit() # Commit only after all DB operations succeed
+                if upload_info:
+                    minio_objects_created.append(upload_info['minio_object_name'])
+                    media_id = crud.create_media_item( # Create media record
+                        cursor, uploader_user_id=current_user_id, **upload_info
+                    )
+                    if media_id:
+                        media_ids_created.append(media_id)
+                        crud.link_media_to_post(cursor, post_id, media_id) # Link it
+                        print(f"Linked media {media_id} to post {post_id}")
+                    else:
+                        # Failed to create media item record, log warning
+                        print(f"WARN: Failed to create media_item record for {upload_info['minio_object_name']}")
+                        # Optionally delete the orphaned MinIO object here?
+                else:
+                    # Upload failed, raise error or log warning?
+                    print(f"WARN: Failed to upload file {file.filename} to MinIO.")
+                    # raise HTTPException(status_code=500, detail=f"Failed to upload file {file.filename}")
 
-        # 4. Prepare response data with full URLs
-        # get_posts_db should return a list, get the first item
-        response_data = created_post_db[0] if created_post_db else {}
-        if response_data:
-            # Generate URLs if paths exist
-            response_data['image_url'] = get_minio_url(response_data.get('image_path'))
-            response_data['author_avatar_url'] = get_minio_url(response_data.get('author_avatar'))
-        else:
-            # Handle case where post details couldn't be fetched back
-            # This part needs refinement based on how get_posts_db handles single ID fetch
-            print(f"Warning: Could not fetch back details for created post {post_id}")
-            # Return minimal data or raise error
-            return {"id": post_id, "title": title, "content": content} # Example fallback
 
-        print(f"✅ Post created with ID: {post_id}, Image Path: {minio_image_path}, Community: {community_id}")
-        return schemas.PostDisplay(**response_data) # Validate against schema
+        # 3. Link to community if ID provided (creates graph edge)
+        if community_id is not None:
+            crud.add_post_to_community_db(cursor, community_id, post_id)
+            print(f"Linked post {post_id} to community {community_id}")
 
-    except psycopg2.Error as e:
-        if conn: conn.rollback()
-        if minio_image_path: delete_from_minio(minio_image_path) # Cleanup upload on DB error
-        print(f"❌ SQL Error creating post: {e.pgcode} - {e.pgerror}")
-        raise HTTPException(status_code=400, detail=f"Database error: {e.pgerror}")
+        # 4. Fetch full post details for response
+        # Need a function like crud.get_post_details_db(cursor, post_id) that includes media
+        # Let's adapt get_posts_db logic slightly for single post fetch
+        # (Or create a dedicated get_post_details_db function)
+        posts_list = crud.get_posts_db(cursor, post_id_single=post_id) # Assume get_posts_db handles single ID
+        created_post_data = posts_list[0] if posts_list else None
+
+        if not created_post_data: raise HTTPException(status_code=500, detail="Could not retrieve created post details")
+
+        # Fetch media separately
+        media_items = crud.get_media_items_for_post(cursor, post_id)
+        created_post_data['media'] = media_items # Add media list
+
+        conn.commit() # Commit everything
+
+        # Prepare response
+        response_data = created_post_data
+        # URLs for author avatar and media items
+        response_data['author_avatar_url'] = utils.get_minio_url(response_data.get('author_avatar')) # author_avatar is path
+        response_data['media'] = [ # Generate URLs for media
+            {**item, 'url': utils.get_minio_url(item.get('minio_object_name'))}
+            for item in media_items
+        ]
+        # Add viewer status placeholders
+        response_data['viewer_vote_type'] = None
+        response_data['viewer_has_favorited'] = False
+
+        return schemas.PostDisplay(**response_data)
+
     except HTTPException as http_exc:
-        # If it's an image upload failure exception we raised earlier
-        # No need to rollback DB as it likely hasn't started
-        # If it's another HTTP exception after DB started, rollback might be needed
         if conn: conn.rollback()
-        # No image cleanup here as it would have happened before raising or didn't happen
+        # Cleanup any MinIO files uploaded before the error
+        for obj_name in minio_objects_created: delete_from_minio(obj_name)
         raise http_exc
     except Exception as e:
         if conn: conn.rollback()
-        if minio_image_path: delete_from_minio(minio_image_path) # Cleanup upload on general error
+        for obj_name in minio_objects_created: delete_from_minio(obj_name)
         print(f"❌ Unexpected Error creating post: {repr(e)}")
-        import traceback
-        traceback.print_exc()
+        import traceback; traceback.print_exc();
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn: conn.close()
