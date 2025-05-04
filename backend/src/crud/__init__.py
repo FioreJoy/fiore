@@ -14,14 +14,12 @@ from ._user import (
 )
 from ._community import (
     create_community_db, get_community_by_id, get_communities_db, get_community_counts,
-    update_community_details_db, get_trending_communities_db,
-    get_community_details_db, delete_community_db, join_community_db, leave_community_db,
-    add_post_to_community_db, remove_post_from_community_db,
-    # --- NEW COMMUNITY EXPORT ---
-    get_community_members_graph,
-    check_is_member
-    # --- END NEW COMMUNITY EXPORT ---
+    update_community_details_db, update_community_logo_path_db, # <-- ADDED
+    get_trending_communities_db, get_community_details_db, delete_community_db,
+    join_community_db, leave_community_db, add_post_to_community_db,
+    remove_post_from_community_db, get_community_members_graph, check_is_member
 )
+
 from ._post import (
     create_post_db, get_post_by_id, get_post_counts, get_posts_db, delete_post_db,
     # --- NEW POST EXPORT ---
@@ -69,10 +67,12 @@ from ._block import (
     unblock_user_db,
     get_blocked_users_db )
 
-from ._media import ( # Add media exports
+from ._media import (
     create_media_item, link_media_to_post, link_media_to_reply, link_media_to_chat_message,
     set_user_profile_picture, set_community_logo,
-    get_media_items_for_post, # Add other get functions as needed
+    get_media_items_for_post,
+    get_media_items_for_reply,            # <-- ADDED
+    get_media_items_for_chat_message,     # <-- ADDED
     get_user_profile_picture_media, get_community_logo_media,
     delete_media_item
 )

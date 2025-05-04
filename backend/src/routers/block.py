@@ -17,7 +17,7 @@ router = APIRouter(
 # It should match the keys returned by crud.get_blocked_users_db
 # e.g., blocked_id, blocked_at, blocked_username, blocked_name, blocked_user_avatar_url
 
-@router.get("/blocked", response_model=List[schemas.BlockedUserDisplay]) # Use appropriate schema
+@router.get("/blocked", response_model=List[schemas.BlockedUserDisplay])
 async def get_blocked_users_route(current_user_id: int = Depends(auth.get_current_user)):
     """Gets the list of users blocked by the current user."""
     conn = None
@@ -25,13 +25,17 @@ async def get_blocked_users_route(current_user_id: int = Depends(auth.get_curren
         conn = get_db_connection()
         cursor = conn.cursor()
         blocked_list = crud.get_blocked_users_db(cursor, current_user_id)
-        return blocked_list # List of dicts should match schema
-    except Exception as e:
-        print(f"Error in get_blocked_users_route: {e}")
+        # Data is already processed with URL in CRUD function
+        return blocked_list
+    except psycopg2.Error as db_err: # Catch specific DB errors
+        print(f"DB Error fetching blocked users for {current_user_id}: {db_err}")
+        # Don't expose internal error details unless needed
+        raise HTTPException(status_code=500, detail="Database error retrieving blocked users")
+    except Exception as e: # Catch any other unexpected errors
+        print(f"Unexpected error in get_blocked_users_route for {current_user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve blocked users")
     finally:
         if conn: conn.close()
-
 @router.post("/block/{user_id_to_block}", status_code=status.HTTP_204_NO_CONTENT)
 async def block_user_route(
     user_id_to_block: int,
@@ -90,3 +94,4 @@ async def unblock_user_route(
         raise HTTPException(status_code=500, detail="Failed to unblock user")
     finally:
         if conn: conn.close()
+

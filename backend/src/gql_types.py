@@ -10,6 +10,12 @@ class LocationType:
     longitude: float
     latitude: float
 
+@strawberry.type
+class MediaItemDisplay:
+    id: strawberry.ID
+    url: Optional[str] = None
+    mime_type: str
+    # Add other optional fields from schemas.MediaItemDisplay if needed
 # --- User Type ---
 @strawberry.type
 class UserType:
@@ -125,6 +131,7 @@ class PostType:
     favorite_count: int = 0
     viewer_vote_type: Optional[str] = strawberry.field(description="Viewer's vote ('UP', 'DOWN', or null).")
     viewer_has_favorited: Optional[bool] = strawberry.field(description="Has the viewer favorited this post?")
+    media: Optional[List["MediaItemDisplay"]] = strawberry.field(default_factory=list)
 
     @strawberry.field
     async def replies(self, info: strawberry.Info, limit: int = 10, offset: int = 0) -> List["ReplyType"]:
@@ -224,6 +231,7 @@ CommunityType.__strawberry_definition__.get_field("events").type = List[EventTyp
 PostType.__strawberry_definition__.get_field("author").type = Optional[UserType]
 PostType.__strawberry_definition__.get_field("community").type = Optional[CommunityType]
 PostType.__strawberry_definition__.get_field("replies").type = List[ReplyType]
+PostType.__strawberry_definition__.get_field("media").type = Optional[List[MediaItemDisplay]]
 
 # Example for ReplyType fields referencing other types:
 ReplyType.__strawberry_definition__.get_field("author").type = Optional[UserType]

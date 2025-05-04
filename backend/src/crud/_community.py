@@ -110,26 +110,34 @@ def get_communities_db(cursor: psycopg2.extensions.cursor) -> List[Dict[str, Any
 
 # --- Fetch community counts from graph (Python counting) ---
 def get_community_counts(cursor: psycopg2.extensions.cursor, community_id: int) -> Dict[str, int]:
-    """Fetches member count from AGE graph by counting fetched results."""
-    counts = {"member_count": 0, "online_count": 0} # Online count TBD
+    cypher_m = f"MATCH (member:User)-[:MEMBER_OF]->(c:Community {{id: {community_id}}}) RETURN count(member) as m_count"
+    expected = [('m_count', 'agtype')]
+    member_count = 0
     try:
-        cypher_m = f"MATCH (member:User)-[:MEMBER_OF]->(c:Community {{id: {community_id}}}) RETURN member.id"
-        res_m = execute_cypher(cursor, cypher_m, fetch_all=True) or []
-        counts['member_count'] = len(res_m)
-        # TODO: Add online count logic if needed
-    except Exception as e:
-        print(f"Warning: Failed getting counts for community {community_id}: {e}")
-    return counts
+        res_m = execute_cypher(cursor, cypher_m, fetch_one=True, expected_columns=expected)
+        member_count = int(res_m.get('m_count', 0)) if res_m else 0
+    except Exception as e: print(f"Warning: Failed getting member count for C:{community_id}: {e}")
+    return {"member_count": member_count, "online_count": 0} # Online count TBD
 
-# --- Check membership status ---
 def check_is_member(cursor: psycopg2.extensions.cursor, viewer_id: int, community_id: int) -> bool:
-    """Checks if viewer is member of community using graph."""
-    cypher_q = f"MATCH (viewer:User {{id: {viewer_id}}})-[:MEMBER_OF]->(community:Community {{id: {community_id}}}) RETURN viewer.id"
+    cypher_q = f"MATCH (viewer:User {{id: {viewer_id}}})-[:MEMBER_OF]->(community:Community {{id: {community_id}}}) RETURN viewer.id as vid"
+    expected = [('vid', 'agtype')]
     try:
-        result = execute_cypher(cursor, cypher_q, fetch_one=True)
-        return result is not None
+        result = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected)
+        return result is not None and result.get('vid') is not None
     except Exception as e: print(f"Error checking membership (U:{viewer_id}-C:{community_id}): {e}"); return False
 
+def get_community_members_graph(cursor: psycopg2.extensions.cursor, community_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
+    cypher_q = f"""
+        MATCH (u:User)-[:MEMBER_OF]->(c:Community {{id: {community_id}}})
+        RETURN u.id as id, u.username as username, u.name as name, u.image_path as image_path
+        ORDER BY u.username SKIP {offset} LIMIT {limit}
+    """
+    expected = [('id', 'agtype'), ('username', 'agtype'), ('name', 'agtype'), ('image_path', 'agtype')]
+    try:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected) or []
+        return [r for r in results if isinstance(r, dict)]
+    except Exception as e: print(f"CRUD Error getting community members graph for C:{community_id}: {e}"); raise
 # --- Update Community Details ---
 def update_community_details_db(
         cursor: psycopg2.extensions.cursor,
@@ -185,8 +193,51 @@ def update_community_details_db(
 
     return rows_affected > 0
 
-# --- Remove update_community_logo_path_db ---
-# Logo updates are handled by set_community_logo in _media.py and the router
+def update_community_logo_path_db(cursor: psycopg2.extensions.cursor, community_id: int, logo_path: Optional[str]) -> bool:
+    """ Updates only the logo_path in the public.community_logo table. """
+    # This interacts with the NEW media schema's linking table
+    try:
+        # 1. Find the media item ID corresponding to the new logo_path
+        media_id = None
+        if logo_path:
+            cursor.execute("SELECT id FROM public.media_items WHERE minio_object_name = %s", (logo_path,))
+            media_item_result = cursor.fetchone()
+            if media_item_result:
+                media_id = media_item_result['id']
+            else:
+                print(f"CRUD WARN: Media item not found in DB for path {logo_path} during logo update.")
+                # Optionally raise an error or just return False? Let's return False.
+                return False
+
+        # 2. Upsert the link in community_logo
+        if media_id: # If we have a valid media ID for the new logo
+            cursor.execute(
+                """
+                INSERT INTO public.community_logo (community_id, media_id, set_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (community_id) DO UPDATE SET
+                  media_id = EXCLUDED.media_id,
+                  set_at = NOW();
+                """,
+                (community_id, media_id)
+            )
+            print(f"CRUD: Updated community_logo link for C:{community_id} to M:{media_id}")
+            return cursor.rowcount > 0 # Indicates insert or update occurred
+        else: # If logo_path was None or media item not found (removing logo)
+            cursor.execute(
+                "DELETE FROM public.community_logo WHERE community_id = %s;",
+                (community_id,)
+            )
+            print(f"CRUD: Removed community_logo link for C:{community_id}")
+            # Return True even if delete affected 0 rows (idempotent removal)
+            return True
+
+    except psycopg2.Error as e:
+        print(f"CRUD Error updating community logo link (C:{community_id}): {e}")
+        raise # Re-raise for transaction rollback
+    except Exception as e:
+        print(f"CRUD Unexpected Error updating community logo link (C:{community_id}): {e}")
+        raise# Logo updates are handled by set_community_logo in _media.py and the router
 
 # --- get_trending_communities_db (Keep relational version for now) ---
 def get_trending_communities_db(cursor: psycopg2.extensions.cursor) -> List[Dict[str, Any]]:
@@ -274,15 +325,3 @@ def remove_post_from_community_db(cursor: psycopg2.extensions.cursor, community_
     cypher_q = f"MATCH (c:Community {{id: {community_id}}})-[r:HAS_POST]->(p:Post {{id: {post_id}}}) DELETE r"
     try: return execute_cypher(cursor, cypher_q)
     except Exception as e: print(f"Error removing post from community: {e}"); return False
-
-# --- NEW: get_community_members_graph (Moved from _user.py or needs adding) ---
-def get_community_members_graph(cursor: psycopg2.extensions.cursor, community_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
-    """Fetches members (basic User info) of a community from the AGE graph."""
-    cypher_q = f"""
-        MATCH (u:User)-[:MEMBER_OF]->(c:Community {{id: {community_id}}})
-        RETURN u.id as id, u.username as username, u.name as name, u.image_path as image_path
-        ORDER BY u.username SKIP {offset} LIMIT {limit}
-    """
-    expected_cols = [('id', 'agtype'), ('username', 'agtype'), ('name', 'agtype'), ('image_path', 'agtype')]
-    try: return execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols) or []
-    except Exception as e: print(f"CRUD Error getting community members graph for C:{community_id}: {e}"); raise

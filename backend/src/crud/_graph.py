@@ -1,86 +1,80 @@
-# backend/src/crud/_graph.py
+# src/crud/_graph.py
 import psycopg2
 import psycopg2.extras
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
-from .. import utils # Import utils from the parent directory
+from .. import utils
 
-GRAPH_NAME = 'fiore' # Use the correct graph name
+GRAPH_NAME = 'fiore'
 
-# --- Helper to execute Cypher query ---
-def execute_cypher(cursor: psycopg2.extensions.cursor, query: str, fetch_one=False, fetch_all=False):
-    """Executes Cypher, expects single 'result' column of type agtype."""
-    cursor.execute("LOAD 'age'; SET LOCAL search_path = ag_catalog, '$user', public;")
-    # Use the simple 'result agtype' definition
-    sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', $${query}$$) as (result agtype);"
+# --- REVISED Helper to execute Cypher query ---
+def execute_cypher(
+        cursor: psycopg2.extensions.cursor,
+        query: str,
+        fetch_one=False,
+        fetch_all=False,
+        # Use specific column definitions for reads, or None for writes
+        expected_columns: Optional[List[Tuple[str, str]]] = None
+):
+    """
+    Executes Cypher via AGE.
+    - Requires `expected_columns` for fetch_one/fetch_all.
+    - Uses a default dummy output for write operations (MERGE/CREATE/DELETE/SET).
+    """
+    cursor.execute("LOAD 'age';")
+    cursor.execute("SET search_path = ag_catalog, '$user', public;")
+
+    # --- Determine AS clause ---
+    as_clause: str
+    if fetch_one or fetch_all:
+        # READ operations MUST define expected output
+        if not expected_columns:
+            print(f"ERROR execute_cypher: expected_columns is REQUIRED for fetch=True. Query: {query[:100]}...")
+            raise ValueError("expected_columns must be provided for Cypher queries that fetch data.")
+        col_defs = ", ".join([f"{name} {type}" for name, type in expected_columns])
+        as_clause = f"AS ({col_defs})"
+    else:
+        # WRITE operations (MERGE/CREATE/DELETE/SET without RETURN)
+        # Use a minimal definition. AGE might return void or a status.
+        # Using 'result agtype' is a common pattern here, assuming it handles void/null return.
+        as_clause = "AS (result agtype)"
+        # We don't actually use the result for writes, just check for errors.
+        expected_columns = [('result', 'agtype')] # Set internally for processing logic below
+
+    sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', $${query}$$) {as_clause};"
+
     try:
         # print(f"DEBUG Cypher SQL: {sql.strip()}")
         cursor.execute(sql)
+
         if fetch_one:
-            row = cursor.fetchone()
-            return utils.parse_agtype(row['result']) if row else None
+            row = cursor.fetchone();
+            if not row: return None
+            row_dict = dict(row)
+            # Parse based on expected columns definition
+            return {col_name: utils.parse_agtype(row_dict.get(col_name)) for col_name, _ in expected_columns}
+
         elif fetch_all:
-            rows = cursor.fetchall()
-            # Parse each result from the 'result' column
-            return [utils.parse_agtype(row['result']) for row in rows]
-        else:
-            return True # DML success
+            rows = cursor.fetchall(); results = []
+            for row in rows:
+                row_dict = dict(row)
+                results.append({col_name: utils.parse_agtype(row_dict.get(col_name)) for col_name, _ in expected_columns})
+            return results
+        else: # Write operation succeeded if no error
+            return True
+
     except psycopg2.Error as db_err:
         print(f"!!! Cypher Execution Error ({db_err.pgcode}): {db_err}")
-        print(f"    Query: {query}")
-        # Return None/False instead of raising to avoid aborting transaction in simple cases
-        if fetch_one: return None
-        if fetch_all: return []
-        return False
+        print(f"    SQL: {sql}")
+        raise db_err # Re-raise
     except Exception as e:
         print(f"!!! Unexpected Error in execute_cypher: {e}")
-        print(f"    Query: {query}")
-        if fetch_one: return None
-        if fetch_all: return []
-        return False
+        print(f"    SQL: {sql}")
+        raise e
 
-# build_cypher_set_clauses remains the same
+# --- build_cypher_set_clauses remains the same ---
 def build_cypher_set_clauses(variable: str, props_dict: Dict[str, Any]) -> Optional[str]:
-    # ... implementation ...
-    items = []
-    for key, value in props_dict.items():
-        if key != 'id' and value is not None:
-            prop_key = key
-            prop_value = utils.quote_cypher_string(value)
-            items.append(f"{variable}.{prop_key} = {prop_value}")
+    items = [];
+    for k, v in props_dict.items():
+        if k != 'id' and v is not None: items.append(f"{variable}.{k} = {utils.quote_cypher_string(v)}")
     return ", ".join(items) if items else None
-# --- Specific Graph Operations can also live here ---
-# Example: Get counts (could also be in _user.py or _community.py etc.)
-
-# def get_graph_counts(cursor: psycopg2.extensions.cursor, node_label: str, node_id: int, count_specs: List[Dict[str, str]]) -> Dict[str, int]:
-#     """
-#     Fetches multiple counts related to a node in a single query.
-#     count_specs: List of dicts like {'name': 'followers_count', 'pattern': '(f:User)-[:FOLLOWS]->(n)'}
-#                  or {'name': 'member_count', 'pattern': '(m:User)-[:MEMBER_OF]->(n)'}
-#     """
-#     if not count_specs:
-#         return {}
-#
-#     match_clause = f"MATCH (n:{node_label} {{id: {node_id}}})"
-#     return_clauses = []
-#     for spec in count_specs:
-#         pattern = spec['pattern'].replace("(n)", "(n)") # Ensure pattern uses 'n'
-#         return_clauses.append(f"count(DISTINCT {spec.get('distinct_var', pattern[1])}) as {spec['name']}")
-#         # ^ Assumes the variable to count distinct is the first one in the pattern match (e.g., 'f' or 'm')
-#         # Adjust 'distinct_var' in spec if needed
-#
-#     # Build the full Cypher query
-#     optional_matches = " ".join(f"OPTIONAL MATCH {spec['pattern']}" for spec in count_specs)
-#     return_statement = "RETURN " + ", ".join(f"count(DISTINCT {spec.get('distinct_var', spec['pattern'].split(':')[0][1:])}) as {spec['name']}" for spec in count_specs)
-#     # ^ Simpler way to build return statement directly
-#
-#     cypher_q = f"{match_clause} {optional_matches} {return_statement}"
-#
-#     # print(f"DEBUG get_graph_counts Cypher: {cypher_q}") # Debug
-#
-#     result_agtype = execute_cypher(cursor, cypher_q, fetch_one=True)
-#     result_map = result_agtype if isinstance(result_agtype, dict) else {}
-#
-#     # Convert results to int, default to 0
-#     counts = {spec['name']: int(result_map.get(spec['name'], 0)) for spec in count_specs}
-#     return counts

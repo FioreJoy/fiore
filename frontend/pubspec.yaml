@@ -28,6 +28,7 @@ dependencies:
   flutter_launcher_icons: ^0.14.3
   geolocator: ^11.0.0
   rxdart: ^0.27.7 # Or latest version
+  aptabase_flutter: ^0.4.1
 
 
 dev_dependencies:

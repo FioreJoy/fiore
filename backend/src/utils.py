@@ -13,6 +13,7 @@ from minio.error import S3Error
 from dotenv import load_dotenv
 from datetime import date, timedelta, datetime, timezone
 import mimetypes # To guess mime type if not provided
+from .database import get_db_connection
 
 load_dotenv()
 
@@ -76,39 +77,22 @@ async def upload_file_to_minio(
             unique_filename = safe_filename
 
         # Construct path: base_path / [item_id /] unique_filename
-        object_name_parts = [base_path]
+        path_parts = [base_path.rstrip('/')]
         if item_id is not None:
-            object_name_parts.append(str(item_id))
-        object_name_parts.append(unique_filename)
-        object_name = "/".join(p for p in object_name_parts if p) # Join non-empty parts with /
+            path_parts.append(str(item_id))
+        path_parts.append(unique_filename)
+        # Use os.path.join for OS-agnostic paths, then convert backslashes if needed for MinIO/web
+        # MinIO typically uses forward slashes like web paths
+        object_name = "/".join(path_parts)
 
         # Read file content
-        contents = await file.read()
-        file_size = len(contents)
+        contents = await file.read(); file_size = len(contents)
+        content_type = file.content_type;
+        if not content_type or content_type == 'application/octet-stream': content_type, _ = mimetypes.guess_type(original_filename); content_type = content_type or 'application/octet-stream'
 
-        # Determine MIME type
-        content_type = file.content_type
-        if not content_type or content_type == 'application/octet-stream':
-            # Guess based on extension if fastapi didn't provide good one
-            content_type, _ = mimetypes.guess_type(original_filename)
-            content_type = content_type or 'application/octet-stream' # Default if guess fails
-
-        # Use put_object with BytesIO
-        minio_client.put_object(
-            MINIO_BUCKET,
-            object_name,
-            io.BytesIO(contents),
-            length=file_size,
-            content_type=content_type
-        )
+        minio_client.put_object(MINIO_BUCKET, object_name, io.BytesIO(contents), length=file_size, content_type=content_type)
         print(f"✅ Successfully uploaded {object_name} ({content_type}, {file_size} bytes) to MinIO bucket {MINIO_BUCKET}")
-
-        return {
-            "minio_object_name": object_name,
-            "mime_type": content_type,
-            "file_size_bytes": file_size,
-            "original_filename": original_filename
-        }
+        return {"minio_object_name": object_name, "mime_type": content_type, "file_size_bytes": file_size, "original_filename": original_filename}
     except S3Error as e:
         print(f"❌ MinIO S3 Error during upload: {e}")
         return None
@@ -228,3 +212,46 @@ def quote_cypher_string(value):
 # --- Image Saving Helpers (Remove if using MinIO exclusively) ---
 # def save_image_from_base64(...) # Remove if not used
 # async def save_image_multipart(...) # Remove if not used
+
+def delete_media_item_db_and_file(media_id: int, minio_object_name: Optional[str]) -> bool:
+    """
+    Attempts to delete a media item record from the DB and its corresponding file from MinIO.
+    Uses a separate DB connection for deletion commit.
+    Best effort: Logs errors but tries to proceed. Returns True if DB delete succeeded.
+    """
+    db_deleted = False
+    conn = None
+    try:
+        print(f"UTILS: Attempting to delete media item record ID: {media_id}")
+        conn = get_db_connection() # Use the imported function
+        cursor = conn.cursor()
+        # ... (DELETE statements remain the same) ...
+        print(f"  - Deleting links for media {media_id}...")
+        cursor.execute("DELETE FROM public.post_media WHERE media_id = %s;", (media_id,))
+        cursor.execute("DELETE FROM public.reply_media WHERE media_id = %s;", (media_id,))
+        cursor.execute("DELETE FROM public.chat_message_media WHERE media_id = %s;", (media_id,))
+        cursor.execute("DELETE FROM public.user_profile_picture WHERE media_id = %s;", (media_id,))
+        cursor.execute("DELETE FROM public.community_logo WHERE media_id = %s;", (media_id,))
+        print(f"  - Deleting main record for media {media_id}...")
+        cursor.execute("DELETE FROM public.media_items WHERE id = %s;", (media_id,))
+        rows_affected = cursor.rowcount
+        conn.commit()
+        db_deleted = rows_affected > 0
+        print(f"UTILS: DB media item record deletion result (ID: {media_id}): Success={db_deleted}")
+    except Exception as db_err:
+        print(f"UTILS ERROR: Failed to delete media item record ID {media_id}: {db_err}")
+        if conn: conn.rollback()
+    finally:
+        if conn: conn.close()
+
+    # --- Delete MinIO File (remains the same) ---
+    file_deleted = False
+    if minio_object_name:
+        print(f"UTILS: Attempting to delete MinIO file: {minio_object_name}")
+        file_deleted = delete_from_minio(minio_object_name)
+        print(f"UTILS: MinIO file deletion result ({minio_object_name}): Success={file_deleted}")
+    else:
+        print("UTILS: Skipping MinIO file deletion (no object name provided).")
+
+    print(f"UTILS: Overall deletion status for Media ID {media_id} - DB Deleted: {db_deleted}, File Deleted: {file_deleted}")
+    return db_deleted

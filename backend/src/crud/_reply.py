@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 # Import graph helpers and utils
 from ._graph import execute_cypher, build_cypher_set_clauses
 from .. import utils
-
+from ._user import (get_user_by_id)
 # =========================================
 # Reply CRUD (Relational + Graph + Media Link)
 # =========================================
@@ -87,24 +87,22 @@ def get_reply_by_id(cursor: psycopg2.extensions.cursor, reply_id: int) -> Option
 
 # --- Fetch reply counts from graph (Python counting) ---
 def get_reply_counts(cursor: psycopg2.extensions.cursor, reply_id: int) -> Dict[str, int]:
-    """Fetches vote and favorite counts for a reply by counting results."""
-    counts = {"upvotes": 0, "downvotes": 0, "favorite_count": 0}
+    cypher_q = f"""
+        MATCH (rep:Reply {{id: {reply_id}}})
+        OPTIONAL MATCH (upvoter:User)-[:VOTED {{vote_type: true}}]->(rep)
+        OPTIONAL MATCH (downvoter:User)-[:VOTED {{vote_type: false}}]->(rep)
+        OPTIONAL MATCH (fv:User)-[:FAVORITED]->(rep)
+        RETURN count(DISTINCT upvoter) as upvotes,
+               count(DISTINCT downvoter) as downvotes,
+               count(DISTINCT fv) as favorite_count
+    """
+    expected = [('upvotes', 'agtype'), ('downvotes', 'agtype'), ('favorite_count', 'agtype')]
     try:
-        # Upvotes
-        cypher_u = f"MATCH (uv:User)-[:VOTED {{vote_type: true}}]->(rep:Reply {{id: {reply_id}}}) RETURN uv.id"
-        res_u = execute_cypher(cursor, cypher_u, fetch_all=True) or []
-        counts['upvotes'] = len(res_u)
-        # Downvotes
-        cypher_d = f"MATCH (dv:User)-[:VOTED {{vote_type: false}}]->(rep:Reply {{id: {reply_id}}}) RETURN dv.id"
-        res_d = execute_cypher(cursor, cypher_d, fetch_all=True) or []
-        counts['downvotes'] = len(res_d)
-        # Favorites
-        cypher_f = f"MATCH (fv:User)-[:FAVORITED]->(rep:Reply {{id: {reply_id}}}) RETURN fv.id"
-        res_f = execute_cypher(cursor, cypher_f, fetch_all=True) or []
-        counts['favorite_count'] = len(res_f)
-    except Exception as e:
-        print(f"Warning: Failed getting graph counts for reply {reply_id}: {e}")
-    return counts
+        result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected)
+        if isinstance(result_map, dict):
+            return {"upvotes": int(result_map.get('upvotes', 0)), "downvotes": int(result_map.get('downvotes', 0)), "favorite_count": int(result_map.get('favorite_count', 0))}
+        else: return {"upvotes": 0, "downvotes": 0, "favorite_count": 0}
+    except Exception as e: print(f"Warning: Failed getting graph counts for reply {reply_id}: {e}"); return {"upvotes": 0, "downvotes": 0, "favorite_count": 0}
 
 # --- Fetch list of replies for a post (Combines relational + graph counts) ---
 def get_replies_for_post_db(cursor: psycopg2.extensions.cursor, post_id: int) -> List[Dict[str, Any]]:
@@ -145,7 +143,7 @@ def get_replies_for_post_db(cursor: psycopg2.extensions.cursor, post_id: int) ->
         # Fetch author avatar path (if not batch fetched)
         # Need to fetch user details to get image_path if not included above
         if author_id:
-            author_details = crud.get_user_by_id(cursor, author_id) # This is N+1 !
+            author_details = get_user_by_id(cursor, author_id) # This is N+1 !
             reply_data['author_avatar'] = author_details.get('image_path') if author_details else None
         else:
             reply_data['author_avatar'] = None

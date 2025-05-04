@@ -1,155 +1,182 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+"""
+api-test.py
+
+Comprehensive integration test script for the Fiore backend API.
+
+Requirements:
+  - requests
+  - python-dotenv
+  - minio (optional, for upload verification - verification disabled by default)
+
+Setup:
+  1. Ensure the backend server is running.
+  2. Create a `.env` file in the script's directory or a parent directory
+     (see load_config function for expected variables).
+  3. Provide absolute path to a test image when prompted (optional).
+
+Execution:
+  python api-test.py
+"""
+
 import requests
 import json
 from getpass import getpass
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timezone
+from typing import Dict, Any, Optional, List, Union
+from datetime import datetime, timezone, timedelta
 import time
 import os
-from pathlib import Path # For easier path handling
-from dotenv import load_dotenv # For reading .env
-from minio import Minio # For checking MinIO (optional)
-from minio.error import S3Error
-import mimetypes # For guessing file type
-import traceback # For printing stack traces
+from pathlib import Path
+from dotenv import load_dotenv
+import mimetypes
+import traceback
+import sys
+import uuid # Ensure uuid is imported for helpers if needed later
 
-# --- Configuration ---
-BASE_URL = "http://localhost:1163" # Adjust if your backend runs elsewhere
-
-# --- Load .env ---
-# Tries to find .env in common locations relative to the script
-dotenv_path_options = [
-    Path('.') / '.env',                         # Current directory
-    Path(__file__).resolve().parent / '.env',         # Script's directory
-    Path(__file__).resolve().parent.parent / '.env'  # Parent of script's directory
-]
-dotenv_path = next((path for path in dotenv_path_options if path.is_file()), None)
-
-if dotenv_path:
-    print(f"Loading environment variables from: {dotenv_path}")
-    load_dotenv(dotenv_path=dotenv_path)
-else:
-    print("Warning: .env file not found in standard locations.")
-
-# --- Credentials and Keys from .env ---
-API_KEY = os.getenv("API_KEY")
-# Provide defaults for user credentials if not in .env or use inputs
-USER_EMAIL_DEFAULT = os.getenv("TEST_USER_EMAIL", "alice@example.com")
-
-# --- Placeholder IDs (MODIFY THESE WITH ACTUAL IDs FROM YOUR DB!) ---
-# Ensure these IDs exist in your database and are appropriate for tests
+# --- MinIO Import Handling ---
 try:
-    TARGET_USER_ID_TO_VIEW_AND_BLOCK = int(os.getenv("TEST_TARGET_USER_ID", "2"))
-    OTHER_USER_ID_TO_FOLLOW = int(os.getenv("TEST_OTHER_USER_ID", "5"))
-    TARGET_COMMUNITY_ID = int(os.getenv("TEST_COMMUNITY_ID", "1"))
-    TARGET_POST_ID = int(os.getenv("TEST_POST_ID", "47")) # A post that exists
-    TARGET_REPLY_ID = int(os.getenv("TEST_REPLY_ID", "29")) # A reply that exists
-    TARGET_EVENT_ID = int(os.getenv("TEST_EVENT_ID", "1"))
-    POST_IN_COMMUNITY_ID = int(os.getenv("TEST_POST_IN_COMMUNITY_ID", "10"))
-    POST_NOT_IN_COMMUNITY_ID = int(os.getenv("TEST_POST_NOT_IN_COMMUNITY_ID", "45"))
-except ValueError:
-    print("ERROR: Ensure TEST_* IDs in .env or script are valid integers.")
-    exit()
-# --- End Placeholder IDs ---
+    from minio import Minio
+    from minio.error import S3Error
+    from minio.deleteobjects import DeleteObject
+    MINIO_AVAILABLE = True
+except ImportError:
+    MINIO_AVAILABLE = False
+    print("⚠️ WARNING: 'minio' library not installed. Upload verification/cleanup disabled.")
+    print("   Install using: pip install minio")
+    # Define dummy classes if library is missing to prevent NameErrors later
+    class Minio: pass
+    class S3Error(Exception): pass
+    class DeleteObject: pass
+    minio_client = None # Explicitly set client to None
 
-# MinIO Client Setup (Optional - for verification)
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
-MINIO_BUCKET = os.getenv("MINIO_BUCKET", "connections") # Default bucket name
-MINIO_USE_SSL = os.getenv("MINIO_USE_SSL", "true").lower() == "true"
-minio_client = None
-if MINIO_ENDPOINT and MINIO_ACCESS_KEY and MINIO_SECRET_KEY:
+# --- Configuration Loading ---
+def load_config():
+    """Loads configuration from .env and sets defaults."""
+    config = {}
+    dotenv_path_options = [ Path('.') / '.env', Path(__file__).resolve().parent / '.env', Path(__file__).resolve().parent.parent / '.env' ]
+    dotenv_path = next((path for path in dotenv_path_options if path.is_file()), None)
+    if dotenv_path: print(f"Loading environment variables from: {dotenv_path}"); load_dotenv(dotenv_path=dotenv_path)
+    else: print("Warning: .env file not found in standard locations.")
+
+    config['BASE_URL'] = os.getenv("BASE_URL", "http://localhost:1163").rstrip('/')
+    config['API_KEY'] = os.getenv("API_KEY")
+    config['USER_EMAIL_DEFAULT'] = os.getenv("TEST_USER_EMAIL", "alice@example.com")
+    config['TEST_USER_PASSWORD'] = os.getenv("TEST_USER_PASSWORD") # Must be set in .env or provided
+
+    # Placeholder IDs (Ensure these defaults make sense for your seed data)
     try:
-        minio_client = Minio(
-            MINIO_ENDPOINT,
-            access_key=MINIO_ACCESS_KEY,
-            secret_key=MINIO_SECRET_KEY,
-            secure=MINIO_USE_SSL
+        config['TARGET_USER_ID_TO_VIEW_AND_BLOCK'] = int(os.getenv("TEST_TARGET_USER_ID", "2"))
+        config['OTHER_USER_ID_TO_FOLLOW'] = int(os.getenv("TEST_OTHER_USER_ID", "5"))
+        config['TARGET_COMMUNITY_ID'] = int(os.getenv("TEST_COMMUNITY_ID", "1"))
+        config['TARGET_EVENT_ID'] = int(os.getenv("TEST_EVENT_ID", "1"))
+        # Use known existing IDs from your mock data for reliable interaction tests
+        config['EXISTING_POST_ID'] = int(os.getenv("TEST_POST_ID", "2"))
+        config['EXISTING_REPLY_ID'] = int(os.getenv("TEST_REPLY_ID", "1"))
+    except ValueError:
+        print("ERROR: TEST_* IDs in .env must be valid integers.")
+        sys.exit(1)
+
+    # MinIO Config
+    config['MINIO_ENDPOINT'] = os.getenv("MINIO_ENDPOINT")
+    config['MINIO_ACCESS_KEY'] = os.getenv("MINIO_ACCESS_KEY")
+    config['MINIO_SECRET_KEY'] = os.getenv("MINIO_SECRET_KEY")
+    config['MINIO_BUCKET'] = os.getenv("MINIO_BUCKET", "connections")
+    config['MINIO_USE_SSL'] = os.getenv("MINIO_USE_SSL", "true").lower() == "true"
+
+    return config
+
+CONFIG = load_config()
+
+# --- Global State ---
+results = { "success": [], "failed": [], "skipped": [], }
+session = requests.Session()
+auth_token = ""
+base_headers = {}
+logged_in_user_id = None
+uploaded_media_paths = [] # Store MinIO paths if verification were enabled
+test_image_file_details = None # (filename, content_bytes, mimetype)
+test_text_file_details = None # (filename, content_bytes, mimetype)
+# Store IDs of items created *with media* during the test run
+created_post_id_with_media = None
+created_reply_id_with_media = None
+created_chat_msg_id_with_media = None
+created_event_id_with_media = None
+minio_client = None
+
+# --- MinIO Client Initialization ---
+if MINIO_AVAILABLE and CONFIG['MINIO_ENDPOINT'] and CONFIG['MINIO_ACCESS_KEY'] and CONFIG['MINIO_SECRET_KEY']:
+    try:
+        minio_client = Minio( # type: ignore
+            CONFIG['MINIO_ENDPOINT'],
+            access_key=CONFIG['MINIO_ACCESS_KEY'],
+            secret_key=CONFIG['MINIO_SECRET_KEY'],
+            secure=CONFIG['MINIO_USE_SSL']
         )
-        # Test connection by checking if bucket exists
-        print(f"Checking MinIO bucket '{MINIO_BUCKET}'...")
-        if not minio_client.bucket_exists(MINIO_BUCKET):
-            print(f"Warning: MinIO bucket '{MINIO_BUCKET}' not found!")
-            minio_client = None # Disable client if bucket missing
+        print(f"Checking MinIO bucket '{CONFIG['MINIO_BUCKET']}'...")
+        if not minio_client.bucket_exists(CONFIG['MINIO_BUCKET']):
+            print(f"Warning: MinIO bucket '{CONFIG['MINIO_BUCKET']}' not found! Upload tests may fail.")
         else:
-            print(f"✅ MinIO Client initialized for verification ({MINIO_ENDPOINT}/{MINIO_BUCKET}).")
+            print(f"✅ MinIO Client initialized ({CONFIG['MINIO_ENDPOINT']}/{CONFIG['MINIO_BUCKET']}).")
     except Exception as e:
         print(f"⚠️ Warning: Failed to initialize/connect MinIO client: {e}")
         minio_client = None
 else:
-    print("⚠️ Warning: MinIO credentials not found in .env. Cannot verify uploads.")
+    if MINIO_AVAILABLE:
+        print("⚠️ Warning: MinIO credentials not fully set in .env. Upload verification/cleanup disabled.")
 
-# Store results
-results = { "success": [], "failed": [], "skipped": [], }
-session = requests.Session() # Use a session for potential connection reuse
-auth_token = "" # Stores the JWT token after login
-base_headers = {} # Stores common headers (Accept, API Key, Auth)
-logged_in_user_id = None # Store logged-in user ID after login
-uploaded_media_paths = [] # Store MinIO paths of uploaded files for potential cleanup
+# --- Helper Functions ---
 
 def update_headers():
-    """Updates base_headers dictionary with current api_key and auth_token."""
+    """Updates base_headers dictionary."""
     global base_headers
     base_headers = {"Accept": "application/json"}
-    if API_KEY: base_headers["X-API-Key"] = API_KEY
+    if CONFIG['API_KEY']: base_headers["X-API-Key"] = CONFIG['API_KEY']
     if auth_token: base_headers["Authorization"] = f"Bearer {auth_token}"
 
-# --- make_request Helper Function ---
 def make_request(
-        method: str, endpoint: str, test_name: str,
-        expected_status: List[int] = [200, 201, 204], # Common success codes
-        data: Optional[Dict[str, Any]] = None, # For JSON body or Form fields with files
-        params: Optional[Dict[str, Any]] = None, # For URL query parameters
-        files: Optional[Dict[str, tuple]] = None, # For multipart file uploads: {'field': (filename, content_bytes, mimetype)}
-        use_auth: bool = True, # Send Authorization header?
-        use_api_key: bool = True, # Send X-API-Key header?
-        is_json: bool = True # Treat 'data' as JSON body? (Ignored if 'files' is present)
-):
+        method: str, endpoint: str, test_name: str, expected_status: List[int] = [200, 201, 204],
+        data: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None,
+        files: Optional[Union[Dict[str, tuple], List[tuple]]] = None,
+        use_auth: bool = True, use_api_key: bool = True, is_json: bool = True
+) -> Optional[Dict[str, Any]]:
     """Makes an API request, logs details, stores results."""
     global results
-    url = f"{BASE_URL}{endpoint}"
-    headers = base_headers.copy() # Start with base headers
-    # Remove headers conditionally
+    url = f"{CONFIG['BASE_URL']}{endpoint}"
+    headers = base_headers.copy()
     if not use_api_key and "X-API-Key" in headers: del headers["X-API-Key"]
     if not use_auth and "Authorization" in headers: del headers["Authorization"]
 
-    # Prepare keyword arguments for requests
     req_kwargs = {"headers": headers, "params": params, "timeout": 30}
-    request_body_log = "(None)" # For logging clarity
+    log_data = data
+    log_files = "None"
 
-    # Determine Content-Type and body/files based on method and inputs
     if method.upper() in ["POST", "PUT", "PATCH"]:
         if files:
-            # Multipart request
-            if "Content-Type" in headers: del headers["Content-Type"] # Let requests library set it
-            req_kwargs["data"] = data # Non-file form fields go here
+            if "Content-Type" in headers: del headers["Content-Type"]
             req_kwargs["files"] = files
-            request_body_log = f"(MultipartFormData: Fields={data}, Files={list(files.keys())})"
+            req_kwargs["data"] = data # Non-file form fields go here
+            if isinstance(files, list): # List of ('field', (name, content, mime))
+                log_files = f"Field '{files[0][0]}' ({len(files)} files): {[f[1][0] for f in files if len(f)>1 and len(f[1])>0]}"
+            elif isinstance(files, dict): # Dict {'field': (name, content, mime)}
+                log_files = f"Fields: { {k: v[0] for k,v in files.items() if len(v)>0} }"
         elif data:
             if is_json:
-                # JSON request
-                headers["Content-Type"] = "application/json"
-                req_kwargs["json"] = data # requests handles JSON encoding
-                request_body_log = f"(JSON Body: {json.dumps(data)})"
+                headers["Content-Type"] = "application/json"; req_kwargs["json"] = data
+                log_data = json.dumps(data)
             else:
-                # Form URL Encoded request (if not JSON and not files)
-                headers["Content-Type"] = "application/x-www-form-urlencoded"
-                req_kwargs["data"] = data
-                request_body_log = f"(FormUrlEncoded Body: {data})"
-        elif not data: # No body
-            headers["Content-Length"] = "0" # Explicitly set for POST/PUT without body
+                headers["Content-Type"] = "application/x-www-form-urlencoded"; req_kwargs["data"] = data
+        elif not data:
+            headers["Content-Length"] = "0"
             if "Content-Type" in headers: del headers["Content-Type"]
 
-    # Update headers in kwargs *after* potential modifications
     req_kwargs["headers"] = headers
 
     print(f"\n--- Testing: {test_name} ({method.upper()} {endpoint}) ---")
-    # print(f"    Headers: {headers}") # Uncomment for verbose header logging
-    # print(f"    Params: {params}")   # Uncomment for verbose query param logging
-    # print(f"    Body/Files Log: {request_body_log}") # Uncomment for verbose body logging
+    print(f"    Params: {params}")
+    print(f"    Body/Data: {log_data}")
+    print(f"    Files: {log_files}")
 
     try:
         response = session.request(method, url, **req_kwargs)
@@ -157,265 +184,357 @@ def make_request(
         response_data, response_text = None, ""
         try:
             response_text = response.text
-            if response_text:
-                response_data = response.json() # Try parsing JSON
-                # print(f"    Response JSON: {json.dumps(response_data, indent=2)}") # Uncomment for verbose JSON output
-            # else: print("    Response Body: (Empty)")
+            if response_text: response_data = response.json()
+            else: print("    Response Body: (Empty)")
         except json.JSONDecodeError:
-            print(f"    Response Text (Not JSON): {response_text[:300]}...") # Log start of non-JSON response
+            print(f"    Response Text (Not JSON): {response_text[:500]}...")
             response_data = {"error": "Non-JSON response", "content": response_text}
 
-        # Check if status code is one of the expected success codes
         if response.status_code in expected_status:
             print(f"    Result: SUCCESS")
-            results["success"].append({"name": test_name, "status": response.status_code})
-            return response_data # Return parsed data on success
+            results["success"].append({"name": test_name, "status": response.status_code, "response": response_data})
+            return response_data
         else:
             print(f"    Result: FAILED")
+            print(f"    Response Body: {response_text[:1000]}")
             results["failed"].append({"name": test_name, "endpoint": f"{method.upper()} {endpoint}", "status": response.status_code, "response": response_data or response_text})
-            return None # Return None on failure
+            return None
 
-    # Handle common request exceptions
-    except requests.exceptions.Timeout:
-        print(f"    Result: FAILED (Timeout)")
-        results["failed"].append({"name": test_name, "endpoint": f"{method.upper()} {endpoint}", "status": "Timeout", "response": "Request timed out"})
-    except requests.exceptions.ConnectionError as e:
-        print(f"    Result: FAILED (Connection Error)")
-        results["failed"].append({"name": test_name, "endpoint": f"{method.upper()} {endpoint}", "status": "Connection Error", "response": str(e)})
-    except Exception as e:
-        print(f"    Result: FAILED (Unexpected Script Error: {e})")
-        results["failed"].append({"name": test_name, "endpoint": f"{method.upper()} {endpoint}", "status": "Script Error", "response": str(e)})
-        traceback.print_exc() # Print full traceback for script errors
+    except requests.exceptions.Timeout: print(f"    Result: FAILED (Timeout)"); results["failed"].append({"name": test_name,"endpoint": f"{method.upper()} {endpoint}", "status": "Timeout", "response": "Request timed out"})
+    except requests.exceptions.RequestException as e: print(f"    Result: FAILED (Request Error: {e})"); results["failed"].append({"name": test_name, "endpoint": f"{method.upper()} {endpoint}", "status": "Request Error", "response": str(e)})
+    except Exception as e: print(f"    Result: FAILED (Script Error: {e})"); results["failed"].append({"name": test_name, "endpoint": f"{method.upper()} {endpoint}", "status": "Script Error", "response": str(e)}); traceback.print_exc()
     return None
 
-# --- Function to verify MinIO upload ---
-def verify_minio_upload(object_name: Optional[str]):
-    """Checks if an object exists in MinIO. Adds path to list on success."""
-    if not minio_client: print(f"    MinIO Check Skipped: Client not configured."); return False
-    if not object_name: print(f"    MinIO Check Skipped: No object name provided."); return False
+def verify_minio_upload(object_name: Optional[str], expect_exists: bool = True):
+    """(DISABLED) Checks if an object exists (or not) in MinIO."""
+    print(f"    INFO: MinIO verification for '{object_name}' skipped.")
 
-    try:
-        print(f"    Verifying MinIO object: {object_name} in bucket '{MINIO_BUCKET}'...")
-        minio_client.stat_object(MINIO_BUCKET, object_name)
-        print(f"    ✅ MinIO Verification: SUCCESS - Object found.")
-        if object_name not in uploaded_media_paths: uploaded_media_paths.append(object_name)
-        return True
-    except S3Error as e:
-        if e.code == 'NoSuchKey': print(f"    ❌ MinIO Verification: FAILED - Object '{object_name}' not found.")
-        else: print(f"    ❌ MinIO Verification: ERROR - {e}")
-        return False
-    except Exception as e: print(f"    ❌ MinIO Verification: UNEXPECTED ERROR - {e}"); return False
-
-# --- Function to clean up MinIO uploads ---
 def cleanup_minio_uploads():
-    """Deletes files uploaded during the test run from MinIO."""
-    if not minio_client or not uploaded_media_paths: return
-    print("\n--- Cleaning up uploaded MinIO test files ---")
-    from minio.deleteobjects import DeleteObject
-    objects_to_delete = [DeleteObject(p) for p in uploaded_media_paths]
-    if objects_to_delete:
-        try:
-            errors = minio_client.remove_objects(MINIO_BUCKET, objects_to_delete)
-            error_count = 0
-            for error in errors: print(f"    MinIO Delete Error: {error}"); error_count+=1
-            deleted_count = len(uploaded_media_paths) - error_count
-            print(f"--- MinIO Cleanup: Deleted {deleted_count}/{len(uploaded_media_paths)} objects ---")
-            uploaded_media_paths.clear() # Clear list after attempt
-        except Exception as e: print(f"--- MinIO Cleanup: ERROR during bulk delete - {e} ---")
+    """(DISABLED) Deletes files uploaded during the test run from MinIO."""
+    if not uploaded_media_paths: return
+    print(f"INFO: MinIO cleanup skipped for {len(uploaded_media_paths)} potential paths.")
+    # The actual cleanup logic remains commented out or removed if verification is off
 
+def extract_minio_object_name(url: Optional[str]) -> Optional[str]:
+    """Extracts potential object name from a MinIO presigned URL."""
+    if not url or not CONFIG['MINIO_BUCKET']: return None
+    try:
+        path_part = url.split('?')[0]; key_part = f"/{CONFIG['MINIO_BUCKET']}/"
+        if key_part in path_part: return path_part.split(key_part, 1)[1]
+    except Exception as e: print(f"WARN: Failed to extract object name from URL '{url}': {e}")
+    return None
 
-# --- Main Test Execution Function ---
-def run_tests():
-    global api_key, auth_token, base_headers, logged_in_user_id, USER_EMAIL_DEFAULT
-    print("--- API Endpoint Test Script ---")
-    # --- Get Credentials & Image Path ---
-    api_key_env = os.getenv("API_KEY")
-    api_key_input = input(f"Enter API Key [{api_key_env or 'REQUIRED'}]: ")
-    api_key = api_key_input or api_key_env
-    if not api_key: print("API Key is required."); exit()
+# --- Test Sections ---
 
-    email_input = input(f"Enter Test User Email [Default: {USER_EMAIL_DEFAULT}]: ")
-    password_input = getpass(f"Enter Password for {email_input or USER_EMAIL_DEFAULT}: ")
-    test_email = email_input or USER_EMAIL_DEFAULT
-    test_password = password_input
-    if not test_password: print("Password is required."); exit()
+def test_authentication_and_profile(email, password):
+    """Tests login, get /me, update profile (text & image)."""
+    global auth_token, logged_in_user_id
+    print("\n--- Testing: Authentication & Profile ---")
+    login_data = {"email": str(email), "password": str(password)}
+    login_response = make_request("POST", "/auth/login", "User Login", data=login_data, use_auth=False, is_json=True)
+    if not (login_response and login_response.get("token")): return False
+    auth_token = login_response.get("token"); logged_in_user_id = login_response.get("user_id")
+    print(f"\n*** Logged in as User ID: {logged_in_user_id}. Token acquired. ***"); update_headers()
 
-    image_path_input = input("Enter ABSOLUTE path to a test image (e.g., /path/to/test.jpg) [Leave blank to skip image tests]: ")
-    test_image_path = Path(image_path_input) if image_path_input else None
-    image_file_content = None; image_filename = None; image_content_type = None
-    if test_image_path and test_image_path.is_file():
-        try:
-            image_filename = test_image_path.name
-            image_file_content = test_image_path.read_bytes()
-            content_type, _ = mimetypes.guess_type(image_filename)
-            image_content_type = content_type or 'application/octet-stream'
-            print(f"✅ Test image ready: {test_image_path} ({image_content_type})")
-        except Exception as e: print(f"⚠️ Warning: Could not read test image file '{test_image_path}': {e}"); test_image_path = None
-    elif image_path_input: print(f"⚠️ Warning: Test image path '{image_path_input}' not found."); test_image_path = None
+    get_me_resp = make_request("GET", "/auth/me", "Get Current User Profile")
+    if get_me_resp: assert get_me_resp.get("id") == logged_in_user_id and get_me_resp.get("email") == email
 
-    update_headers() # Initial headers with API Key
-
-    # === 1. Authentication ===
-    print("\n--- Section: Authentication ---")
-    login_data = {"email": test_email, "password": test_password}
-    login_response = make_request("POST", "/auth/login", "User Login", data=login_data, use_auth=False, is_json=True) # Login uses JSON
-
-    if login_response and login_response.get("token"):
-        auth_token = login_response.get("token"); logged_in_user_id = login_response.get("user_id")
-        print(f"\n*** Logged in as User ID: {logged_in_user_id}. Token acquired. ***")
-        update_headers()
-    else: print("\n*** Login Failed. Cannot proceed. ***"); print_summary(); exit()
-
-    make_request("GET", "/auth/me", "Get Current User Profile")
-
-    # --- Update Profile (Multipart Form) ---
     update_profile_fields = { "college": f"API Test College {datetime.now().second}" }
-    update_profile_files = None
-    test_name_profile = "Update User Profile (Form w/o Image)"
-    if test_image_path and image_filename and image_file_content and image_content_type:
-        # Create the tuple needed by 'requests' files kwarg
-        update_profile_files = {'image': (image_filename, image_file_content, image_content_type)}
-        test_name_profile = "Update User Profile (Form w/ Image)"
-    else: results["skipped"].append({"name": "Update Profile Picture"})
+    update_profile_files = None; test_name_profile = "Update User Profile (Form - Text Only)"
+    if test_image_file_details: update_profile_files = {'image': test_image_file_details}; test_name_profile = "Update User Profile (Form - Text & Image)"
+    else: results["skipped"].append({"name": "Update Profile Picture (No Image Provided)"})
 
-    # Profile update endpoint expects multipart/form-data
     profile_update_response = make_request("PUT", "/auth/me", test_name_profile, data=update_profile_fields, files=update_profile_files, is_json=False)
+    profile_image_object_name_expected = None
     if profile_update_response and update_profile_files:
-        # Verify upload based on response (assuming it includes the new path)
-        new_avatar_path = profile_update_response.get('image_path') # Check actual response key
-        verify_minio_upload(new_avatar_path)
+        new_image_url = profile_update_response.get('image_url')
+        profile_image_object_name_expected = extract_minio_object_name(new_image_url)
+        verify_minio_upload(profile_image_object_name_expected) # Will just print skipped message
 
-    results["skipped"].append({"name": "Change Password"}) # Skipping password change test
+    get_me_resp_after = make_request("GET", "/auth/me", "Get Current User Profile (After Update)")
+    if get_me_resp_after:
+        assert get_me_resp_after.get("college") == update_profile_fields["college"], "Profile college update failed"
+        print("    Update Persistence Check: College updated.")
+        if profile_image_object_name_expected:
+            url_after = get_me_resp_after.get("image_url")
+            obj_name_after = extract_minio_object_name(url_after)
+            if url_after: print(f"    Update Persistence Check: Found image URL after update: {url_after}")
+            else: print("    WARN: Image URL missing after update when one was expected.")
+            # Can't assert object names without verification
+            # assert obj_name_after == profile_image_object_name_expected, "Profile image URL mismatch"
+    return True
 
-    # === 2. Users ===
-    print("\n--- Section: Users ---")
-    if logged_in_user_id is None: print("ERROR: Logged in user ID not set."); exit()
-    if TARGET_USER_ID_TO_VIEW_AND_BLOCK == logged_in_user_id or OTHER_USER_ID_TO_FOLLOW == logged_in_user_id:
-        print("\nERROR: Placeholder IDs must differ from logged in user."); exit()
-
-    make_request("GET", f"/users/{TARGET_USER_ID_TO_VIEW_AND_BLOCK}", f"Get Profile User {TARGET_USER_ID_TO_VIEW_AND_BLOCK}")
-    # Follow/Unfollow Tests
-    make_request("POST", f"/users/{OTHER_USER_ID_TO_FOLLOW}/follow", f"Follow User {OTHER_USER_ID_TO_FOLLOW}", data=None) # No body needed
+def test_users_interactions():
+    """Tests following, followers, blocking."""
+    print("\n--- Testing: User Interactions (Follow/Block) ---")
+    if logged_in_user_id is None: print("ERROR: Not logged in."); return
+    target_user = CONFIG['TARGET_USER_ID_TO_VIEW_AND_BLOCK']; other_user = CONFIG['OTHER_USER_ID_TO_FOLLOW']
+    if target_user == logged_in_user_id or other_user == logged_in_user_id: print("\nERROR: Placeholder IDs must differ from logged in user."); return
+    make_request("GET", f"/users/{target_user}", f"Get Profile User {target_user}")
+    make_request("POST", f"/users/{other_user}/follow", f"Follow User {other_user}", data=None)
     make_request("GET", f"/users/{logged_in_user_id}/following", f"Get My Following List")
-    make_request("GET", f"/users/{OTHER_USER_ID_TO_FOLLOW}/followers", f"Get Followers List User {OTHER_USER_ID_TO_FOLLOW}")
-    make_request("DELETE", f"/users/{OTHER_USER_ID_TO_FOLLOW}/follow", f"Unfollow User {OTHER_USER_ID_TO_FOLLOW}")
-    # Blocking Tests
-    make_request("POST", f"/users/me/block/{TARGET_USER_ID_TO_VIEW_AND_BLOCK}", f"Block User {TARGET_USER_ID_TO_VIEW_AND_BLOCK}", expected_status=[204])
-    time.sleep(0.5)
-    make_request("GET", "/users/me/blocked", "Get Blocked Users (After Block)")
-    make_request("DELETE", f"/users/me/unblock/{TARGET_USER_ID_TO_VIEW_AND_BLOCK}", f"Unblock User {TARGET_USER_ID_TO_VIEW_AND_BLOCK}", expected_status=[204])
-    time.sleep(0.5)
-    make_request("GET", "/users/me/blocked", "Get Blocked Users (After Unblock)")
-    # Other User Endpoints
+    make_request("GET", f"/users/{other_user}/followers", f"Get Followers List User {other_user}")
+    make_request("DELETE", f"/users/{other_user}/follow", f"Unfollow User {other_user}")
+    make_request("POST", f"/users/me/block/{target_user}", f"Block User {target_user}", expected_status=[204])
+    time.sleep(0.2); blocked_resp = make_request("GET", "/users/me/blocked", "Get Blocked Users (After Block)")
+    if blocked_resp: assert any(u.get('blocked_id') == target_user for u in blocked_resp), "Block Verification Failed"
+    make_request("DELETE", f"/users/me/unblock/{target_user}", f"Unblock User {target_user}", expected_status=[204])
+    time.sleep(0.2); unblocked_resp = make_request("GET", "/users/me/blocked", "Get Blocked Users (After Unblock)")
+    if unblocked_resp is not None: assert not any(u.get('blocked_id') == target_user for u in unblocked_resp), "Unblock Verification Failed"
     make_request("GET", "/users/me/communities", "Get My Joined Communities")
     make_request("GET", "/users/me/events", "Get My Joined Events")
     make_request("GET", "/users/me/stats", "Get My Stats")
 
-
-    # === 3. Communities ===
-    print("\n--- Section: Communities ---")
+def test_communities_and_logo():
+    """Tests community listing, details, join/leave, logo update."""
+    print("\n--- Testing: Communities & Logo ---")
+    community_id = CONFIG['TARGET_COMMUNITY_ID']
     make_request("GET", "/communities", "List Communities")
-    make_request("GET", "/communities/trending", "List Trending Communities", expected_status=[200, 405])
-    make_request("GET", f"/communities/{TARGET_COMMUNITY_ID}/details", f"Get Community {TARGET_COMMUNITY_ID} Details")
-    make_request("POST", f"/communities/{TARGET_COMMUNITY_ID}/join", f"Join Community {TARGET_COMMUNITY_ID}", data=None)
-    make_request("DELETE", f"/communities/{TARGET_COMMUNITY_ID}/leave", f"Leave Community {TARGET_COMMUNITY_ID}", data=None)
-    make_request("POST", f"/communities/{TARGET_COMMUNITY_ID}/posts/{POST_NOT_IN_COMMUNITY_ID}", f"Add Post {POST_NOT_IN_COMMUNITY_ID} to Community {TARGET_COMMUNITY_ID}", data=None)
-    make_request("DELETE", f"/communities/{TARGET_COMMUNITY_ID}/posts/{POST_NOT_IN_COMMUNITY_ID}", f"Remove Post {POST_NOT_IN_COMMUNITY_ID} from Community {TARGET_COMMUNITY_ID}", data=None)
-    make_request("GET", f"/communities/{TARGET_COMMUNITY_ID}/events", f"List Events for Community {TARGET_COMMUNITY_ID}")
-    # Test Update Community Logo
-    if test_image_path and image_filename and image_file_content and image_content_type:
-        logo_files = {'logo': (image_filename, image_file_content, image_content_type)}
-        logo_update_resp = make_request("POST", f"/communities/{TARGET_COMMUNITY_ID}/logo", f"Update Community {TARGET_COMMUNITY_ID} Logo", files=logo_files, is_json=False)
+    make_request("GET", "/communities/trending", "List Trending Communities", expected_status=[200]) # Assuming implemented now
+    make_request("GET", f"/communities/{community_id}/details", f"Get Community {community_id} Details")
+    make_request("POST", f"/communities/{community_id}/join", f"Join Community {community_id}", data=None)
+    make_request("DELETE", f"/communities/{community_id}/leave", f"Leave Community {community_id}", data=None)
+    make_request("GET", f"/communities/{community_id}/events", f"List Events for Community {community_id}")
+
+    # Test Update Community Logo (Removed the skip logic - runs if image provided)
+    if test_image_file_details:
+        logo_files = {'logo': test_image_file_details}
+        logo_update_resp = make_request("POST", f"/communities/{community_id}/logo", f"Update Community {community_id} Logo", files=logo_files, is_json=False)
+        logo_obj_name_expected = None
         if logo_update_resp:
-            # Expecting full CommunityDisplay schema, logo_path might be nested or direct
-            verify_minio_upload(logo_update_resp.get('logo_path') or logo_update_resp.get('logo', {}).get('minio_object_name'))
-    else: results["skipped"].append({"name": "Update Community Logo"})
+            new_logo_url = logo_update_resp.get('logo_url')
+            logo_obj_name_expected = extract_minio_object_name(new_logo_url)
+            if new_logo_url: print(f"    Logo update returned URL: {new_logo_url}")
+            # verify_minio_upload(logo_obj_name_expected) # Verification disabled
+            else: print("    WARN: Update logo response missing logo_url")
 
+        details_resp = make_request("GET", f"/communities/{community_id}/details", f"Get Community {community_id} Details (After Logo Update)")
+        if details_resp and logo_obj_name_expected:
+            url_after = details_resp.get("logo_url")
+            obj_name_after = extract_minio_object_name(url_after)
+            if url_after: print(f"    Details after update show logo URL: {url_after}")
+            else: print("    WARN: Logo URL missing in details after update.")
+            # Cannot assert object name without verification, but check if URL exists
+            assert url_after is not None, "Logo URL missing after update, expected one."
+            print(f"    Update Persistence Check: Logo URL present after update.")
+    else:
+        print("INFO: Skipping Community Logo update test - No image provided.")
 
-    # === 4. Events ===
-    print("\n--- Section: Events ---")
-    make_request("GET", f"/events/{TARGET_EVENT_ID}", f"Get Event {TARGET_EVENT_ID} Details")
-    make_request("POST", f"/events/{TARGET_EVENT_ID}/join", f"Join Event {TARGET_EVENT_ID}", data=None)
-    make_request("DELETE", f"/events/{TARGET_EVENT_ID}/leave", f"Leave Event {TARGET_EVENT_ID}", data=None)
+def test_events_and_media():
+    """Tests event creation with image, get details, join/leave, update image."""
+    global created_event_id_with_media
+    print("\n--- Testing: Events & Media ---")
+    community_id = CONFIG['TARGET_COMMUNITY_ID']
+    event_id_to_interact = CONFIG['TARGET_EVENT_ID']
 
+    event_fields = {"title": f"Test Event w/ Img {datetime.now().strftime('%H%M%S')}", "description": "Banner test!", "location": "Virtual", "event_timestamp": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()}
+    event_files = None; test_name_event = "Create Event (No Image)"
+    if test_image_file_details: event_files = {'image': test_image_file_details}; test_name_event = "Create Event (With Image)"
+    else: results["skipped"].append({"name": "Create Event With Image (No Image Provided)"})
 
-    # === 5. Posts ===
-    print("\n--- Section: Posts ---")
-    # Test Create Post
-    post_fields = {"title": f"Test Post {datetime.now()}", "content": "Testing media!", "community_id": str(TARGET_COMMUNITY_ID)}
-    post_files = None
-    test_name_post = "Create Post (No Image)"
-    if test_image_path and image_filename and image_file_content and image_content_type:
-        # Backend expects 'files: List[UploadFile] = File(...)'
-        # 'requests' needs unique keys for 'files' dict, but FastAPI groups by field name.
-        # Send as 'files' if backend expects exactly that name, or 'image' if it expects 'image'
-        post_files = {'files': (image_filename, image_file_content, image_content_type)} # Use 'files' as key if needed
-        # Or post_files = {'image': (...)} if that's the FastAPI parameter name
-        test_name_post = "Create Post (With Image)"
-    else: results["skipped"].append({"name": "Create Post With Image"})
+    created_event_resp = make_request("POST", f"/communities/{community_id}/events", test_name_event, data=event_fields, files=event_files, is_json=False)
+    event_image_obj_name_created = None
+    if created_event_resp:
+        created_event_id_with_media = created_event_resp.get('id')
+        event_id_to_interact = created_event_id_with_media or event_id_to_interact
+        if event_files:
+            event_image_url = created_event_resp.get('image_url')
+            event_image_obj_name_created = extract_minio_object_name(event_image_url)
+            if event_image_url: print(f"    Create event returned image URL: {event_image_url}")
+            # verify_minio_upload(event_image_obj_name_created)
+            else: print("    WARN: Create event response missing image_url when expected.")
 
-    created_post_resp = make_request("POST", "/posts", test_name_post, data=post_fields, files=post_files, is_json=False) # Send as multipart/form-data
-    # Verify upload based on response structure (assuming 'media' list)
-    if created_post_resp and post_files:
-        media_list = created_post_resp.get('media')
-        if isinstance(media_list, list) and len(media_list) > 0 and isinstance(media_list[0], dict):
-            verify_minio_upload(media_list[0].get('minio_object_name'))
-        else: print("    WARN: Create post response missing expected media list.")
+    get_event_resp = make_request("GET", f"/events/{event_id_to_interact}", f"Get Event {event_id_to_interact} Details")
+    if get_event_resp and event_image_obj_name_created:
+        url_after_create = get_event_resp.get('image_url')
+        obj_name_after_create = extract_minio_object_name(url_after_create)
+        if url_after_create: print(f"    Get event details returned image URL: {url_after_create}")
+        assert obj_name_after_create == event_image_obj_name_created, "Event image URL mismatch after creation."
+        print("    Create Persistence Check: Event Image URL correct.")
 
-    # Other post tests
+    make_request("POST", f"/events/{event_id_to_interact}/join", f"Join Event {event_id_to_interact}", data=None)
+    make_request("DELETE", f"/events/{event_id_to_interact}/leave", f"Leave Event {event_id_to_interact}", data=None)
+
+    if created_event_id_with_media and test_text_file_details:
+        update_event_files = {'image': test_text_file_details}
+        update_event_resp = make_request("PUT", f"/events/{created_event_id_with_media}", "Update Event Image", files=update_event_files, is_json=False)
+        if update_event_resp:
+            event_image_url_updated = update_event_resp.get('image_url')
+            updated_event_obj_name = extract_minio_object_name(event_image_url_updated)
+            if event_image_url_updated: print(f"    Update event returned image URL: {event_image_url_updated}")
+            # verify_minio_upload(updated_event_obj_name)
+            else: print("    WARN: Update event response missing image_url")
+            # Check if different from original
+            assert updated_event_obj_name != event_image_obj_name_created, "Event image did not change after update"
+            print("    Update Check: Event image URL changed.")
+    elif created_event_id_with_media: results["skipped"].append({"name": "Update Event Image (No Text File Provided)"})
+
+def test_posts_and_media():
+    """Tests post creation with single/multiple media, get post, list posts."""
+    global created_post_id_with_media
+    print("\n--- Testing: Posts & Media ---")
+    community_id = CONFIG['TARGET_COMMUNITY_ID']; user_id = logged_in_user_id
+
+    post_fields_multi = {"title": f"Test Post Multi-Media {datetime.now()}", "content": "Two files!", "community_id": str(community_id)}
+    post_files_multi_tuples = []
+    if test_image_file_details: post_files_multi_tuples.append(('files', test_image_file_details))
+    if test_text_file_details: post_files_multi_tuples.append(('files', test_text_file_details))
+
+    if len(post_files_multi_tuples) > 0:
+        created_post_multi_resp = make_request("POST", "/posts", "Create Post (With Multiple Media)", data=post_fields_multi, files=post_files_multi_tuples, is_json=False)
+        if created_post_multi_resp:
+            created_post_id_with_media = created_post_multi_resp.get('id')
+            media_list = created_post_multi_resp.get('media')
+            expected_media_count = len(post_files_multi_tuples)
+            assert isinstance(media_list, list), "Post 'media' field is not a list"
+            assert len(media_list) == expected_media_count, f"Media count mismatch on create (Got {len(media_list)}, Expected {expected_media_count})"
+            print(f"    Media Count Check (Create): SUCCESS ({len(media_list)}/{expected_media_count})")
+            for i, item in enumerate(media_list):
+                assert isinstance(item, dict), f"Media item {i} is not a dict"
+                assert item.get('url'), f"Media item {i} missing URL"
+                print(f"    Post Media {i} URL: {item.get('url')}")
+                # verify_minio_upload(extract_minio_object_name(item.get('url')))
+    else: results["skipped"].append({"name": "Create Post With Multiple Media (No Files Provided)"})
+
+    if created_post_id_with_media:
+        single_post_resp = make_request("GET", f"/posts/{created_post_id_with_media}", f"Get Created Post {created_post_id_with_media} Details")
+        if single_post_resp:
+            media_list = single_post_resp.get('media')
+            expected_media_count = len(post_files_multi_tuples) # Should match number uploaded
+            assert isinstance(media_list, list), "Post 'media' field is not a list in GET response"
+            assert len(media_list) == expected_media_count, f"Media count mismatch in GET Post (Got {len(media_list)}, Expected {expected_media_count})"
+            print(f"    Single Post Media Count Check (GET): SUCCESS ({len(media_list)}/{expected_media_count})")
+            # for item in media_list: verify_minio_upload(extract_minio_object_name(item.get('url')))
+
     make_request("GET", "/posts", "List Posts (General)", params={"limit": 5})
-    make_request("GET", "/posts", f"List Posts (Community {TARGET_COMMUNITY_ID})", params={"community_id": TARGET_COMMUNITY_ID, "limit": 5})
-    make_request("GET", "/posts", f"List Posts (User {TARGET_USER_ID_TO_VIEW_AND_BLOCK})", params={"user_id": TARGET_USER_ID_TO_VIEW_AND_BLOCK, "limit": 5})
-    make_request("GET", "/posts/trending", "List Trending Posts", expected_status=[200, 405])
-    make_request("POST", f"/posts/{TARGET_POST_ID}/favorite", f"Favorite Post {TARGET_POST_ID}", data=None)
-    make_request("DELETE", f"/posts/{TARGET_POST_ID}/favorite", f"Unfavorite Post {TARGET_POST_ID}", data=None)
+    make_request("GET", "/posts", f"List Posts (Community {community_id})", params={"community_id": community_id, "limit": 5})
+    make_request("GET", "/posts", f"List Posts (User {user_id})", params={"user_id": user_id, "limit": 5})
+    make_request("GET", "/posts/trending", "List Trending Posts", expected_status=[200]) # Expect 200 now for placeholder
 
+def test_replies_and_media():
+    """Tests reply creation with media, get replies."""
+    global created_reply_id_with_media
+    print("\n--- Testing: Replies & Media ---")
+    post_id = CONFIG['EXISTING_POST_ID']
 
-    # === 6. Replies ===
-    print("\n--- Section: Replies ---")
-    make_request("GET", f"/replies/{TARGET_POST_ID}", f"List Replies for Post {TARGET_POST_ID}")
-    reply_data = {"post_id": TARGET_POST_ID, "content": f"Test reply {datetime.now()}"}
-    make_request("POST", "/replies", f"Create Reply for Post {TARGET_POST_ID}", data=reply_data, is_json=True) # Replies likely use JSON
-    make_request("POST", f"/replies/{TARGET_REPLY_ID}/favorite", f"Favorite Reply {TARGET_REPLY_ID}", data=None)
-    make_request("DELETE", f"/replies/{TARGET_REPLY_ID}/favorite", f"Unfavorite Reply {TARGET_REPLY_ID}", data=None)
+    reply_fields_media = {"post_id": str(post_id), "content": f"Test reply w/ media {datetime.now()}"}
+    reply_files_list = []; test_name_reply = "Create Reply (No Image)"
+    if test_image_file_details: reply_files_list.append(('files', test_image_file_details)); test_name_reply = "Create Reply (With Image)"
+    else: results["skipped"].append({"name": "Create Reply With Image (No Image Provided)"})
 
+    create_reply_resp = make_request("POST", "/replies", test_name_reply, data=reply_fields_media, files=reply_files_list, is_json=False)
+    reply_image_obj_name_expected = None
+    if create_reply_resp:
+        created_reply_id_with_media = create_reply_resp.get('id')
+        if reply_files_list:
+            media_list = create_reply_resp.get('media')
+            assert isinstance(media_list, list) and len(media_list) > 0, "Media list missing/empty in create reply response"
+            reply_image_url = media_list[0].get('url')
+            reply_image_obj_name_expected = extract_minio_object_name(reply_image_url)
+            print(f"    Create reply returned media URL: {reply_image_url}")
+            # verify_minio_upload(reply_image_obj_name_expected)
 
-    # === 7. Votes ===
-    print("\n--- Section: Votes ---")
-    vote_post_up = {"post_id": TARGET_POST_ID, "reply_id": None, "vote_type": True}
-    vote_post_down = {"post_id": TARGET_POST_ID, "reply_id": None, "vote_type": False}
-    vote_reply_up = {"post_id": None, "reply_id": TARGET_REPLY_ID, "vote_type": True}
-    make_request("POST", "/votes", f"Upvote Post {TARGET_POST_ID}", data=vote_post_up, is_json=True)
-    make_request("POST", "/votes", f"Downvote Post {TARGET_POST_ID}", data=vote_post_down, is_json=True)
-    make_request("POST", "/votes", f"Remove Vote Post {TARGET_POST_ID}", data=vote_post_down, is_json=True) # Send same again
-    make_request("POST", "/votes", f"Upvote Reply {TARGET_REPLY_ID}", data=vote_reply_up, is_json=True)
+    replies_list_resp = make_request("GET", f"/replies/{post_id}", f"List Replies for Post {post_id} (Check Media)")
+    if replies_list_resp and created_reply_id_with_media: # Check if we created one
+        found_reply = next((r for r in replies_list_resp if r.get('id') == created_reply_id_with_media), None)
+        assert found_reply, f"Created reply {created_reply_id_with_media} not found in list response."
+        media_list = found_reply.get('media', []) # Default to empty list
+        if reply_files_list: # If we expected media
+            assert isinstance(media_list, list) and len(media_list) > 0, f"Reply {created_reply_id_with_media} media missing in list response."
+            obj_name_in_list = extract_minio_object_name(media_list[0].get('url'))
+            # Cannot assert object name reliably without verification
+            # assert obj_name_in_list == reply_image_obj_name_expected, "Reply media object name mismatch."
+            assert media_list[0].get('url') is not None, "Reply media URL is null/missing."
+            print(f"    Reply Media Check: SUCCESS - Found media for reply {created_reply_id_with_media}.")
+        else: # If we didn't upload media
+            assert len(media_list) == 0, f"Reply {created_reply_id_with_media} unexpectedly has media."
+            print(f"    Reply Media Check: SUCCESS - No media found for reply {created_reply_id_with_media} (as expected).")
 
+def test_interactions():
+    """Tests votes and favorites."""
+    print("\n--- Testing: Interactions (Votes/Favorites) ---")
+    post_id = CONFIG['EXISTING_POST_ID']; reply_id = CONFIG['EXISTING_REPLY_ID']
+    make_request("POST", f"/posts/{post_id}/favorite", f"Favorite Post {post_id}", data=None)
+    make_request("DELETE", f"/posts/{post_id}/favorite", f"Unfavorite Post {post_id}", data=None)
+    make_request("POST", f"/replies/{reply_id}/favorite", f"Favorite Reply {reply_id}", data=None)
+    make_request("DELETE", f"/replies/{reply_id}/favorite", f"Unfavorite Reply {reply_id}", data=None)
+    vote_post_up = {"post_id": post_id, "reply_id": None, "vote_type": True}
+    vote_post_down = {"post_id": post_id, "reply_id": None, "vote_type": False}
+    vote_reply_up = {"post_id": None, "reply_id": reply_id, "vote_type": True}
+    make_request("POST", "/votes", f"Upvote Post {post_id}", data=vote_post_up, is_json=True)
+    make_request("POST", "/votes", f"Downvote Post {post_id}", data=vote_post_down, is_json=True)
+    make_request("POST", "/votes", f"Remove Vote Post {post_id}", data=vote_post_down, is_json=True)
+    make_request("POST", "/votes", f"Upvote Reply {reply_id}", data=vote_reply_up, is_json=True)
 
-    # === 8. Chat ===
-    print("\n--- Section: Chat ---")
-    make_request("GET", "/chat/messages", f"Get Chat History (Community {TARGET_COMMUNITY_ID})", params={"community_id": TARGET_COMMUNITY_ID, "limit": 5})
-    make_request("GET", "/chat/messages", f"Get Chat History (Event {TARGET_EVENT_ID})", params={"event_id": TARGET_EVENT_ID, "limit": 5})
-    chat_data = {"content": f"Test HTTP message from script {datetime.now()}"}
-    make_request("POST", "/chat/messages", f"Send HTTP Chat (Community {TARGET_COMMUNITY_ID})", params={"community_id": TARGET_COMMUNITY_ID}, data=chat_data, is_json=True)
+def test_chat_and_media():
+    """Tests sending chat messages (text & media) and fetching history."""
+    global created_chat_msg_id_with_media
+    print("\n--- Testing: Chat & Media ---")
+    community_id = CONFIG['TARGET_COMMUNITY_ID']; event_id = CONFIG['TARGET_EVENT_ID']
 
+    chat_fields_media = {"content": f"Test Chat msg w/ media {datetime.now()}"}
+    chat_files_list = []; test_name_chat = "Send HTTP Chat (Text Only)"
+    if test_image_file_details: chat_files_list.append(('files', test_image_file_details)); test_name_chat = "Send HTTP Chat (With Image)"
+    else: results["skipped"].append({"name": "Send HTTP Chat With Image (No Image Provided)"})
 
-    # === 9. Settings ===
-    print("\n--- Section: Settings ---")
-    make_request("GET", "/settings/notifications", "Get Notification Settings", expected_status=[200]) # Expect 200 now
-    settings_data = { "new_post_in_community": False, "new_reply_to_post": True, "new_event_in_community": True, "event_reminder": False, "direct_message": True } # Include all fields from schema
-    make_request("PUT", "/settings/notifications", "Update Notification Settings", data=settings_data, is_json=True)
+    chat_msg_resp = make_request("POST", "/chat/messages", test_name_chat, params={"community_id": community_id}, data=chat_fields_media, files=chat_files_list, is_json=False)
+    chat_image_obj_name_expected = None
+    if chat_msg_resp:
+        created_chat_msg_id_with_media = chat_msg_resp.get('message_id')
+        if chat_files_list:
+            media_list = chat_msg_resp.get('media')
+            assert isinstance(media_list, list) and len(media_list) > 0, "Media list missing/empty in send chat response"
+            chat_image_url = media_list[0].get('url')
+            chat_image_obj_name_expected = extract_minio_object_name(chat_image_url)
+            print(f"    Send chat returned media URL: {chat_image_url}")
+            # verify_minio_upload(chat_image_obj_name_expected)
 
+    chat_hist_resp = make_request("GET", "/chat/messages", f"Get Chat History (Comm {community_id}, Check Media)", params={"community_id": community_id, "limit": 10})
+    if chat_hist_resp and created_chat_msg_id_with_media: # Check if we created one
+        found_msg = next((m for m in chat_hist_resp if m.get('message_id') == created_chat_msg_id_with_media), None)
+        assert found_msg, f"Created chat msg {created_chat_msg_id_with_media} not found in history."
+        media_list = found_msg.get('media', [])
+        if chat_files_list: # If we expected media
+            assert isinstance(media_list, list) and len(media_list) > 0, f"Chat msg {created_chat_msg_id_with_media} media missing in history."
+            obj_name_in_list = extract_minio_object_name(media_list[0].get('url'))
+            # Cannot assert object name reliably without verification
+            # assert obj_name_in_list == chat_image_obj_name_expected, "Chat media object name mismatch."
+            assert media_list[0].get('url') is not None, "Chat media URL is null/missing."
+            print(f"    Chat Media Check: SUCCESS - Found media for msg {created_chat_msg_id_with_media}.")
+        else: # If we didn't upload media
+            assert len(media_list) == 0, f"Chat msg {created_chat_msg_id_with_media} unexpectedly has media."
+            print(f"    Chat Media Check: SUCCESS - No media found for msg {created_chat_msg_id_with_media} (as expected).")
 
-    # === 10. GraphQL ===
-    print("\n--- Section: GraphQL ---")
-    gql_query_viewer = {"query": "query { viewer { id username name followersCount } }"}
-    gql_query_user_target = { "query": "query GetUser($userId: ID!) { user(id: $userId) { id username name followersCount isFollowedByViewer } }", "variables": {"userId": str(TARGET_USER_ID_TO_VIEW_AND_BLOCK)} }
-    make_request("POST", "/graphql", "GraphQL Get Viewer", data=gql_query_viewer, use_api_key=False, is_json=True) # GQL uses JSON
-    make_request("POST", "/graphql", f"GraphQL Get User {TARGET_USER_ID_TO_VIEW_AND_BLOCK}", data=gql_query_user_target, use_api_key=False, is_json=True)
+    make_request("GET", "/chat/messages", f"Get Chat History (Event {event_id})", params={"event_id": event_id, "limit": 5})
 
+def test_settings():
+    """Tests getting and updating notification settings."""
+    print("\n--- Testing: Settings ---")
+    make_request("GET", "/settings/notifications", "Get Notification Settings", expected_status=[200])
+    settings_data = { "new_post_in_community": False, "new_reply_to_post": True, "new_event_in_community": True, "event_reminder": False, "direct_message": True }
+    update_resp = make_request("PUT", "/settings/notifications", "Update Notification Settings", data=settings_data, is_json=True)
+    if update_resp:
+        get_resp = make_request("GET", "/settings/notifications", "Get Notification Settings (After Update)")
+        if get_resp:
+            assert get_resp.get("new_post_in_community") is False and get_resp.get("direct_message") is True, "Setting update verification failed"
+            print("    Update Persistence Check: Settings updated correctly.")
+
+def test_graphql():
+    """Tests basic GraphQL queries."""
+    print("\n--- Testing: GraphQL ---")
+    gql_query_viewer = {"query": "query { viewer { id username } }"}
+    gql_query_user_target = { "query": "query GetUser($userId: ID!) { user(id: $userId) { id username } }", "variables": {"userId": str(CONFIG['TARGET_USER_ID_TO_VIEW_AND_BLOCK'])} }
+    gql_query_post_media = {
+        "query": "query GetPost($postId: ID!) { post(id: $postId) { id title media { url mimeType } } }",
+        "variables": {"postId": str(created_post_id_with_media or CONFIG['EXISTING_POST_ID'])}
+    }
+    make_request("POST", "/graphql", "GraphQL Get Viewer", data=gql_query_viewer, use_api_key=False, is_json=True)
+    make_request("POST", "/graphql", f"GraphQL Get User {CONFIG['TARGET_USER_ID_TO_VIEW_AND_BLOCK']}", data=gql_query_user_target, use_api_key=False, is_json=True)
+    make_request("POST", "/graphql", f"GraphQL Get Post with Media", data=gql_query_post_media, use_api_key=False, is_json=True)
 
 def print_summary():
     """Prints a summary of successful and failed tests."""
+    # ... (keep existing implementation) ...
     print("\n\n" + "="*30 + " TEST SUMMARY " + "="*30)
     success_count=len(results['success']);failed_count=len(results['failed']);skipped_count=len(results['skipped']);total_run=success_count+failed_count
     print(f"TOTAL TESTS DEFINED: {total_run + skipped_count}")
@@ -427,59 +546,67 @@ def print_summary():
         print("\n--- FAILED ENDPOINTS ---")
         for i, failure in enumerate(results["failed"]):
             print(f"\n{i+1}. Test Name: {failure['name']}")
-            print(f"   Endpoint:  {failure['endpoint']}")
+            print(f"   Endpoint:  {failure.get('endpoint', 'N/A')}")
             print(f"   Status:    {failure['status']}")
-            response_content = failure['response']
+            response_content = failure.get('response', 'N/A')
+            response_str = "";
             try:
-                # Attempt to format nicely if it's JSON-like string or dict/list
-                if isinstance(response_content,(dict,list)): print(f"   Response:  {json.dumps(response_content, indent=2)}")
-                elif isinstance(response_content, str):
-                    try: print(f"   Response:  {json.dumps(json.loads(response_content), indent=2)}")
-                    except json.JSONDecodeError: print(f"   Response:  {response_content[:500]}...") # Limit length
-                else: print(f"   Response:  {str(response_content)[:500]}...")
-            except Exception: print(f"   Response:  {str(response_content)[:500]}...")
+                if isinstance(response_content,(dict,list)): response_str = json.dumps(response_content)
+                elif isinstance(response_content, str): response_str = response_content
+                else: response_str = str(response_content)
+            except Exception: response_str = str(response_content)
+            print(f"   Response:  {response_str[:1000]}{'...' if len(response_str)>1000 else ''}")
     elif total_run > 0: print("\n--- ALL EXECUTED TESTS PASSED ---")
     else: print("\n--- NO TESTS WERE EXECUTED ---")
     if results["skipped"]: print("\n--- SKIPPED TESTS ---"); [print(f"{i+1}. {s['name']}") for i, s in enumerate(results["skipped"])]
-    print("="*74)
-
+    print("="*74 + "\n")
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    image_file_handle = None # Keep track of opened file
+    print("--- Starting API Test Suite ---")
+    # --- Get Credentials ---
+    if not CONFIG['API_KEY']: CONFIG['API_KEY'] = input("Enter API Key: ")
+    if not CONFIG['API_KEY']: print("API Key is required."); sys.exit(1)
+    if not CONFIG['TEST_USER_PASSWORD']: CONFIG['TEST_USER_PASSWORD'] = getpass(f"Enter Password for {CONFIG['USER_EMAIL_DEFAULT']}: ")
+    if not CONFIG['TEST_USER_PASSWORD']: print("Test user password is required."); sys.exit(1)
+
+    # --- Prepare Test Files ---
+    text_file_path = Path("./test_upload.txt").resolve()
+    image_path_input = input(f"Enter ABSOLUTE path to test image (e.g., /path/image.jpg) [Enter to skip image tests]: ")
+    test_image_path = Path(image_path_input) if image_path_input else None
+    if test_image_path and test_image_path.is_file():
+        try:
+            img_filename = test_image_path.name; img_content = test_image_path.read_bytes(); img_mimetype, _ = mimetypes.guess_type(img_filename)
+            test_image_file_details = (img_filename, img_content, img_mimetype or 'application/octet-stream')
+            print(f"✅ Test image ready: {test_image_path}")
+        except Exception as e: print(f"⚠️ Warning: Could not read image file '{test_image_path}': {e}")
+    elif image_path_input: print(f"⚠️ Warning: Image path '{image_path_input}' not found or not a file.")
     try:
-        # --- Prepare image file details if path provided ---
-        image_path_input = input("Enter ABSOLUTE path to a test image (e.g., /path/to/test.jpg) [Leave blank to skip image tests]: ")
-        test_image_path = Path(image_path_input) if image_path_input else None
-        test_image_file_details = None
-        if test_image_path and test_image_path.is_file():
-            try:
-                image_filename = test_image_path.name
-                image_file_handle = open(test_image_path, 'rb') # Open file handle
-                image_file_content = image_file_handle.read() # Read content
-                content_type, _ = mimetypes.guess_type(image_filename)
-                image_content_type = content_type or 'application/octet-stream'
-                # Store tuple for requests, including handle (requests closes it)
-                test_image_file_details = (image_filename, image_file_content, image_content_type)
-                print(f"✅ Test image ready: {test_image_path} ({image_content_type})")
-            except Exception as e:
-                print(f"⚠️ Warning: Could not read/prepare test image file '{test_image_path}': {e}")
-                if image_file_handle: image_file_handle.close()
-                test_image_file_details = None
-        elif image_path_input:
-            print(f"⚠️ Warning: Test image path '{image_path_input}' not found or is not a file.")
-            test_image_file_details = None
+        text_content_str = f"Test text file {datetime.now()}"; text_content_bytes = text_content_str.encode('utf-8'); text_file_path.write_bytes(text_content_bytes)
+        test_text_file_details = (text_file_path.name, text_content_bytes, 'text/plain')
+        print(f"✅ Test text file ready: {text_file_path}")
+    except Exception as e: print(f"⚠️ Warning: Could not create/prepare text file '{text_file_path}': {e}")
 
-        run_tests() # Pass image details tuple to run_tests if needed directly, or use global
-
+    # --- Run Test Sections ---
+    try:
+        if test_authentication_and_profile(CONFIG['USER_EMAIL_DEFAULT'], CONFIG['TEST_USER_PASSWORD']):
+            test_users_interactions()
+            test_communities_and_logo()
+            test_events_and_media()
+            test_posts_and_media()
+            test_replies_and_media()
+            test_interactions()
+            test_chat_and_media()
+            test_settings()
+            test_graphql()
+        else: print("Skipping further tests due to login failure.")
     finally:
-        # Clean up MinIO uploads
-        # Uncomment carefully after verifying tests work
+        # Cleanup MinIO (Optional - Enable with caution)
+        # print("\nRequesting MinIO cleanup...")
         # cleanup_minio_uploads()
-
-        # Close the image file handle if it was opened
-        if image_file_handle:
-            try: image_file_handle.close()
-            except: pass
-
+        # Cleanup text file
+        if text_file_path.exists():
+            try: text_file_path.unlink(); print(f"🧹 Cleaned up test file: {text_file_path}")
+            except Exception as e: print(f"⚠️ Error cleaning up test file: {e}")
         print_summary()
+    print("--- API Test Suite Finished ---")

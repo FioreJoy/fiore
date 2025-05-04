@@ -26,85 +26,125 @@ async def create_post(
 ):
     conn = None
     post_id = None
-    media_ids_created = [] # Keep track of created media for potential rollback
+    media_ids_created = []
     minio_objects_created = []
 
     try:
         conn = get_db_connection(); cursor = conn.cursor()
 
-        # 1. Create the post entry (relational + graph vertex + WROTE edge)
+        # 1. Create the post entry
         post_id = crud.create_post_db(
             cursor, user_id=current_user_id, title=title, content=content
-            # community_id is linked later if needed
         )
         if post_id is None:
             raise HTTPException(status_code=500, detail="Post base creation failed")
 
-        # 2. Handle File Uploads and Linking
+        # 2. Handle File Uploads and Linking (Keep existing logic)
+        # ... (upload loop) ...
         for file in files:
             if file and file.filename:
-                # Define path based on post ID
                 object_name_prefix = f"media/posts/{post_id}"
                 upload_info = await utils.upload_file_to_minio(file, object_name_prefix)
-
                 if upload_info:
                     minio_objects_created.append(upload_info['minio_object_name'])
-                    media_id = crud.create_media_item( # Create media record
+                    media_id = crud.create_media_item(
                         cursor, uploader_user_id=current_user_id, **upload_info
                     )
                     if media_id:
                         media_ids_created.append(media_id)
-                        crud.link_media_to_post(cursor, post_id, media_id) # Link it
-                        print(f"Linked media {media_id} to post {post_id}")
+                        crud.link_media_to_post(cursor, post_id, media_id)
                     else:
-                        # Failed to create media item record, log warning
-                        print(f"WARN: Failed to create media_item record for {upload_info['minio_object_name']}")
-                        # Optionally delete the orphaned MinIO object here?
+                        print(f"WARN: Failed media_item record for {upload_info['minio_object_name']}")
                 else:
-                    # Upload failed, raise error or log warning?
-                    print(f"WARN: Failed to upload file {file.filename} to MinIO.")
+                    print(f"WARN: Failed upload for {file.filename}")
+                    # Consider raising HTTP 500 here?
                     # raise HTTPException(status_code=500, detail=f"Failed to upload file {file.filename}")
 
-
-        # 3. Link to community if ID provided (creates graph edge)
+        # 3. Link to community if ID provided (Keep existing logic)
         if community_id is not None:
+            # Ensure community exists before linking (optional but good)
+            comm_exists = crud.get_community_by_id(cursor, community_id)
+            if not comm_exists:
+                raise HTTPException(status_code=404, detail=f"Community {community_id} not found")
             crud.add_post_to_community_db(cursor, community_id, post_id)
             print(f"Linked post {post_id} to community {community_id}")
 
-        # 4. Fetch full post details for response
-        # Need a function like crud.get_post_details_db(cursor, post_id) that includes media
-        # Let's adapt get_posts_db logic slightly for single post fetch
-        # (Or create a dedicated get_post_details_db function)
-        posts_list = crud.get_posts_db(cursor, post_id_single=post_id) # Assume get_posts_db handles single ID
-        created_post_data = posts_list[0] if posts_list else None
 
-        if not created_post_data: raise HTTPException(status_code=500, detail="Could not retrieve created post details")
+        # --- *** START FIX for Failure 8 *** ---
+        # 4. Fetch full post details for response (Corrected Fetch Logic)
 
-        # Fetch media separately
-        media_items = crud.get_media_items_for_post(cursor, post_id)
-        created_post_data['media'] = media_items # Add media list
+        # Fetch relational post data
+        created_post_relational = crud.get_post_by_id(cursor, post_id)
+        if not created_post_relational:
+            raise HTTPException(status_code=500, detail="Could not retrieve created post relational details")
+
+        created_post_data = dict(created_post_relational) # Convert to dict
+
+        # Fetch author info
+        author_info = crud.get_user_by_id(cursor, created_post_data['user_id'])
+        if author_info:
+            created_post_data['author_name'] = author_info.get('username')
+            created_post_data['author_avatar'] = author_info.get('image_path') # Store path
+            created_post_data['author_id'] = author_info.get('id') # Keep if needed elsewhere
+        else: # Should ideally not happen if user_id FK holds
+            created_post_data['author_name'] = "Unknown"
+            created_post_data['author_avatar'] = None
+            created_post_data['author_id'] = created_post_data['user_id']
+
+        # Fetch community info (if linked)
+        created_post_data['community_id'] = None # Default
+        created_post_data['community_name'] = None
+        if community_id is not None:
+            # We already checked existence, or fetch again if paranoid
+            comm_info = crud.get_community_by_id(cursor, community_id)
+            if comm_info:
+                created_post_data['community_id'] = community_id
+                created_post_data['community_name'] = comm_info.get('name')
+
+        # Fetch graph counts
+        try:
+            counts = crud.get_post_counts(cursor, post_id)
+            created_post_data.update(counts)
+        except Exception as count_err:
+            print(f"WARN: Failed getting counts for new post {post_id}: {count_err}")
+            created_post_data.update({"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0})
+
+        # Fetch media items
+        try:
+            media_items = crud.get_media_items_for_post(cursor, post_id)
+            created_post_data['media'] = media_items # Add media list
+        except Exception as media_err:
+            print(f"WARN: Failed getting media for new post {post_id}: {media_err}")
+            created_post_data['media'] = []
+
+        # --- *** END FIX for Failure 8 *** ---
 
         conn.commit() # Commit everything
 
-        # Prepare response
-        response_data = created_post_data
-        # URLs for author avatar and media items
-        response_data['author_avatar_url'] = utils.get_minio_url(response_data.get('author_avatar')) # author_avatar is path
-        response_data['media'] = [ # Generate URLs for media
+        # Prepare response (adjust structure if schema changed)
+        response_data = created_post_data # Now contains augmented data
+        response_data['author_avatar_url'] = utils.get_minio_url(response_data.get('author_avatar'))
+        response_data['media'] = [
             {**item, 'url': utils.get_minio_url(item.get('minio_object_name'))}
-            for item in media_items
+            for item in response_data.get('media', [])
         ]
-        # Add viewer status placeholders
+        # Ensure all fields required by PostDisplay are present
+        response_data.setdefault('upvotes', 0); response_data.setdefault('downvotes', 0); response_data.setdefault('reply_count', 0); response_data.setdefault('favorite_count', 0)
         response_data['viewer_vote_type'] = None
         response_data['viewer_has_favorited'] = False
 
         return schemas.PostDisplay(**response_data)
 
+    # ... (keep existing error handling) ...
     except HTTPException as http_exc:
         if conn: conn.rollback()
-        # Cleanup any MinIO files uploaded before the error
         for obj_name in minio_objects_created: delete_from_minio(obj_name)
         raise http_exc
+    except psycopg2.Error as db_err:
+        if conn: conn.rollback()
+        for obj_name in minio_objects_created: delete_from_minio(obj_name)
+        print(f"❌ DB Error creating post: {db_err} (Code: {db_err.pgcode})")
+        raise HTTPException(status_code=500, detail=f"Database error: {db_err.pgerror}")
     except Exception as e:
         if conn: conn.rollback()
         for obj_name in minio_objects_created: delete_from_minio(obj_name)
@@ -159,8 +199,48 @@ async def get_posts(
     finally:
         if conn: conn.close()
 
-# --- GET /trending (Keep as is, assuming get_trending_posts_db exists or uses get_posts_db) ---
-# @router.get("/trending", ...)
+# --- Placeholder for /trending ---
+@router.get("/trending", response_model=List[schemas.PostDisplay])
+async def get_trending_posts(
+        current_user_id: Optional[int] = Depends(auth.get_current_user_optional),
+        limit: int = 20, # Add optional limit/offset if needed
+        offset: int = 0
+):
+    """
+    [PLACEHOLDER] Fetches trending posts based on recent activity.
+    Current implementation returns an empty list.
+    """
+    print("WARN: /posts/trending endpoint is a placeholder and not implemented.")
+    # TODO: Implement actual trending logic.
+    # This might involve:
+    # 1. A complex SQL query ranking posts by recent votes, replies, favorites within a time window.
+    # 2. A complex Cypher query finding posts with high recent engagement.
+    # 3. Using a separate analytics system or pre-calculated scores.
+
+    # --- Placeholder Logic ---
+    conn = None
+    try:
+        # Example: Fetching recent posts as a temporary placeholder (NOT actual trending)
+        # conn = get_db_connection(); cursor = conn.cursor()
+        # posts_db = crud.get_posts_db(cursor, limit=limit, offset=offset) # Just get latest
+        # processed_posts = []
+        # for post in posts_db:
+        #     # ... (process post data like in GET /posts) ...
+        #     processed_posts.append(schemas.PostDisplay(**post_data))
+        # return processed_posts
+
+        # Return empty list for now
+        return []
+
+    except Exception as e:
+        print(f"❌ Error in (placeholder) /posts/trending: {e}")
+        traceback.print_exc()
+        # Return empty list on error for now, or raise 500
+        # raise HTTPException(status_code=500, detail="Error fetching trending posts")
+        return []
+    finally:
+        if conn: conn.close()
+# --- End Placeholder ---
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
@@ -217,6 +297,82 @@ async def delete_post(
     finally:
         if conn: conn.close()
 
+@router.get("/{post_id}", response_model=schemas.PostDisplay)
+async def get_post_details(
+        post_id: int,
+        current_user_id: Optional[int] = Depends(auth.get_current_user_optional)
+):
+    """ Fetches details for a specific post, including media and counts. """
+    conn = None
+    try:
+        conn = get_db_connection(); cursor = conn.cursor()
+
+        # Fetch relational post data
+        post_relational = crud.get_post_by_id(cursor, post_id)
+        if not post_relational:
+            raise HTTPException(status_code=404, detail="Post not found")
+
+        post_data = dict(post_relational)
+
+        # Fetch author info
+        author_info = crud.get_user_by_id(cursor, post_data['user_id'])
+        if author_info:
+            post_data['author_name'] = author_info.get('username')
+            post_data['author_avatar_url'] = utils.get_minio_url(author_info.get('image_path'))
+        else:
+            post_data['author_name'] = "Unknown"; post_data['author_avatar_url'] = None
+
+        # Fetch community info (if linked)
+        # Need a way to know if it's linked. Query community_posts or graph edge?
+        # Let's assume graph edge is preferred now
+        # Fetch community info (if linked) using graph
+        comm_id = None; comm_name = None
+        try:
+            cypher_q_comm = f"MATCH (c:Community)-[:HAS_POST]->(:Post {{id: {post_id}}}) RETURN c.id as id, c.name as name LIMIT 1"
+            expected_comm = [('id', 'agtype'), ('name', 'agtype')] # Define expected
+            comm_res = crud.execute_cypher(cursor, cypher_q_comm, fetch_one=True, expected_columns=expected_comm)
+            if comm_res and isinstance(comm_res, dict):
+                comm_id = comm_res.get('id'); comm_name = comm_res.get('name')
+        except Exception as e: print(f"WARN: Failed fetching community link for P:{post_id}: {e}")
+        post_data['community_id'] = comm_id
+        post_data['community_name'] = comm_name
+
+
+
+        # Fetch graph counts
+        try: counts = crud.get_post_counts(cursor, post_id); post_data.update(counts)
+        except Exception as e: print(f"WARN: Failed getting counts P:{post_id}: {e}"); post_data.update({"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0})
+
+        # Fetch media items
+        try:
+            media_items = crud.get_media_items_for_post(cursor, post_id)
+            print(f"DEBUG GET /posts/{post_id}: Fetched {len(media_items)} media items from DB.") # Log count
+            post_data['media'] = [ {**item, 'url': utils.get_minio_url(item.get('minio_object_name'))} for item in media_items ]
+            print(f"DEBUG GET /posts/{post_id}: Processed media data: {post_data['media']}") # Log processed data
+        except Exception as e:
+            print(f"WARN: Failed getting media P:{post_id}: {e}")
+            post_data['media'] = [] # Ensure it's an empty list on error
+
+        # Fetch viewer status
+        viewer_vote = None; is_favorited = False
+        if current_user_id is not None:
+            try: viewer_vote = crud.get_viewer_vote_status(cursor, current_user_id, post_id=post_id)
+            except Exception as e: print(f"WARN: vote status check failed: {e}")
+            try: is_favorited = crud.get_viewer_favorite_status(cursor, current_user_id, post_id=post_id)
+            except Exception as e: print(f"WARN: fav status check failed: {e}")
+        post_data['viewer_vote_type'] = 'UP' if viewer_vote is True else ('DOWN' if viewer_vote is False else None)
+        post_data['viewer_has_favorited'] = is_favorited
+
+        # Ensure necessary defaults if counts failed
+        post_data.setdefault('upvotes', 0); post_data.setdefault('downvotes', 0); post_data.setdefault('reply_count', 0); post_data.setdefault('favorite_count', 0)
+
+        return schemas.PostDisplay(**post_data)
+
+    except HTTPException as http_exc: raise http_exc
+    except psycopg2.Error as db_err: print(f"DB Error GET /posts/{post_id}: {db_err}"); raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e: print(f"Error GET /posts/{post_id}: {e}"); traceback.print_exc(); raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        if conn: conn.close()
 
 # --- NEW: Favorite/Unfavorite Endpoints ---
 

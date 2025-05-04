@@ -3,7 +3,7 @@ import psycopg2
 import psycopg2.extras
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-
+from .. import utils
 # No graph imports needed
 
 # =========================================

@@ -70,13 +70,10 @@ def remove_favorite_db(
         DELETE r
         RETURN count(r) as deleted_count
     """
+    expected = [('deleted_count', 'agtype')] # Define expected column
     try:
-        print(f"CRUD: Removing favorite (U:{user_id} -> {target_label}:{target_id})...")
-        result_agtype = execute_cypher(cursor, cypher_q, fetch_one=True)
-        if result_agtype is None:
-             print(f"CRUD: Favorite edge not found for removal.")
-             return False # Edge didn't exist
-        result_map = utils.parse_agtype(result_agtype)
+        # ... (execute_cypher with expected_columns) ...
+        result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected) # Use map directly
         deleted_count = int(result_map.get('deleted_count', 0)) if isinstance(result_map, dict) else 0
         print(f"CRUD: Favorite removal result - Deleted count: {deleted_count}")
         return deleted_count > 0 # True if count is 1
@@ -91,11 +88,11 @@ def get_viewer_favorite_status(cursor, viewer_id: int, post_id: Optional[int] = 
     if target_id is None: return False
 
     # Use MATCH and check if a result exists
-    cypher_fav = f"MATCH (:User {{id:{viewer_id}}})-[:FAVORITED]->(target:{target_label} {{id:{target_id}}}) RETURN target.id"
+    cypher_fav = f"MATCH (:User {{id:{viewer_id}}})-[:FAVORITED]->(target:{target_label} {{id:{target_id}}}) RETURN target.id as tid"
+    expected = [('tid', 'agtype')] # Define expected column
     try:
-        fav_res = execute_cypher(cursor, cypher_fav, fetch_one=True)
-        # If the MATCH succeeds and returns the target ID, the edge exists
-        return fav_res is not None
+        fav_res = execute_cypher(cursor, cypher_fav, fetch_one=True, expected_columns=expected)
+        return fav_res is not None and fav_res.get('tid') is not None # Check parsed dict value
     except Exception as e:
         print(f"Error checking favorite status V:{viewer_id} -> {target_label}:{target_id} : {e}")
         return False

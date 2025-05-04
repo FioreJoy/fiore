@@ -61,7 +61,7 @@ def create_event_db(
     print(f"CRUD: :CREATED edge created for event {event_id}.")
 
     # 4. Add creator as participant (:PARTICIPATED_IN edge)
-    joined_at_quoted = quote_cypher_string(created_at) # Use creation time as join time
+    joined_at_quoted = utils.quote_cypher_string(created_at) # Ensure utils. prefix
     cypher_q_participated = f"""
         MATCH (u:User {{id: {creator_id}}})
         MATCH (e:Event {{id: {event_id}}})
@@ -100,7 +100,7 @@ def get_event_participants_graph(cursor: psycopg2.extensions.cursor, event_id: i
         LIMIT {limit}
     """
     try:
-        results_agtype = execute_cypher(cursor, cypher_q, fetch_all=True)
+        results_agtype = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected)
         # Results are list of maps like {'id': 1, 'username': 'x', ...}
         return results_agtype if isinstance(results_agtype, list) else []
     except Exception as e:
@@ -110,22 +110,22 @@ def get_event_participants_graph(cursor: psycopg2.extensions.cursor, event_id: i
 
 # --- Fetch event participant count from graph ---
 def get_event_participant_count(cursor: psycopg2.extensions.cursor, event_id: int) -> int:
-    """Fetches participant count for an event from AGE graph by counting results."""
-    cypher_q = f"MATCH (p:User)-[:PARTICIPATED_IN]->(e:Event {{id: {event_id}}}) RETURN p.id"
+    cypher_q = f"MATCH (p:User)-[:PARTICIPATED_IN]->(e:Event {{id: {event_id}}}) RETURN count(p) as p_count"
+    expected = [('p_count', 'agtype')]
     try:
-        results = execute_cypher(cursor, cypher_q, fetch_all=True)
-        return len(results) if results else 0
-    except Exception as e:
-        print(f"Warning: Failed getting participant count for event {event_id}: {e}")
-        return 0
+        result = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected)
+        return int(result.get('p_count', 0)) if result else 0
+    except Exception as e: print(f"Warning: Failed getting participant count for event {event_id}: {e}"); return 0
 
-# --- NEW: Check participation status ---
 def check_is_participating(cursor: psycopg2.extensions.cursor, viewer_id: int, event_id: int) -> bool:
     """Checks if viewer is participating in event using graph."""
-    cypher_q = f"MATCH (viewer:User {{id: {viewer_id}}})-[:PARTICIPATED_IN]->(event:Event {{id: {event_id}}}) RETURN viewer.id"
+    cypher_q = f"MATCH (viewer:User {{id: {viewer_id}}})-[:PARTICIPATED_IN]->(event:Event {{id: {event_id}}}) RETURN viewer.id as vid"
+    expected = [('vid', 'agtype')] # Defined
     try:
-        result = execute_cypher(cursor, cypher_q, fetch_one=True)
-        return result is not None
+        # --- FIX: Add expected_columns argument ---
+        result = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected)
+        # --- End Fix ---
+        return result is not None and result.get('vid') is not None
     except Exception as e:
         print(f"Error checking participation status (U:{viewer_id}-E:{event_id}): {e}")
         return False
@@ -133,7 +133,7 @@ def check_is_participating(cursor: psycopg2.extensions.cursor, viewer_id: int, e
 # --- Fetch event details including participant count ---
 def get_event_details_db(cursor: psycopg2.extensions.cursor, event_id: int) -> Optional[Dict[str, Any]]:
     # ... fetch relational data ...
-    event_relational = crud.get_event_by_id(cursor, event_id) # Use crud prefix if needed
+    event_relational = get_event_by_id(cursor, event_id) # Use crud prefix if needed
     if not event_relational: return None
     # ... call FIXED get_event_participant_count ...
     participant_count = get_event_participant_count(cursor, event_id) # Direct call within module
@@ -244,7 +244,7 @@ def join_event_db(cursor: psycopg2.extensions.cursor, event_id: int, user_id: in
     """Creates :PARTICIPATED_IN edge, checking capacity first."""
     try:
         # 1. Check Capacity (use the combined details function)
-        event_details = crud.get_event_details_db(cursor, event_id) # Use crud. prefix
+        event_details = get_event_details_db(cursor, event_id) # Use crud. prefix
         if not event_details: raise ValueError(f"Event {event_id} not found.")
         current_participants = event_details.get('participant_count', 0)
         max_p = event_details.get('max_participants', 0)

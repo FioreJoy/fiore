@@ -1,8 +1,9 @@
 # backend/src/routers/replies.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Form, File, UploadFile
 from typing import List, Optional, Dict, Any # Added Dict, Any
 import psycopg2
+import traceback # Ensure import
 
 # Use the central crud import
 from .. import schemas, crud, auth, utils
@@ -17,69 +18,91 @@ router = APIRouter(
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=schemas.ReplyDisplay)
 async def create_reply(
-        reply_data: schemas.ReplyCreate, # Input: post_id, content, parent_reply_id?
-        current_user_id: int = Depends(auth.get_current_user) # Require auth to reply
+        # Change parameters to use Form and File
+        current_user_id: int = Depends(auth.get_current_user),
+        post_id: int = Form(...),
+        content: str = Form(...),
+        parent_reply_id: Optional[int] = Form(None),
+        files: List[UploadFile] = File(default=[]) # Accept files
 ):
-    """ Creates a new reply (relational + graph). """
+    """ Creates a new reply (relational + graph) with optional media. """
     conn = None
     reply_id = None
+    media_ids_created = []
+    minio_objects_created = []
     try:
         conn = get_db_connection(); cursor = conn.cursor()
         # Call the combined create function (relational + graph)
         reply_id = crud.create_reply_db( # Use crud prefix
-            cursor,
-            post_id=reply_data.post_id,
-            user_id=current_user_id,
-            content=reply_data.content,
-            parent_reply_id=reply_data.parent_reply_id
+            cursor, post_id=post_id, user_id=current_user_id,
+            content=content, parent_reply_id=parent_reply_id
         )
-        if reply_id is None:
-            raise HTTPException(status_code=500, detail="Reply creation failed in database")
+        if reply_id is None: raise HTTPException(status_code=500, detail="Reply base creation failed")
 
-        # Fetch created reply details (including counts and author info) for response
-        # We need a way to get a single reply with augmented data
-        # Let's modify get_replies_for_post_db slightly or create get_reply_details_db
-        # For now, fetch using the list method and filter (less efficient)
-        all_replies_augmented = crud.get_replies_for_post_db(cursor, reply_data.post_id)
-        created_reply_details = next((r for r in all_replies_augmented if r['id'] == reply_id), None)
+        # Link Media (similar to posts)
+        for file in files:
+            if file and file.filename:
+                object_name_prefix = f"media/replies/{reply_id}" # Path for reply media
+                upload_info = await utils.upload_file_to_minio(file, object_name_prefix)
+                if upload_info:
+                    minio_objects_created.append(upload_info['minio_object_name'])
+                    media_id = crud.create_media_item(cursor, uploader_user_id=current_user_id, **upload_info)
+                    if media_id:
+                        media_ids_created.append(media_id)
+                        crud.link_media_to_reply(cursor, reply_id, media_id) # Use correct linking function
+                    else: print(f"WARN: Failed media_item record for reply {reply_id}")
+                else: print(f"WARN: Failed upload for reply {reply_id}")
 
-        if not created_reply_details:
-            conn.rollback() # Rollback if we can't fetch back the created reply
-            print(f"Warning: Could not fetch back details for created reply {reply_id}")
-            raise HTTPException(status_code=500, detail="Could not retrieve created reply details")
+        # Fetch created reply details (needs adaptation or new function)
+        # Fetch relational
+        created_reply_relational = crud.get_reply_by_id(cursor, reply_id)
+        if not created_reply_relational: raise HTTPException(status_code=500, detail="Could not retrieve created reply")
+        created_reply_data = dict(created_reply_relational)
+        # Fetch author
+        author_info = crud.get_user_by_id(cursor, created_reply_data['user_id'])
+        if author_info: created_reply_data['author_name']=author_info.get('username'); created_reply_data['author_avatar'] = author_info.get('image_path')
+        else: created_reply_data['author_name'] = "Unknown"; created_reply_data['author_avatar'] = None
+        # Fetch counts
+        try: counts = crud.get_reply_counts(cursor, reply_id); created_reply_data.update(counts)
+        except Exception as e: print(f"WARN: Failed counts R:{reply_id}: {e}"); created_reply_data.update({"upvotes": 0, "downvotes": 0, "favorite_count": 0})
+        # Fetch media
+        try: media_items = crud.get_media_items_for_reply(cursor, reply_id); created_reply_data['media'] = media_items
+        except Exception as e: print(f"WARN: Failed media R:{reply_id}: {e}"); created_reply_data['media'] = []
 
-        conn.commit() # Commit successful creation and fetch
+        conn.commit()
 
         # Prepare response
-        response_data = dict(created_reply_details)
-        # Generate author avatar URL
-        response_data['author_avatar_url'] = get_minio_url(response_data.get('author_avatar'))
-        # Add initial user vote/favorite status (will be false/null)
-        response_data['has_upvoted'] = False
-        response_data['has_downvoted'] = False
-        response_data['is_favorited'] = False
+        response_data = created_reply_data
+        response_data['author_avatar_url'] = utils.get_minio_url(response_data.get('author_avatar'))
+        response_data['media'] = [ {**item, 'url': utils.get_minio_url(item.get('minio_object_name'))} for item in response_data.get('media', []) ]
+        response_data['viewer_vote_type'] = None; response_data['viewer_has_favorited'] = False
+        # Ensure defaults for counts
+        response_data.setdefault('upvotes', 0); response_data.setdefault('downvotes', 0); response_data.setdefault('favorite_count', 0)
 
-        print(f"✅ Reply {reply_id} created by User {current_user_id} for Post {reply_data.post_id}")
-        return schemas.ReplyDisplay(**response_data) # Validate against schema
+        print(f"✅ Reply {reply_id} created by User {current_user_id} for Post {post_id}")
+        return schemas.ReplyDisplay(**response_data)
 
+    # ... (Error Handling - Adapt from create_post) ...
+    except HTTPException as http_exc:
+        if conn: conn.rollback();
+        for obj in minio_objects_created: delete_from_minio(obj)
+        raise http_exc
     except psycopg2.Error as e:
-        if conn: conn.rollback()
+        if conn: conn.rollback();
+        for obj in minio_objects_created: delete_from_minio(obj)
         print(f"❌ DB Error creating reply: {e} (Code: {e.pgcode})")
         detail = f"Database error: {e.pgerror}"
-        if e.pgcode == '23503': # Foreign key violation likely on post_id or parent_reply_id
-            detail = "Invalid post_id or parent_reply_id provided."
+        if e.pgcode == '23503': detail = "Invalid post_id or parent_reply_id provided."
         raise HTTPException(status_code=400, detail=detail)
-    except HTTPException as http_exc:
-        if conn: conn.rollback() # Rollback if validation inside endpoint fails
-        raise http_exc
     except Exception as e:
-        if conn: conn.rollback()
+        if conn: conn.rollback();
+        for obj in minio_objects_created: delete_from_minio(obj)
         print(f"❌ Unexpected Error creating reply: {e}")
-        import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn: conn.close()
+
 
 
 @router.get("/{post_id}", response_model=List[schemas.ReplyDisplay])
@@ -91,43 +114,64 @@ async def get_replies_for_post(
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # This fetch includes counts now
         replies_db = crud.get_replies_for_post_db(cursor, post_id)
 
         processed_replies = []
         for reply in replies_db:
             reply_data = dict(reply)
-            reply_data['author_avatar_url'] = utils.get_minio_url(reply.get('author_avatar'))
+            reply_id = reply_data['id'] # Get reply ID
+
+            # Generate author avatar URL
+            author_avatar_path = reply.get('author_avatar')
+            reply_data['author_avatar_url'] = utils.get_minio_url(author_avatar_path)
+
+            # --- Fetch and Attach Media ---
+            try:
+                media_items = crud.get_media_items_for_reply(cursor, reply_id) # Use the correct getter
+                reply_data['media'] = [ {**item, 'url': utils.get_minio_url(item.get('minio_object_name'))} for item in media_items ]
+                print(f"DEBUG GET /replies/{post_id}: Fetched {len(media_items)} media for reply {reply_id}") # Log
+            except Exception as e:
+                print(f"WARN: Failed fetching media for reply {reply_id}: {e}")
+                reply_data['media'] = [] # Ensure 'media' key exists as empty list
+            # --- End Fetch Media ---
+
 
             # Get viewer status using CRUD functions if authenticated
-            viewer_vote = None
-            is_favorited = False
+            # ... (keep existing vote/favorite status check logic) ...
+            viewer_vote = None; is_favorited = False
             if current_user_id is not None:
-                reply_id = reply_data['id']
-                # **** USE CRUD FUNCTIONS ****
-                viewer_vote = crud.get_viewer_vote_status(cursor, current_user_id, post_id=None, reply_id=reply_id) # Pass post_id=None
-                is_favorited = crud.get_viewer_favorite_status(cursor, current_user_id, post_id=None, reply_id=reply_id) # Pass post_id=None
-                # **************************
-
+                try: viewer_vote = crud.get_viewer_vote_status(cursor, current_user_id, post_id=None, reply_id=reply_id)
+                except Exception as vote_err: print(f"WARN: Failed vote status R:{reply_id} U:{current_user_id}: {vote_err}")
+                try: is_favorited = crud.get_viewer_favorite_status(cursor, current_user_id, post_id=None, reply_id=reply_id)
+                except Exception as fav_err: print(f"WARN: Failed fav status R:{reply_id} U:{current_user_id}: {fav_err}")
             reply_data['viewer_vote_type'] = 'UP' if viewer_vote is True else ('DOWN' if viewer_vote is False else None)
             reply_data['viewer_has_favorited'] = is_favorited
-            # Ensure schema has this field:
-            # reply_data.setdefault('is_favorited', is_favorited)
 
 
-            processed_replies.append(schemas.ReplyDisplay(**reply_data))
+            # Add defaults for counts if potentially missing
+            reply_data.setdefault('upvotes', 0); reply_data.setdefault('downvotes', 0); reply_data.setdefault('favorite_count', 0)
+            # Ensure media key exists even if fetch failed
+            reply_data.setdefault('media', [])
+
+
+            try:
+                processed_replies.append(schemas.ReplyDisplay(**reply_data))
+            except Exception as pydantic_err:
+                print(f"ERROR: Pydantic validation failed for reply {reply_data.get('id', 'N/A')} in post {post_id}: {pydantic_err}")
+                print(f"      Data: {reply_data}")
+
 
         print(f"✅ Fetched {len(processed_replies)} replies for post {post_id}")
         return processed_replies
-    # ... (keep existing error handling) ...
+    except psycopg2.Error as db_err:
+        print(f"DB Error GET /replies/{post_id}: {db_err}")
+        raise HTTPException(status_code=500, detail="Database error fetching replies")
     except Exception as e:
         print(f"❌ Error fetching replies for post {post_id}: {e}")
-        import traceback
-        traceback.print_exc()
+        traceback.print_exc() # Ensure traceback is imported
         raise HTTPException(status_code=500, detail="Error fetching replies")
     finally:
         if conn: conn.close()
-
 
 @router.delete("/{reply_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_reply(

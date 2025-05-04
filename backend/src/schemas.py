@@ -30,6 +30,19 @@ class TokenData(BaseModel): # For decoding token payload & login response
     user_id: int
     image_url: Optional[str] = None # Include image URL on login/signup
 
+class MediaItemDisplay(BaseModel):
+    id: int
+    url: Optional[str] # Pre-signed URL from MinIO
+    mime_type: str
+    file_size_bytes: Optional[int] = None
+    original_filename: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration_seconds: Optional[float] = None
+    created_at: datetime
+
+    class Config: from_attributes = True
+
 # --- User Schemas ---
 class UserBase(BaseModel):
     name: str
@@ -90,6 +103,7 @@ class PostDisplay(PostBase):
     reply_count: int = 0
     community_id: Optional[int] = None
     community_name: Optional[str] = None
+    media: Optional[List[MediaItemDisplay]] = [] # Default to empty list
 
     class Config:
         from_attributes = True
@@ -113,8 +127,10 @@ class ReplyDisplay(ReplyBase):
     author_avatar_url: Optional[str] = None # Full URL for author's avatar
     upvotes: int = 0
     downvotes: int = 0
+    media: Optional[List[MediaItemDisplay]] = [] # Default to empty list
 
-    class Config:
+
+class Config:
         from_attributes = True
 
 
@@ -220,6 +236,7 @@ class ChatMessageData(BaseModel): # Structure for WS broadcast & HTTP GET respon
     username: str # Include username for display convenience
     content: str
     timestamp: datetime
+    media: Optional[List[MediaItemDisplay]] = [] # Default to empty list
 
     class Config:
         from_attributes = True
@@ -276,15 +293,12 @@ class BlockedUserDisplay(BaseModel):
         from_attributes = True # Pydantic v2
         # orm_mode = True # Pydantic v1
 
-class MediaItemDisplay(BaseModel):
-    id: int
-    url: Optional[str] # Pre-signed URL from MinIO
-    mime_type: str
-    file_size_bytes: Optional[int] = None
-    original_filename: Optional[str] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
-    duration_seconds: Optional[float] = None
-    created_at: datetime
+class BlockedUserDisplay(BaseModel):
+    blocked_id: int
+    blocked_at: datetime
+    blocked_username: str
+    blocked_name: Optional[str] = None
+    blocked_user_avatar_url: Optional[str] = None # Ensure it's Optional
 
     class Config: from_attributes = True
+

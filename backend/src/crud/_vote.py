@@ -72,13 +72,10 @@ def remove_vote_db(
         DELETE r
         RETURN count(r) as deleted_count
     """
+    expected = [('deleted_count', 'agtype')] # Define expected column
     try:
-        print(f"CRUD: Removing vote (U:{user_id} -> {target_label}:{target_id})...")
-        result_agtype = execute_cypher(cursor, cypher_q, fetch_one=True)
-        if result_agtype is None:
-             print(f"CRUD: Vote edge not found for removal.")
-             return False # Edge didn't exist
-        result_map = utils.parse_agtype(result_agtype)
+        # ... (execute_cypher with expected_columns) ...
+        result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected) # Use map directly
         deleted_count = int(result_map.get('deleted_count', 0)) if isinstance(result_map, dict) else 0
         print(f"CRUD: Vote removal result - Deleted count: {deleted_count}")
         return deleted_count > 0 # True if count is 1
@@ -93,22 +90,17 @@ def get_viewer_vote_status(cursor, viewer_id: int, post_id: Optional[int] = None
     if target_id is None: return None
 
     cypher_vote = f"MATCH (:User {{id:{viewer_id}}})-[r:VOTED]->(:{target_label} {{id:{target_id}}}) RETURN r.vote_type as vt"
+    expected = [('vt', 'agtype')] # Define expected column
     try:
-        vote_res_agtype = execute_cypher(cursor, cypher_vote, fetch_one=True)
-        # Parse the result *here* in CRUD
-        parsed_res = utils.parse_agtype(vote_res_agtype) # Use the helper
-
+        parsed_res = execute_cypher(cursor, cypher_vote, fetch_one=True, expected_columns=expected) # Use map directly
         if isinstance(parsed_res, dict) and 'vt' in parsed_res:
-            # AGE might return bool directly or string 'true'/'false' in map
-            vote_val = parsed_res['vt']
+            # ... (handle boolean/string parsing) ...
+            vote_val = parsed_res['vt']; # Access value from key
             if isinstance(vote_val, bool): return vote_val
             if isinstance(vote_val, str): return vote_val.lower() == 'true'
-            return None # Unexpected type in map
-        elif isinstance(parsed_res, bool): # Handle direct boolean return from AGE/parse_agtype
-            return parsed_res
-        return None # No vote found or unexpected format
-    except Exception as e:
-        print(f"Error checking vote status V:{viewer_id} -> {target_label}:{target_id} : {e}")
-        return None
+            return None
+        return None # Not found or wrong format
+    except Exception as e: print(f"Error checking vote status (...): {e}"); return None
+
 # Note: Getting vote counts is handled by get_post_counts and get_reply_counts
 # in their respective files (_post.py, _reply.py)

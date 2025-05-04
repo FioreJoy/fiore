@@ -9,7 +9,7 @@ from .database import get_db_connection
 # Import graph helpers if needed directly (usually called by crud)
 from .crud._graph import execute_cypher
 # Import GQL Types
-from .gql_types import UserType, CommunityType, PostType, ReplyType, EventType, LocationType
+from .gql_types import UserType, CommunityType, PostType, ReplyType, EventType, LocationType, MediaItemDisplay
 
 # ===========================================
 # === Mapping Helper Functions FIRST ===
@@ -88,15 +88,21 @@ def map_db_event_to_gql_event(db_event: Optional[Dict[str, Any]], viewer_id: Opt
 
 def get_viewer_status_for_item(cursor, viewer_id: int, item_id: int, item_label: str) -> Dict[str, Any]:
     """Fetches viewer's vote and favorite status for a Post or Reply."""
-    # No changes needed here if called correctly
     status = {'vote_type': None, 'is_favorited': False}
     if not viewer_id: return status
+
+    # Determine post_id and reply_id based on item_label
+    post_id_arg = item_id if item_label == 'Post' else None
+    reply_id_arg = item_id if item_label == 'Reply' else None
+
     try: # Wrap DB calls
-        vote_status = crud.get_viewer_vote_status(cursor, viewer_id, post_id if item_label == 'Post' else None, reply_id if item_label == 'Reply' else None)
+        # Use the correct arguments for the CRUD function
+        vote_status = crud.get_viewer_vote_status(cursor, viewer_id, post_id=post_id_arg, reply_id=reply_id_arg)
         status['vote_type'] = 'UP' if vote_status is True else ('DOWN' if vote_status is False else None)
     except Exception as e: print(f"Warning: Failed getting viewer vote status for {item_label} {item_id}: {e}")
     try:
-        status['is_favorited'] = crud.get_viewer_favorite_status(cursor, viewer_id, post_id if item_label == 'Post' else None, reply_id if item_label == 'Reply' else None)
+        # Use the correct arguments for the CRUD function
+        status['is_favorited'] = crud.get_viewer_favorite_status(cursor, viewer_id, post_id=post_id_arg, reply_id=reply_id_arg)
     except Exception as e: print(f"Warning: Failed getting viewer favorite status for {item_label} {item_id}: {e}")
     return status
 
@@ -139,41 +145,68 @@ async def get_viewer(info: strawberry.Info) -> Optional[UserType]:
     return await get_user_resolver(info, strawberry.ID(str(viewer_id)))
 
 # --- Post Resolvers ---
-async def get_posts_resolver(
-        info: strawberry.Info, community_id: Optional[int] = None, user_id: Optional[int] = None,
-        limit: int = 20, offset: int = 0, viewer_id_if_different: Optional[int] = None
-) -> List[PostType]:
-    # ... (implementation uses map_db_post_to_gql_post, map_db_user_to_gql_user, map_db_community_to_gql_community, get_viewer_status_for_item) ...
-    # Ensure mappers are defined above
-    print(f"GraphQL Resolver: get_posts (Comm: {community_id}, User: {user_id}, Limit: {limit}, Offset: {offset})")
+async def get_post_resolver(info: strawberry.Info, id: strawberry.ID) -> Optional[PostType]:
+    """ Resolver to fetch a single post by ID. """
+    print(f"GraphQL Resolver: get_post(id={id})")
     conn = None
-    viewer_id: Optional[int] = info.context.get("user_id") if viewer_id_if_different is None else viewer_id_if_different
+    viewer_id: Optional[int] = info.context.get("user_id")
     try:
+        post_id_int = int(id)
         conn = get_db_connection(); cursor = conn.cursor()
-        db_posts = crud.get_posts_db(cursor, community_id=community_id, user_id=user_id, limit=limit, offset=offset)
-        gql_posts: List[PostType] = []
-        for db_post_dict in db_posts:
-            gql_post = map_db_post_to_gql_post(db_post_dict, viewer_id) # CALL MAPPER
-            if gql_post:
-                post_id_int = int(gql_post.id)
-                # Fetch Author
-                db_author = crud.get_user_by_id(cursor, db_post_dict['user_id'])
-                gql_post.author = map_db_user_to_gql_user(db_author) # CALL MAPPER
 
-                # Fetch Community
-                db_community_id = db_post_dict.get('community_id')
-                if db_community_id:
-                    db_community = crud.get_community_by_id(cursor, db_community_id) # Fetch basic info
-                    gql_post.community = map_db_community_to_gql_community(db_community) # CALL MAPPER
+        # Fetch relational post data
+        db_post = crud.get_post_by_id(cursor, post_id_int)
+        if not db_post: return None
 
-                # Fetch Viewer Status
-                if viewer_id:
-                    status = get_viewer_status_for_item(cursor, viewer_id, post_id_int, 'Post')
-                    gql_post.viewer_vote_type = status['vote_type']
-                    gql_post.viewer_has_favorited = status['is_favorited']
-                gql_posts.append(gql_post)
-        return gql_posts
-    except Exception as e: print(f"GraphQL Resolver Error fetching posts: {e}"); import traceback; traceback.print_exc(); return []
+        gql_post = map_db_post_to_gql_post(db_post, viewer_id) # Use existing mapper
+        if not gql_post: return None # Mapper should handle basic mapping
+
+        # Augment with Author, Community, Media, Counts, Viewer Status
+        # (Similar logic as in GET /posts/{post_id} REST endpoint)
+
+        # Author
+        db_author = crud.get_user_by_id(cursor, db_post['user_id'])
+        gql_post.author = map_db_user_to_gql_user(db_author)
+
+        # Community
+        # Community
+        comm_id = None; comm_name = None # Placeholder
+        try: # Check graph edge for community link
+            cypher_q_comm = f"MATCH (c:Community)-[:HAS_POST]->(:Post {{id: {post_id_int}}}) RETURN c.id as id LIMIT 1"
+            # --- FIX: Add expected_columns ---
+            expected_comm_link = [('id', 'agtype')]
+            comm_res = execute_cypher(cursor, cypher_q_comm, fetch_one=True, expected_columns=expected_comm_link)
+            # --- End Fix ---
+            if comm_res and isinstance(comm_res, dict): comm_id = comm_res.get('id')
+        except Exception as e: print(f"WARN GQL: Failed fetching comm link P:{post_id_int}: {e}")
+        if comm_id:
+            db_community = crud.get_community_by_id(cursor, comm_id)
+            gql_post.community = map_db_community_to_gql_community(db_community)
+
+        # Media
+        try:
+            db_media = crud.get_media_items_for_post(cursor, post_id_int)
+            # Map DB media to GQL MediaItemDisplay (needs mapper or inline logic)
+            gql_post.media = [
+                MediaItemDisplay(id=str(m['id']), url=m.get('url'), mime_type=m['mime_type'])
+                for m in db_media
+            ]
+        except Exception as e: print(f"WARN GQL: Failed getting media P:{post_id_int}: {e}"); gql_post.media = []
+
+
+        # Viewer Status (Vote/Favorite) - Re-fetch counts too
+        try: counts = crud.get_post_counts(cursor, post_id_int); gql_post.reply_count=counts.get('reply_count',0); gql_post.upvotes=counts.get('upvotes',0); gql_post.downvotes=counts.get('downvotes',0); gql_post.favorite_count=counts.get('favorite_count',0)
+        except Exception as e: print(f"WARN GQL: Failed counts P:{post_id_int}: {e}")
+
+        if viewer_id:
+            status = get_viewer_status_for_item(cursor, viewer_id, post_id_int, 'Post') # Use helper
+            gql_post.viewer_vote_type = status['vote_type']
+            gql_post.viewer_has_favorited = status['is_favorited']
+
+        return gql_post
+
+    except ValueError: return None # Invalid ID format
+    except Exception as e: print(f"Error in get_post resolver: {e}"); traceback.print_exc(); return None
     finally:
         if conn: conn.close()
 

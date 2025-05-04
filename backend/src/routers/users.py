@@ -7,7 +7,7 @@ from datetime import datetime, timezone # Ensure datetime is imported if used di
 import jwt # For optional auth dependency decoding if needed
 
 # Use the central crud import AND import specific auth functions
-from .. import schemas, crud, utils
+from .. import schemas, crud, utils, auth, database
 from ..auth import get_current_user, get_current_user_optional # Specific imports for Depends
 from ..database import get_db_connection
 from ..utils import get_minio_url, parse_point_string
@@ -231,82 +231,91 @@ async def get_following_route(
 
 # --- GET /users/me/communities ---
 @router.get("/me/communities", response_model=List[schemas.CommunityDisplay])
-async def get_my_joined_communities(
-        current_user_id: int = Depends(get_current_user) # Use imported required auth
-):
+async def get_my_joined_communities(current_user_id: int = Depends(auth.get_current_user)):
     conn = None
     try:
         conn = get_db_connection(); cursor = conn.cursor()
-        # Gets basic community info user is member of from graph
         communities_basic_info = crud.get_user_joined_communities_graph(cursor, current_user_id, limit=500, offset=0)
-
         augmented_list = []
-        # Augment with full details and counts (N+1 issue)
         for comm_basic in communities_basic_info:
             if not isinstance(comm_basic, dict) or 'id' not in comm_basic: continue
             comm_id = comm_basic['id']
-            comm_details = None
-            try:
-                # Fetches relational details + graph counts for this community
+            try: # Wrap the fetching of details for each community
                 comm_details = crud.get_community_details_db(cursor, comm_id)
+                logo_media = crud.get_community_logo_media(cursor, comm_id) # Fetch logo info
+
+                if comm_details:
+                    response_data = dict(comm_details)
+                    loc = response_data.get('primary_location'); response_data['primary_location'] = str(loc) if loc else None
+                    response_data['logo_url'] = logo_media.get('url') if logo_media else None # Use fetched URL
+                    response_data['is_member_by_viewer'] = True
+                    # Add defaults for safety before validation
+                    response_data.setdefault('member_count', 0); response_data.setdefault('online_count', 0)
+
+                    try: # Wrap pydantic validation
+                        augmented_list.append(schemas.CommunityDisplay(**response_data))
+                    except Exception as pydantic_err:
+                        print(f"ERROR: Pydantic validation failed for comm {comm_id} in /me/communities: {pydantic_err}")
+                        print(f"      Data: {response_data}")
+                else:
+                    print(f"Warning: Community details not found for ID {comm_id} during /me/communities fetch.")
+
             except Exception as detail_err:
-                print(f"WARNING: Failed fetching details for community {comm_id} in /me/communities: {detail_err}")
-                # Continue to next community if details fail
-
-            if comm_details:
-                response_data = dict(comm_details)
-                loc = response_data.get('primary_location'); response_data['primary_location'] = str(loc) if loc else None
-                response_data['logo_url'] = utils.get_minio_url(response_data.get('logo_path'))
-                response_data['is_member_by_viewer'] = True # Always true for this endpoint
-                try:
-                    augmented_list.append(schemas.CommunityDisplay(**response_data)) # Validate
-                except Exception as pydantic_err:
-                    print(f"ERROR: Pydantic validation failed for community {comm_id}: {pydantic_err}")
-                    print(f"      Data: {response_data}")
-
+                print(f"WARNING: Failed processing community {comm_id} in /me/communities: {detail_err}")
+                # Continue to the next community
 
         return augmented_list
-    except Exception as e: print(f"Error GET /me/communities: {e}"); raise HTTPException(status_code=500, detail="Failed to fetch joined communities")
+    except psycopg2.Error as db_err: # Catch DB errors from the initial graph query
+        print(f"DB Error GET /me/communities for user {current_user_id}: {db_err}")
+        raise HTTPException(status_code=500, detail="Database error fetching joined communities")
+    except Exception as e: # Catch any other errors
+        print(f"Error GET /me/communities for user {current_user_id}: {e}")
+        import traceback; traceback.print_exc();
+        raise HTTPException(status_code=500, detail="Failed to fetch joined communities")
     finally:
         if conn: conn.close()
 
 
 # --- GET /users/me/events ---
 @router.get("/me/events", response_model=List[schemas.EventDisplay])
-async def get_my_joined_events(
-        current_user_id: int = Depends(get_current_user) # Use imported required auth
-):
+async def get_my_joined_events(current_user_id: int = Depends(auth.get_current_user)):
     conn = None
     try:
         conn = get_db_connection(); cursor = conn.cursor()
-        # Gets basic event info user participated in from graph
         events_basic_info = crud.get_user_participated_events_graph(cursor, current_user_id, limit=500, offset=0)
-
         events_list = []
-        # Augment with full details and counts (N+1 issue)
         for event_basic in events_basic_info:
             if not isinstance(event_basic, dict) or 'id' not in event_basic: continue
             event_id = event_basic['id']
-            event_details = None
-            try:
-                # Fetches relational details + participant count for this event
+            try: # Wrap detail fetching
                 event_details = crud.get_event_details_db(cursor, event_id)
-            except Exception as detail_err:
-                print(f"WARNING: Failed fetching details for event {event_id} in /me/events: {detail_err}")
+                if event_details:
+                    response_data = dict(event_details)
+                    response_data['is_participating_by_viewer'] = True
+                    # Add defaults for safety
+                    response_data.setdefault('participant_count', 0)
+                    # Image URL is already handled by get_event_details_db (assumed)
+                    response_data['image_url'] = utils.get_minio_url(response_data.get('image_url')) # Generate URL if path stored
 
-            if event_details:
-                response_data = dict(event_details)
-                response_data['is_participating_by_viewer'] = True # Always true for this endpoint
-                try:
-                    events_list.append(schemas.EventDisplay(**response_data)) # Validate
-                except Exception as pydantic_err:
-                    print(f"ERROR: Pydantic validation failed for event {event_id}: {pydantic_err}")
-                    print(f"      Data: {response_data}")
-            else:
-                print(f"Warning: Could not fetch full details for joined event {event_id}")
+                    try: # Wrap pydantic validation
+                        events_list.append(schemas.EventDisplay(**response_data))
+                    except Exception as pydantic_err:
+                        print(f"ERROR: Pydantic validation failed for event {event_id} in /me/events: {pydantic_err}")
+                        print(f"      Data: {response_data}")
+                else:
+                    print(f"Warning: Event details not found for ID {event_id} during /me/events fetch.")
+
+            except Exception as detail_err:
+                print(f"WARNING: Failed processing event {event_id} in /me/events: {detail_err}")
 
         return events_list
-    except Exception as e: print(f"Error GET /me/events: {e}"); raise HTTPException(status_code=500, detail="Failed to fetch joined events")
+    except psycopg2.Error as db_err: # Catch DB errors from the initial graph query
+        print(f"DB Error GET /me/events for user {current_user_id}: {db_err}")
+        raise HTTPException(status_code=500, detail="Database error fetching joined events")
+    except Exception as e: # Catch any other errors
+        print(f"Error GET /me/events for user {current_user_id}: {e}")
+        import traceback; traceback.print_exc();
+        raise HTTPException(status_code=500, detail="Failed to fetch joined events")
     finally:
         if conn: conn.close()
 

@@ -143,3 +143,42 @@ def delete_media_item(cursor: psycopg2.extensions.cursor, media_id: int) -> str 
      cursor.execute("DELETE FROM public.media_items WHERE id = %s RETURNING minio_object_name;", (media_id,))
      result = cursor.fetchone()
      return result['minio_object_name'] if result else None
+
+def get_media_items_for_reply(cursor: psycopg2.extensions.cursor, reply_id: int) -> List[Dict[str, Any]]:
+    cursor.execute(
+        """
+        SELECT mi.*, rm.display_order
+        FROM public.media_items mi
+        JOIN public.reply_media rm ON mi.id = rm.media_id
+        WHERE rm.reply_id = %s
+        ORDER BY rm.display_order ASC, mi.created_at ASC;
+        """,
+        (reply_id,)
+    )
+    items = cursor.fetchall()
+    results = []
+    for item in items:
+        item_dict = dict(item)
+        item_dict['url'] = utils.get_minio_url(item_dict.get('minio_object_name'))
+        results.append(item_dict)
+    return results
+
+def get_media_items_for_chat_message(cursor: psycopg2.extensions.cursor, message_id: int) -> List[Dict[str, Any]]:
+    # Assuming no display order for chat media for now
+    cursor.execute(
+        """
+        SELECT mi.*
+        FROM public.media_items mi
+        JOIN public.chat_message_media cmm ON mi.id = cmm.media_id
+        WHERE cmm.message_id = %s
+        ORDER BY mi.created_at ASC;
+        """,
+        (message_id,)
+    )
+    items = cursor.fetchall()
+    results = []
+    for item in items:
+        item_dict = dict(item)
+        item_dict['url'] = utils.get_minio_url(item_dict.get('minio_object_name'))
+        results.append(item_dict)
+    return results

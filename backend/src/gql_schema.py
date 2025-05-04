@@ -3,7 +3,7 @@ import strawberry
 from typing import Optional, List
 
 # Import GQL Types defined in gql_types.py
-from .gql_types import UserType, CommunityType, PostType, ReplyType, EventType
+from .gql_types import UserType, CommunityType, PostType, ReplyType, EventType,LocationType, PostType
 
 # Import Resolvers defined in gql_resolvers.py
 from . import gql_resolvers # Import the resolvers module
@@ -19,8 +19,12 @@ class Query:
         resolver=gql_resolvers.get_viewer, # Uses new resolver
         description="Fetch the profile of the currently authenticated user."
     )
+    post: Optional[PostType] = strawberry.field( # Add the singular post field
+        resolver=gql_resolvers.get_post_resolver,
+        description="Fetch a specific post by its ID."
+    )
     posts: List[PostType] = strawberry.field(
-        resolver=gql_resolvers.get_posts_resolver, # Renamed resolver
+        resolver=gql_resolvers.get_post_resolver, # Renamed resolver
         description="Fetch a list of posts, optionally filtered by community or user."
     )
     community: Optional[CommunityType] = strawberry.field(

@@ -8,5 +8,5 @@ class AppConstants {
   static const String appDescription = 'A social network for communities';
 
   // Default avatar URL
-  static const String defaultAvatar = 'https://ui-avatars.com/api/?name=User&background=5865F2&color=fff';
+  static const String defaultAvatar = 'https://irhliving.com/wp-content/uploads/2023/11/avatar-placeholder-.jpg';
 }

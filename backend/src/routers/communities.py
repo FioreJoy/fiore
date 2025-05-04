@@ -4,12 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile,
 from typing import List, Optional, Dict, Any # Added Dict, Any
 import psycopg2
 from datetime import datetime
-import os
+import traceback # Ensure import
+from .. import utils # Ensure import
+import uuid # <-- ADD IMPORT
 
 # Use the central crud import
 from .. import schemas, crud, auth, utils
 from ..database import get_db_connection
-from ..utils import upload_file_to_minio, get_minio_url, delete_from_minio
+#from ..utils import upload_file_to_minio, get_minio_url, delete_from_minio, delete_media_item_db_and_file
 
 # Import JWT for optional auth dependency
 import jwt
@@ -78,7 +80,7 @@ async def create_community(
         loc_point_str = response_data.get('primary_location')
         response_data['primary_location'] = str(loc_point_str) if loc_point_str else None # Send as string
         # Generate logo URL
-        response_data['logo_url'] = get_minio_url(response_data.get('logo_path'))
+        response_data['logo_url'] = utils.get_minio_url(response_data.get('logo_path'))
 
         print(f"✅ Community '{name}' (ID: {community_id}) created by User {current_user_id}")
         return schemas.CommunityDisplay(**response_data) # Validate
@@ -132,7 +134,7 @@ async def get_communities(
             # Format location and logo URL
             loc_point_str = comm_data.get('primary_location')
             comm_data['primary_location'] = str(loc_point_str) if loc_point_str else None
-            comm_data['logo_url'] = get_minio_url(comm_data.get('logo_path'))
+            comm_data['logo_url'] = utils.get_minio_url(comm_data.get('logo_path'))
 
             # TODO: Add user join status if authenticated
             # is_joined = False
@@ -169,7 +171,7 @@ async def get_trending_communities(
             data = dict(comm)
             loc_point_str = comm.get('primary_location')
             data['primary_location'] = str(loc_point_str) if loc_point_str else None
-            data['logo_url'] = get_minio_url(comm.get('logo_path'))
+            data['logo_url'] = utils.get_minio_url(comm.get('logo_path'))
             # Fetch graph online count (member_count is from the SQL query)
             try:
                 graph_counts = crud.get_community_counts(cursor, data['id'])
@@ -194,14 +196,13 @@ async def get_trending_communities(
 @router.get("/{community_id}/details", response_model=schemas.CommunityDisplay)
 async def get_community_details(
         community_id: int,
-        current_user_id: Optional[int] = Depends(auth.get_current_user_optional) # Optional auth
+        current_user_id: Optional[int] = Depends(auth.get_current_user_optional)
 ):
-    """ Fetches details for a specific community (relational + graph counts). """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # get_community_details_db fetches combined data
+        # Fetches relational data + graph counts
         community_db = crud.get_community_details_db(cursor, community_id)
         if not community_db:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
@@ -209,15 +210,26 @@ async def get_community_details(
         response_data = dict(community_db)
         loc_point_str = response_data.get('primary_location')
         response_data['primary_location'] = str(loc_point_str) if loc_point_str else None
-        response_data['logo_url'] = get_minio_url(response_data.get('logo_path'))
 
-        # TODO: Add user join status if authenticated
-        # response_data['is_joined'] = ...
+        # --- Explicitly fetch CURRENT logo media AFTER fetching base details ---
+        logo_media = crud.get_community_logo_media(cursor, community_id)
+        response_data['logo_url'] = logo_media.get('url') if logo_media else None
+        print(f"DEBUG GET /details C:{community_id}: Fetched logo URL: {response_data['logo_url']}") # Log fetched URL
+        # --- End Logo Fetch ---
+
+        # Add defaults/viewer status
+        response_data.setdefault('member_count', 0); response_data.setdefault('online_count', 0)
+        response_data.setdefault('is_member_by_viewer', False) # Default
+        if current_user_id:
+            try: response_data['is_member_by_viewer'] = crud.check_is_member(cursor, current_user_id, community_id)
+            except Exception as e: print(f"WARN GET /details C:{community_id}: Check member failed: {e}")
 
         print(f"✅ Details fetched for community {community_id}")
         return schemas.CommunityDisplay(**response_data)
+    # ... (keep existing error handling) ...
     except Exception as e:
         print(f"❌ Error fetching community details {community_id}: {e}")
+        traceback.print_exc() # Print traceback on error
         raise HTTPException(status_code=500, detail="Error fetching community details")
     finally:
         if conn: conn.close()
@@ -270,7 +282,7 @@ async def update_community_details(
         response_data = dict(updated_community_db)
         loc_point_str = response_data.get('primary_location')
         response_data['primary_location'] = str(loc_point_str) if loc_point_str else None
-        response_data['logo_url'] = get_minio_url(response_data.get('logo_path'))
+        response_data['logo_url'] = utils.get_minio_url(response_data.get('logo_path'))
         print(f"✅ Community {community_id} details updated by User {current_user_id}")
         return schemas.CommunityDisplay(**response_data)
 
@@ -293,68 +305,116 @@ async def update_community_details(
 @router.post("/{community_id}/logo", response_model=schemas.CommunityDisplay)
 async def update_community_logo(
         community_id: int,
-        current_user_id: int = Depends(auth.get_current_user), # Require auth
-        logo: UploadFile = File(...), # Require logo file
+        current_user_id: int = Depends(auth.get_current_user),
+        logo: UploadFile = File(...),
 ):
     """ Updates a community's logo. Requires creator permission. """
     conn = None
-    old_logo_path = None
-    new_logo_path = None
+    old_logo_media_info = None
+    new_minio_object_name = None
+    new_media_id = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        conn = get_db_connection(); cursor = conn.cursor() # Use single cursor for transaction
 
-        # 1. Check Permissions & Get Old Path/Name
-        community = crud.get_community_by_id(cursor, community_id)
-        if not community: raise HTTPException(status_code=404, detail="Community not found")
-        if community['created_by'] != current_user_id: raise HTTPException(status_code=403, detail="Not authorized")
-        old_logo_path = community.get('logo_path')
-        community_name = community.get('name', f'community_{community_id}')
+        # 1. Check Permissions & Get Old Media Info
+        # ... (same as before) ...
+        community_check = crud.get_community_by_id(cursor, community_id)
+        if not community_check: raise HTTPException(status_code=404, detail="Community not found")
+        if community_check['created_by'] != current_user_id: raise HTTPException(status_code=403, detail="Not authorized")
+        community_name = community_check.get('name', f'community_{community_id}')
+        old_logo_media_info = crud.get_community_logo_media(cursor, community_id)
 
         # 2. Upload New Logo to MinIO
+        # ... (same as before) ...
         if not utils.minio_client: raise HTTPException(status_code=500, detail="MinIO not configured")
         safe_name = community_name.replace(' ', '_').lower()
         safe_name = ''.join(c for c in safe_name if c.isalnum() or c in ['_','-'])
         object_name_prefix = f"communities/{safe_name}/logo"
-        new_logo_path = await upload_file_to_minio(logo, object_name_prefix)
-        if not new_logo_path: raise HTTPException(status_code=500, detail="Failed to upload new logo")
+        upload_info = await utils.upload_file_to_minio(logo, object_name_prefix)
+        if not upload_info or 'minio_object_name' not in upload_info:
+            raise HTTPException(status_code=500, detail="Failed to upload new logo to storage")
+        new_minio_object_name = upload_info['minio_object_name']
+        print(f"Router: Uploaded new logo to MinIO: {new_minio_object_name}")
 
-        # 3. Update Database Path (Relational only, graph node doesn't store path)
-        updated_db = crud.update_community_logo_path_db(cursor, community_id, new_logo_path)
-        if not updated_db:
-            conn.rollback()
-            delete_from_minio(new_logo_path) # Cleanup upload
-            raise HTTPException(status_code=500, detail="Failed to update logo path in database")
+        # --- Transaction Start ---
+        # 3. Create new media item record in DB
+        new_media_id = crud.create_media_item(
+            cursor, uploader_user_id=current_user_id, **upload_info
+        )
+        if not new_media_id:
+            delete_from_minio(new_minio_object_name) # Cleanup upload
+            raise HTTPException(status_code=500, detail="Failed to record uploaded logo in database")
+        print(f"Router: Created media item record ID: {new_media_id}")
 
-        conn.commit() # Commit DB change
+        # 4. Update the community_logo link table using the NEW media_id
+        print(f"Router: Attempting to link C:{community_id} with M:{new_media_id}...")
+        # This call will now raise psycopg2.Error on failure
+        crud.set_community_logo(cursor, community_id, new_media_id)
+        print(f"Router: Link successful (set_community_logo executed without error).")
 
-        # 4. Delete Old Logo from MinIO (AFTER DB commit)
-        if old_logo_path: delete_from_minio(old_logo_path)
+        # If we reach here without exception, commit the transaction
+        conn.commit()
+        print(f"Router: DB transaction committed (new media item created, link set).")
+        # --- Transaction End ---
 
-        # 5. Fetch and Return Updated Community Data (includes counts)
-        updated_community_db = crud.get_community_details_db(cursor, community_id)
-        if not updated_community_db: raise HTTPException(status_code=500, detail="Could not retrieve updated details")
+        # 5. Delete Old Logo (Media Item record and MinIO file) AFTER successful commit
+        if old_logo_media_info and 'id' in old_logo_media_info and 'minio_object_name' in old_logo_media_info:
+            old_media_id_to_delete = old_logo_media_info['id']
+            old_minio_path_to_delete = old_logo_media_info['minio_object_name']
+            print(f"Router: Attempting to delete old logo ...")
+            # Use the explicitly imported helper function with await
+            deleted_old = utils.delete_media_item_db_and_file(old_media_id_to_delete, old_minio_path_to_delete) # <--- Use directly
+            print(f"Router: Old logo deletion result (DB success reported): {deleted_old}")
+
+
+        # 6. Fetch and Return Updated Community Data
+        # ... (same as before, using new connection) ...
+        conn_fetch = None
+        try:
+            conn_fetch = get_db_connection(); cursor_fetch = conn_fetch.cursor()
+            updated_community_db = crud.get_community_details_db(cursor_fetch, community_id)
+            logo_media = crud.get_community_logo_media(cursor_fetch, community_id) # Fetch new logo media details
+        finally:
+            if conn_fetch: conn_fetch.close()
+        # ... (rest of fetch and response preparation) ...
+        if not updated_community_db:
+            print(f"ERROR: Could not fetch community details after successful logo update for C:{community_id}")
+            raise HTTPException(status_code=500, detail="Could not retrieve updated details after logo update")
 
         response_data = dict(updated_community_db)
-        loc_point_str = response_data.get('primary_location')
-        response_data['primary_location'] = str(loc_point_str) if loc_point_str else None
-        response_data['logo_url'] = get_minio_url(response_data.get('logo_path')) # Should be new path
+        loc = response_data.get('primary_location'); response_data['primary_location'] = str(loc) if loc else None
+        response_data['logo_url'] = logo_media.get('url') if logo_media else None
+        response_data.setdefault('member_count', 0); response_data.setdefault('online_count', 0)
+        response_data.setdefault('is_member_by_viewer', False)
+
         print(f"✅ Community {community_id} logo updated by User {current_user_id}")
         return schemas.CommunityDisplay(**response_data)
 
     except HTTPException as http_exc:
         if conn: conn.rollback()
-        # Cleanup potential upload if error occurred after upload but before commit
-        if new_logo_path and old_logo_path is None: delete_from_minio(new_logo_path)
+        if new_minio_object_name and new_media_id is None: delete_from_minio(new_minio_object_name)
+        print(f"Router LOGO UPDATE HTTP Exception: {http_exc.detail}")
         raise http_exc
+    except psycopg2.Error as db_err: # Catch specific DB errors raised from CRUD
+        if conn: conn.rollback()
+        if new_minio_object_name and new_media_id is None: delete_from_minio(new_minio_object_name)
+        print(f"Router LOGO UPDATE DB Error: {db_err} (Code: {db_err.pgcode})")
+        # Log the detailed traceback for DB errors during the critical link step
+        traceback.print_exc()
+        # Provide a more specific message if possible based on pgcode
+        detail = "Database error during logo update."
+        if db_err.pgcode == '23503': # Foreign Key Violation
+            detail = "Failed to link logo: Invalid community or media reference."
+        # Use the original error detail from the test
+        raise HTTPException(status_code=500, detail="Failed to link new logo in database")
     except Exception as e:
         if conn: conn.rollback()
-        if new_logo_path and old_logo_path is None: delete_from_minio(new_logo_path)
-        print(f"❌ Error updating community logo {community_id}: {e}")
-        raise HTTPException(status_code=500, detail="Could not update community logo")
+        if new_minio_object_name and new_media_id is None: delete_from_minio(new_minio_object_name)
+        print(f"❌ Unexpected Error updating community logo {community_id}: {e}")
+        traceback.print_exc(); # Now traceback is defined
+        raise HTTPException(status_code=500, detail="An internal error occurred while updating the logo.")
     finally:
         if conn: conn.close()
-
 
 @router.delete("/{community_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_community(
@@ -542,10 +602,11 @@ async def list_community_events(
         if conn: conn.close()
 
 # --- Create Event in Community (Moved from events router, uses updated CRUD) ---
+# --- Add Event in Community ---
 @router.post("/{community_id}/events", status_code=status.HTTP_201_CREATED, response_model=schemas.EventDisplay)
 async def create_event_in_community(
         community_id: int,
-        current_user_id: int = Depends(auth.get_current_user), # Require auth to create
+        current_user_id: int = Depends(auth.get_current_user),
         # Form data for event
         title: str = Form(...),
         description: Optional[str] = Form(None),
@@ -554,68 +615,80 @@ async def create_event_in_community(
         max_participants: int = Form(100),
         image: Optional[UploadFile] = File(None)
 ):
-    """ Creates a new event within a specific community (relational + graph). """
     conn = None
-    minio_image_path = None
+    minio_object_name = None
     event_id = None
+    upload_info = None
+
     try:
+        # --- Define object_name_prefix BEFORE using it ---
+        object_name_prefix = f"media/events/unknown_community/{uuid.uuid4()}" # Default path
+
         # 1. Handle Image Upload
-        image_url_or_path = None # Store path or URL based on decision
         if image and utils.minio_client:
-            # Fetch community name for path prefix
-            temp_conn_comm = get_db_connection(); temp_cursor_comm = temp_conn_comm.cursor()
-            comm_info = crud.get_community_by_id(temp_cursor_comm, community_id)
-            community_name = comm_info.get('name', f'c_{community_id}') if comm_info else f'c_{community_id}'
-            temp_cursor_comm.close(); temp_conn_comm.close()
+            # Fetch community name for path prefix (use temporary connection)
+            temp_conn_comm = None
+            try:
+                temp_conn_comm = get_db_connection(); temp_cursor_comm = temp_conn_comm.cursor()
+                comm_info = crud.get_community_by_id(temp_cursor_comm, community_id)
+                community_name_for_path = comm_info.get('name', f'c_{community_id}') if comm_info else f'c_{community_id}'
+                # Sanitize community name for path
+                safe_community_name = community_name_for_path.replace(' ', '_').lower()
+                safe_community_name = ''.join(c for c in safe_community_name if c.isalnum() or c in ['_','-'])
+                object_name_prefix = f"media/communities/{safe_community_name}/events" # Define path using community name
+            except Exception as comm_fetch_err:
+                print(f"WARN: Failed to fetch community name for event image path: {comm_fetch_err}. Using default path.")
+                # Keep the default object_name_prefix defined above
+            finally:
+                if temp_conn_comm: temp_conn_comm.close()
 
-            object_name_prefix = f"communities/{community_name.replace(' ', '_').lower()}/events/"
-            image_url_or_path = await upload_file_to_minio(image, object_name_prefix)
-            if image_url_or_path is None: print(f"⚠️ Event image upload failed") # Continue without image
+            upload_info = await utils.upload_file_to_minio(image, object_name_prefix) # NOW prefix is defined
+            if upload_info and 'minio_object_name' in upload_info:
+                minio_object_name = upload_info['minio_object_name']
+            else:
+                print(f"⚠️ Event image upload failed")
+                minio_object_name = None
 
-        # 2. Create Event in DB (Relational + Graph)
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # create_event_db handles relational insert, graph vertex, and edges
+        # 2. Create Event in DB
+        conn = get_db_connection(); cursor = conn.cursor()
         event_info = crud.create_event_db(
             cursor, community_id=community_id, creator_id=current_user_id, title=title,
             description=description, location=location, event_timestamp=event_timestamp,
-            max_participants=max_participants, image_url=image_url_or_path # Pass MinIO path/name
+            max_participants=max_participants,
+            image_url=minio_object_name # Pass the object NAME string or None
         )
+        # ... (rest of the success path and error handling as before) ...
         if not event_info or 'id' not in event_info:
-            if image_url_or_path: delete_from_minio(image_url_or_path) # Cleanup
+            if minio_object_name: delete_from_minio(minio_object_name);
             raise HTTPException(status_code=500, detail="Event creation failed in database")
         event_id = event_info['id']
-
-        # 3. Fetch full details for response (includes participant count)
         event_details_db = crud.get_event_details_db(cursor, event_id)
         if not event_details_db:
-            conn.rollback(); # Rollback if fetch failed
-            if image_url_or_path: delete_from_minio(image_url_or_path)
+            conn.rollback();
+            if minio_object_name: delete_from_minio(minio_object_name)
             raise HTTPException(status_code=500, detail="Could not retrieve created event details")
-
-        conn.commit() # Commit successful creation
-
-        # 4. Prepare and return response
+        conn.commit()
         response_data = dict(event_details_db)
-        # Generate URL from path if needed
-        response_data['image_url'] = get_minio_url(response_data.get('image_url')) # Use stored path/name
-        print(f"✅ Event {event_id} created in community {community_id} by user {current_user_id}")
+        response_data['image_url'] = utils.get_minio_url(response_data.get('image_url'))
+        print(f"✅ Event {event_id} created...")
         return schemas.EventDisplay(**response_data)
 
-    # --- Error Handling (similar to create_community) ---
+    # ... (keep existing except blocks, ensure traceback is imported if used) ...
     except psycopg2.Error as e:
         if conn: conn.rollback()
-        if image_url_or_path and event_id is None: delete_from_minio(image_url_or_path)
+        if minio_object_name: delete_from_minio(minio_object_name)
         print(f"❌ DB Error creating event: {e}")
-        raise HTTPException(status_code=500, detail=f"Database error: {e.pgerror}")
+        detail = f"Database error: {e.pgerror}" if hasattr(e, 'pgerror') and e.pgerror else "Database error creating event"
+        raise HTTPException(status_code=500, detail=detail)
     except HTTPException as http_exc:
         if conn: conn.rollback()
-        if image_url_or_path and event_id is None: delete_from_minio(image_url_or_path)
+        if minio_object_name: delete_from_minio(minio_object_name)
         raise http_exc
     except Exception as e:
         if conn: conn.rollback()
-        if image_url_or_path and event_id is None: delete_from_minio(image_url_or_path)
+        if minio_object_name: delete_from_minio(minio_object_name)
         print(f"❌ Error creating event: {e}")
+        traceback.print_exc() # Make sure traceback is imported
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn: conn.close()

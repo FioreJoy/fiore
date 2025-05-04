@@ -88,29 +88,29 @@ def get_post_by_id(cursor: psycopg2.extensions.cursor, post_id: int) -> Optional
 
 # --- Fetch post counts from graph (Python counting workaround) ---
 def get_post_counts(cursor: psycopg2.extensions.cursor, post_id: int) -> Dict[str, int]:
-    """Fetches reply, vote, and favorite counts for a post by counting fetched results."""
-    counts = {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
+    cypher_q = f"""
+        MATCH (p:Post {{id: {post_id}}})
+        OPTIONAL MATCH (reply:Reply)-[:REPLIED_TO]->(p)
+        OPTIONAL MATCH (upvoter:User)-[:VOTED {{vote_type: true}}]->(p)
+        OPTIONAL MATCH (downvoter:User)-[:VOTED {{vote_type: false}}]->(p)
+        OPTIONAL MATCH (favUser:User)-[:FAVORITED]->(p)
+        RETURN count(DISTINCT reply) as reply_count,
+               count(DISTINCT upvoter) as upvotes,
+               count(DISTINCT downvoter) as downvotes,
+               count(DISTINCT favUser) as favorite_count
+    """
+    expected = [('reply_count', 'agtype'), ('upvotes', 'agtype'), ('downvotes', 'agtype'), ('favorite_count', 'agtype')]
     try:
-        # Reply count
-        cypher_r = f"MATCH (reply:Reply)-[:REPLIED_TO]->(p:Post {{id: {post_id}}}) RETURN reply.id"
-        res_r = execute_cypher(cursor, cypher_r, fetch_all=True) or []
-        counts['reply_count'] = len(res_r)
-        # Upvotes
-        cypher_u = f"MATCH (upvoter:User)-[:VOTED {{vote_type: true}}]->(p:Post {{id: {post_id}}}) RETURN upvoter.id"
-        res_u = execute_cypher(cursor, cypher_u, fetch_all=True) or []
-        counts['upvotes'] = len(res_u)
-        # Downvotes
-        cypher_d = f"MATCH (downvoter:User)-[:VOTED {{vote_type: false}}]->(p:Post {{id: {post_id}}}) RETURN downvoter.id"
-        res_d = execute_cypher(cursor, cypher_d, fetch_all=True) or []
-        counts['downvotes'] = len(res_d)
-        # Favorites
-        cypher_f = f"MATCH (favUser:User)-[:FAVORITED]->(p:Post {{id: {post_id}}}) RETURN favUser.id"
-        res_f = execute_cypher(cursor, cypher_f, fetch_all=True) or []
-        counts['favorite_count'] = len(res_f)
-    except Exception as e:
-        print(f"Warning: Failed getting graph counts for post {post_id}: {e}")
-        # Return 0 counts on error
-    return counts
+        result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected)
+        if isinstance(result_map, dict):
+            return {
+                "reply_count": int(result_map.get('reply_count', 0)),
+                "upvotes": int(result_map.get('upvotes', 0)),
+                "downvotes": int(result_map.get('downvotes', 0)),
+                "favorite_count": int(result_map.get('favorite_count', 0)),
+            }
+        else: return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
+    except Exception as e: print(f"Warning: Failed getting graph counts for post {post_id}: {e}"); return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
 
 # --- Fetch list of posts (Combines relational + graph counts) ---
 def get_posts_db(
@@ -208,7 +208,7 @@ def get_followed_posts_in_community_graph(cursor: psycopg2.extensions.cursor, vi
     """
     try:
         print(f"CRUD: Fetching followed post IDs in comm {community_id} for viewer {viewer_id}")
-        post_author_ids = execute_cypher(cursor, cypher_ids, fetch_all=True) or []
+        post_author_ids = execute_cypher(cursor, cypher_ids, fetch_all=True, expected_columns=expected) or []
 
         results = []
         for item in post_author_ids:
