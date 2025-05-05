@@ -1,7 +1,7 @@
 # backend/src/schemas.py
 
 from pydantic import BaseModel, Field, validator, EmailStr
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
 
 # --- Auth Schemas ---
@@ -60,6 +60,31 @@ class UserBase(BaseModel):
     class Config:
         from_attributes = True # Pydantic v2 alias for orm_mode
 
+class SearchResultItem(BaseModel):
+    """Represents a single item returned in search results."""
+    id: int
+    type: Literal['user', 'community', 'post'] # Indicate the type of result
+    name: str # Primary display name (username, community name, post title)
+    snippet: Optional[str] = None # Short description or content snippet
+    image_url: Optional[str] = None # Avatar, logo, or post image URL
+    # Add other relevant fields if needed, e.g., author for post, member count for community
+    author_name: Optional[str] = None # For post results
+    community_name: Optional[str] = None # For post results in a community
+    created_at: Optional[datetime] = None # For post results
+
+    class Config:
+        from_attributes = True
+
+
+class SearchResponse(BaseModel):
+    """Response model for the search endpoint."""
+    query: str
+    results: List[SearchResultItem]
+    offset: int
+    limit: int
+    total_estimated: Optional[int] = None # Optional: Add total count if feasible
+
+# --- END SEARCH SCHEMAS ---
 class UserDisplay(UserBase):
     id: int
     created_at: datetime

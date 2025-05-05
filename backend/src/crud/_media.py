@@ -33,6 +33,24 @@ def create_media_item(
         print(f"Error creating media item for {minio_object_name}: {e}")
         raise # Re-raise for transaction rollback
 
+def get_media_item_by_id(cursor: psycopg2.extensions.cursor, media_id: int) -> Optional[Dict[str, Any]]:
+    """ Fetches a single media item's details by its ID. """
+    if not media_id: return None
+    try:
+        cursor.execute(
+            """SELECT id, uploader_user_id, minio_object_name, mime_type, file_size_bytes,
+                      original_filename, created_at, width, height, duration_seconds
+               FROM public.media_items
+               WHERE id = %s""",
+            (media_id,)
+        )
+        result = cursor.fetchone()
+        return result # Returns RealDictRow (acts like dict) or None
+    except Exception as e:
+        print(f"CRUD ERROR fetching media item by ID {media_id}: {e}")
+        # Depending on context, might want to raise or return None
+        # Returning None might be safer for non-critical fetches like search results
+        return None
 def link_media_to_post(cursor: psycopg2.extensions.cursor, post_id: int, media_id: int, display_order: int = 0):
     cursor.execute(
         "INSERT INTO public.post_media (post_id, media_id, display_order) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING;",

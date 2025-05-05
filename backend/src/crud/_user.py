@@ -307,3 +307,52 @@ def get_user_participated_events_count(cursor: psycopg2.extensions.cursor, user_
     except Exception as e:
         print(f"Warning: Failed getting participated events count for user {user_id}: {e}")
         return 0
+
+def get_post_ids_by_user(cursor: psycopg2.extensions.cursor, user_id: int, limit: int, offset: int) -> List[int]:
+    """Fetches IDs of posts written by a user, ordered by creation time."""
+    cypher_q = f"""
+        MATCH (u:User {{id: {user_id}}})-[:WROTE]->(p:Post)
+        RETURN p.id as id, p.created_at as created_at
+        ORDER BY created_at DESC
+        SKIP {offset} LIMIT {limit}
+    """
+    expected_cols = [('id', 'agtype'), ('created_at', 'agtype')] # Fetch timestamp for ordering check if needed
+    try:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols) or []
+        # Extract just the ID
+        return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
+    except Exception as e:
+        print(f"CRUD Error getting post IDs by user {user_id}: {e}")
+        return [] # Return empty list on error
+
+def get_community_ids_joined_by_user(cursor: psycopg2.extensions.cursor, user_id: int, limit: int, offset: int) -> List[int]:
+    """Fetches IDs of communities joined by a user, ordered by name."""
+    cypher_q = f"""
+        MATCH (u:User {{id: {user_id}}})-[:MEMBER_OF]->(c:Community)
+        RETURN c.id as id, c.name as name -- Fetch name for ordering
+        ORDER BY name ASC
+        SKIP {offset} LIMIT {limit}
+    """
+    expected_cols = [('id', 'agtype'), ('name', 'agtype')]
+    try:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols) or []
+        return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
+    except Exception as e:
+        print(f"CRUD Error getting community IDs joined by user {user_id}: {e}")
+        return []
+
+def get_event_ids_participated_by_user(cursor: psycopg2.extensions.cursor, user_id: int, limit: int, offset: int) -> List[int]:
+    """Fetches IDs of events participated in by a user, ordered by event time."""
+    cypher_q = f"""
+        MATCH (u:User {{id: {user_id}}})-[:PARTICIPATED_IN]->(e:Event)
+        RETURN e.id as id, e.event_timestamp as event_time
+        ORDER BY event_time DESC
+        SKIP {offset} LIMIT {limit}
+    """
+    expected_cols = [('id', 'agtype'), ('event_time', 'agtype')]
+    try:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols) or []
+        return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
+    except Exception as e:
+        print(f"CRUD Error getting event IDs participated by user {user_id}: {e}")
+        return []

@@ -1,129 +1,89 @@
-# backend/src/server.py
+# src/server.py
 import os
-from fastapi import FastAPI, Depends, Header, Request, Response # Added Request, Response, Header
+from fastapi import FastAPI, Depends, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
-import jwt # Import JWT for token decoding
-from typing import Optional, Dict, Any # Added Dict, Any
-
-# --- Strawberry Imports ---
+import jwt
+from typing import Optional, Dict, Any
 import strawberry
 from strawberry.fastapi import GraphQLRouter
-# --- END Strawberry Imports ---
+import traceback # Ensure imported
+
+# --- Router Imports ---
+from .routers import (
+    auth as auth_router, posts as posts_router, communities as communities_router,
+    replies as replies_router, votes as votes_router, events as events_router,
+    chat as chat_router, websocket as websocket_router, users as users_router,
+    settings as settings_router, block as block_router, search as search_router,
+    feed as feed_router
+)
+# --- GraphQL Imports ---
+from .graphql.schema import schema as gql_schema
+from .graphql.context import get_graphql_context
+# --- Other Imports ---
+from . import security, utils
+from . import auth as base_auth_module
+from .connection_manager import manager as ws_manager
 
 load_dotenv()
+app = FastAPI(title="Fiore API")
 
-# --- Import routers and schemas ---
-from .routers import auth as auth_router
-from .routers import posts as posts_router
-from .routers import communities as communities_router
-from .routers import replies as replies_router
-from .routers import votes as votes_router
-from .routers import events as events_router
-from .routers import chat as chat_router
-from .routers import websocket as websocket_router
-from .routers import users as users_router
-from .routers import settings as settings_router
-from .routers import block as block_router
-
-# --- GraphQL Schema Import ---
-from .gql_schema import schema as gql_schema
-
-from . import security
-# --- Import base auth module for SECRET_KEY etc. ---
-from . import auth as base_auth_module
-# --- END base auth import ---
-from src import utils
-
-app = FastAPI(title="Connections API")
-
-# --- CORS Middleware (Keep as is) ---
+# --- CORS ---
+# ... (keep existing CORS setup) ...
 origins = [
-    "http://localhost", "http://localhost:9339", "http://127.0.0.1", "http://127.0.0.1:9339",
+    "http://localhost", "http://localhost:3000", "http://localhost:8080",
+    "http://localhost:9339", "http://127.0.0.1", "http://127.0.0.1:9339",
     "http://localhost:5001", "http://100.97.215.85:5001",
     "http://100.94.150.11:6219", "http://100.94.150.11:6192",
     "https://fiorejoy.github.io",
-    "http://100.97.215.85:3000"
-    # Add production/codespace URLs if needed
 ]
 app.add_middleware(
     CORSMiddleware, allow_origins=origins, allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
 
-# === NEW: GraphQL Context Getter ===
-async def get_graphql_context(
-        # Use Header dependency to extract Authorization directly if needed
-        authorization: Optional[str] = Header(None),
-        # You can also inject other dependencies if needed by resolvers
-        # Example: db_conn = Depends(get_db_connection) # Not recommended, get conn inside resolver
-) -> Dict[str, Any]:
-    """
-    Creates the context dictionary available to GraphQL resolvers via `info.context`.
-    Extracts and validates the user ID from the Authorization header.
-    """
-    user_id: Optional[int] = None
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.split("Bearer ")[1]
-        try:
-            payload = jwt.decode(
-                token,
-                base_auth_module.SECRET_KEY, # Use key from auth module
-                algorithms=[base_auth_module.ALGORITHM] # Use algorithm from auth module
-            )
-            user_id_from_payload = payload.get("user_id")
-            if user_id_from_payload:
-                user_id = int(user_id_from_payload)
-                print(f"GraphQL Context: Authenticated User ID = {user_id}")
-                # Optionally update last_seen here (requires DB connection management)
-        except jwt.ExpiredSignatureError:
-            print("GraphQL Context Warning: Auth token expired.") # Don't raise, let resolver handle lack of user_id
-        except (jwt.PyJWTError, ValueError):
-            print("GraphQL Context Warning: Invalid auth token.") # Don't raise
-        except Exception as e:
-            print(f"GraphQL Context Error during token decode: {e}") # Log unexpected errors
+# --- GraphQL ---
+graphql_app = GraphQLRouter(schema=gql_schema, graphiql=True, context_getter=get_graphql_context)
+app.include_router(graphql_app, prefix="/graphql", tags=["GraphQL"]) # Keep prefix for GraphQL
 
-    # Return context dict - resolvers access via info.context['user_id'] etc.
-    return {
-        "user_id": user_id,
-        # Add other context items if needed, e.g., dependency instances
-        # "db_conn": db_conn # Example if injecting DB conn (again, not recommended)
-    }
-# === END Context Getter ===
+# --- Mount REST Routers (REMOVED prefixes where routers define their own) ---
+api_key_dependency = Depends(security.get_api_key)
+auth_dependency = Depends(base_auth_module.get_current_user)
+optional_auth_dependency = Depends(base_auth_module.get_current_user_optional)
+common_auth_dependencies = [api_key_dependency, auth_dependency]
 
+app.include_router(auth_router.router, tags=["Authentication"]) # No prefix here or in router file
+app.include_router(users_router.router, tags=["Users"]) # Prefix is defined in users_router
+app.include_router(communities_router.router, tags=["Communities"], dependencies=[api_key_dependency]) # Prefix defined in router
+app.include_router(events_router.router, tags=["Events"], dependencies=[api_key_dependency]) # Prefix defined in router
+app.include_router(posts_router.router, tags=["Posts"], dependencies=[api_key_dependency]) # Prefix defined in router
+app.include_router(replies_router.router, tags=["Replies"], dependencies=[api_key_dependency]) # Prefix defined in router
+app.include_router(votes_router.router, tags=["Votes"], dependencies=common_auth_dependencies) # Prefix defined in router
+app.include_router(search_router.router, tags=["Search"], dependencies=[api_key_dependency]) # Prefix defined in router
+app.include_router(feed_router.router, tags=["Feeds"]) # Prefix defined in router
+app.include_router(settings_router.router, tags=["Settings"], dependencies=common_auth_dependencies) # Prefix defined in router
+app.include_router(block_router.router, tags=["Blocking"], dependencies=common_auth_dependencies) # Prefix defined in router
+app.include_router(chat_router.router, tags=["Chat"], dependencies=[api_key_dependency]) # Prefix defined in router
+app.include_router(websocket_router.router, tags=["WebSocket"]) # No prefix needed
 
-# --- GraphQL Router (Updated with Context Getter) ---
-graphql_app = GraphQLRouter(
-    gql_schema,
-    graphiql=True,
-    context_getter=get_graphql_context # Pass the context getter function
-)
-app.include_router(graphql_app, prefix="/graphql")
+# --- Mount Static Files ---
+IMAGE_DIR_RELATIVE = "user_images"
+if os.path.exists(IMAGE_DIR_RELATIVE):
+    os.makedirs(IMAGE_DIR_RELATIVE, exist_ok=True)
+    static_path = f"/{IMAGE_DIR_RELATIVE.replace(os.sep, '/')}"
+    try:
+        app.mount(static_path, StaticFiles(directory=IMAGE_DIR_RELATIVE), name="user_images")
+        print(f"Serving static files from '{IMAGE_DIR_RELATIVE}' at '{static_path}'")
+    except Exception as e:
+        print(f"WARN: Failed to mount static directory '{IMAGE_DIR_RELATIVE}': {e}")
+else:
+    print(f"Static directory '{IMAGE_DIR_RELATIVE}' not found, skipping mount.")
 
-
-# --- Mount Existing REST Routers (Keep as is) ---
-common_api_dependencies = [Depends(security.get_api_key), Depends(base_auth_module.get_current_user)]
-
-app.include_router(auth_router.router)
-app.include_router(users_router.router, dependencies=common_api_dependencies)
-app.include_router(posts_router.router, dependencies=common_api_dependencies)
-app.include_router(communities_router.router, dependencies=common_api_dependencies)
-app.include_router(replies_router.router, dependencies=common_api_dependencies)
-app.include_router(votes_router.router, dependencies=common_api_dependencies)
-app.include_router(events_router.router, dependencies=common_api_dependencies)
-app.include_router(chat_router.router, dependencies=common_api_dependencies)
-app.include_router(websocket_router.router) # No dependencies needed here
-app.include_router(settings_router.router, dependencies=common_api_dependencies) # Add settings router
-app.include_router(block_router.router) # Add block router (doesn't need common deps if prefix includes /users/me)
-
-# --- Mount Static Files (Keep as is) ---
-IMAGE_DIR_RELATIVE = utils.IMAGE_DIR
-os.makedirs(IMAGE_DIR_RELATIVE, exist_ok=True)
-app.mount(f"/{utils.IMAGE_DIR}", StaticFiles(directory=IMAGE_DIR_RELATIVE), name="user_images")
-print(f"Serving static files from '{IMAGE_DIR_RELATIVE}' at '/{utils.IMAGE_DIR}'")
-
-# --- Root Endpoint (Keep as is) ---
-@app.get("/")
+# --- Root Endpoint ---
+@app.get("/", tags=["Root"])
 async def read_root():
-    return {"message": "Fiore API is running! REST at /docs, GraphQL at /graphql"}
+    """Root endpoint providing basic API status and documentation links."""
+    return { "message": "Fiore API is running!", "docs": "/docs", "redoc": "/redoc", "graphql": "/graphql"}
+
+print("✅ FastAPI application configured.")

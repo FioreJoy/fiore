@@ -258,3 +258,21 @@ def remove_post_from_community_db(cursor: psycopg2.extensions.cursor, community_
     cypher_q = f"MATCH (c:Community {{id: {community_id}}})-[r:HAS_POST]->(p:Post {{id: {post_id}}}) DELETE r"
     try: return execute_cypher(cursor, cypher_q) # Assume success if no error
     except Exception as e: print(f"Error removing post from community: {e}"); return False
+
+def get_reply_ids_for_post(cursor: psycopg2.extensions.cursor, post_id: int, limit: int, offset: int) -> List[int]:
+    """Fetches IDs of replies to a specific post, ordered by creation time."""
+    # Fetch direct replies only for pagination, nested replies handled by parent_reply resolver
+    cypher_q = f"""
+        MATCH (r:Reply)-[:REPLIED_TO]->(p:Post {{id: {post_id}}})
+        WHERE r.parent_reply_id IS NULL -- Fetch only top-level replies for pagination
+        RETURN r.id as id, r.created_at as created_at
+        ORDER BY created_at ASC -- Usually show oldest first
+        SKIP {offset} LIMIT {limit}
+    """
+    expected_cols = [('id', 'agtype'), ('created_at', 'agtype')]
+    try:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols) or []
+        return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
+    except Exception as e:
+        print(f"CRUD Error getting reply IDs for post {post_id}: {e}")
+        return []

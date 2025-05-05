@@ -325,3 +325,75 @@ def remove_post_from_community_db(cursor: psycopg2.extensions.cursor, community_
     cypher_q = f"MATCH (c:Community {{id: {community_id}}})-[r:HAS_POST]->(p:Post {{id: {post_id}}}) DELETE r"
     try: return execute_cypher(cursor, cypher_q)
     except Exception as e: print(f"Error removing post from community: {e}"); return False
+
+def get_community_member_ids(cursor: psycopg2.extensions.cursor, community_id: int, limit: int, offset: int) -> List[int]:
+    """Fetches IDs of members in a community, ordered by username."""
+    cypher_q = f"""
+        MATCH (u:User)-[:MEMBER_OF]->(c:Community {{id: {community_id}}})
+        RETURN u.id as id, u.username as username -- Fetch username for ordering
+        ORDER BY username ASC
+        SKIP {offset} LIMIT {limit}
+    """
+    expected_cols = [('id', 'agtype'), ('username', 'agtype')]
+    try:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols) or []
+        return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
+    except Exception as e:
+        print(f"CRUD Error getting community member IDs for C:{community_id}: {e}")
+        return []
+
+def get_community_event_ids(cursor: psycopg2.extensions.cursor, community_id: int, limit: int, offset: int) -> List[int]:
+    """Fetches IDs of events within a community, ordered by event time."""
+    # This assumes Events are directly linked or easily found via Community
+    # Option 1: If Event nodes have community_id property (less graphy)
+    # cypher_q = f"""
+    #     MATCH (e:Event {{community_id: {community_id}}})
+    #     RETURN e.id as id, e.event_timestamp as event_time
+    #     ORDER BY event_time DESC SKIP {offset} LIMIT {limit}
+    # """
+    # Option 2: Query via relational table (if graph doesn't store community_id on Event node)
+    # This breaks the pure graph approach for this specific fetch
+    sql = """
+        SELECT id FROM public.events
+        WHERE community_id = %s
+        ORDER BY event_timestamp DESC
+        LIMIT %s OFFSET %s
+    """
+    try:
+        cursor.execute(sql, (community_id, limit, offset))
+        results = cursor.fetchall()
+        return [row['id'] for row in results]
+    except Exception as e:
+        print(f"CRUD Error getting community event IDs for C:{community_id}: {e}")
+        return []
+
+def get_post_ids_for_community(cursor: psycopg2.extensions.cursor, community_id: int, limit: int, offset: int) -> List[int]:
+    """Fetches IDs of posts within a community, ordered by creation time."""
+    # Option 1: Graph Query (if :HAS_POST exists and Post has created_at)
+    cypher_q = f"""
+        MATCH (c:Community {{id: {community_id}}})-[:HAS_POST]->(p:Post)
+        RETURN p.id as id, p.created_at as created_at
+        ORDER BY created_at DESC
+        SKIP {offset} LIMIT {limit}
+    """
+    expected_cols = [('id', 'agtype'), ('created_at', 'agtype')]
+    # Option 2: Relational Query (simpler if graph properties are minimal)
+    # sql = """
+    #     SELECT p.id FROM public.posts p
+    #     JOIN public.community_posts cp ON p.id = cp.post_id
+    #     WHERE cp.community_id = %s
+    #     ORDER BY p.created_at DESC
+    #     LIMIT %s OFFSET %s
+    # """
+    try:
+        # --- Choose ONE option based on your setup ---
+        # Using Graph Query:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols) or []
+        return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
+        # Using Relational Query:
+        # cursor.execute(sql, (community_id, limit, offset))
+        # return [row['id'] for row in cursor.fetchall()]
+        # --- End Choice ---
+    except Exception as e:
+        print(f"CRUD Error getting post IDs for community {community_id}: {e}")
+        return []

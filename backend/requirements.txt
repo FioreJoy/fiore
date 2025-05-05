@@ -13,3 +13,4 @@ PyJWT
 python-multipart
 websockets
 minio
+aiodataloader

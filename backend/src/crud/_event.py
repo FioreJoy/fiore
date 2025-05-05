@@ -275,3 +275,18 @@ def leave_event_db(cursor: psycopg2.extensions.cursor, event_id: int, user_id: i
     except Exception as e: print(f"Error leaving event (U:{user_id}, E:{event_id}): {e}"); raise
 
 # Ensure get_event_details_db calls the fixed get_event_participant_count
+def get_event_participant_ids(cursor: psycopg2.extensions.cursor, event_id: int, limit: int, offset: int) -> List[int]:
+    """Fetches IDs of participants for a specific event, ordered by join time."""
+    cypher_q = f"""
+        MATCH (u:User)-[p:PARTICIPATED_IN]->(e:Event {{id: {event_id}}})
+        RETURN u.id as id, p.joined_at as joined_at -- Fetch join time for ordering
+        ORDER BY joined_at DESC -- Show newest participants first? Or ASC?
+        SKIP {offset} LIMIT {limit}
+    """
+    expected_cols = [('id', 'agtype'), ('joined_at', 'agtype')]
+    try:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols) or []
+        return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
+    except Exception as e:
+        print(f"CRUD Error getting event participant IDs for E:{event_id}: {e}")
+        return []
