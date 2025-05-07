@@ -1,4 +1,6 @@
 # backend/src/crud/_post.py
+import traceback
+
 import psycopg2
 import psycopg2.extras
 from typing import List, Optional, Dict, Any
@@ -88,28 +90,58 @@ def get_post_by_id(cursor: psycopg2.extensions.cursor, post_id: int) -> Optional
 
 # --- Fetch post counts from graph (Python counting workaround) ---
 def get_post_counts(cursor: psycopg2.extensions.cursor, post_id: int) -> Dict[str, int]:
+    # Debug query for edge properties
+    debug_vote_edges_q = f"MATCH ()-[r:VOTED]->(p:Post {{id: {post_id}}}) RETURN r as edge_props" # Changed 'r' to 'edge_props' for clarity
+    debug_expected_edges = [('edge_props', 'agtype')]
+    try:
+        all_vote_edges = execute_cypher(cursor, debug_vote_edges_q, fetch_all=True, expected_columns=debug_expected_edges)
+        print(f"DEBUG get_post_counts P:{post_id} - All VOTED edges found: {all_vote_edges}")
+        if all_vote_edges:
+            for edge_data_item in all_vote_edges: # Renamed to avoid conflict
+                # edge_data_item is expected to be a dict like {'edge_props': parsed_edge_dict}
+                parsed_edge_dict = edge_data_item.get('edge_props')
+                if isinstance(parsed_edge_dict, dict) and 'properties' in parsed_edge_dict:
+                    print(f"  Edge properties: {parsed_edge_dict.get('properties')}")
+                else:
+                    print(f"  Edge data (not expected dict or no props): {parsed_edge_dict}")
+    except Exception as debug_e:
+        print(f"DEBUG get_post_counts P:{post_id} - Error fetching raw edges: {debug_e}")
+
+    # Main count query
     cypher_q = f"""
         MATCH (p:Post {{id: {post_id}}})
         OPTIONAL MATCH (reply:Reply)-[:REPLIED_TO]->(p)
-        OPTIONAL MATCH (upvoter:User)-[:VOTED {{vote_type: true}}]->(p)
-        OPTIONAL MATCH (downvoter:User)-[:VOTED {{vote_type: false}}]->(p)
+        OPTIONAL MATCH (upvoter:User)-[v_up:VOTED]->(p) WHERE v_up.vote_type = true 
+        OPTIONAL MATCH (downvoter:User)-[v_down:VOTED]->(p) WHERE v_down.vote_type = false 
         OPTIONAL MATCH (favUser:User)-[:FAVORITED]->(p)
         RETURN count(DISTINCT reply) as reply_count,
                count(DISTINCT upvoter) as upvotes,
                count(DISTINCT downvoter) as downvotes,
                count(DISTINCT favUser) as favorite_count
     """
-    expected = [('reply_count', 'agtype'), ('upvotes', 'agtype'), ('downvotes', 'agtype'), ('favorite_count', 'agtype')]
+    expected_counts = [('reply_count', 'agtype'), ('upvotes', 'agtype'), ('downvotes', 'agtype'), ('favorite_count', 'agtype')]
     try:
-        result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected)
+        result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected_counts)
+        print(f"DEBUG get_post_counts for P:{post_id} - Raw result_map from graph count query: {result_map}")
         if isinstance(result_map, dict):
-            return {
-                "reply_count": int(result_map.get('reply_count', 0)),
-                "upvotes": int(result_map.get('upvotes', 0)),
-                "downvotes": int(result_map.get('downvotes', 0)),
-                "favorite_count": int(result_map.get('favorite_count', 0)),
+            # Ensure values are int after parse_agtype (which should handle numeric strings)
+            counts = {
+                "reply_count": int(result_map.get('reply_count', 0) or 0),
+                "upvotes": int(result_map.get('upvotes', 0) or 0),
+                "downvotes": int(result_map.get('downvotes', 0) or 0),
+                "favorite_count": int(result_map.get('favorite_count', 0) or 0),
             }
+            return counts
         else: return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
+    except Exception as e:
+        print(f"Warning: Failed getting graph counts for post {post_id}: {e}")
+        traceback.print_exc()
+        return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
+    except Exception as e:
+        print(f"Warning: Failed getting graph counts for post {post_id}: {e}")
+        traceback.print_exc() # Print stack trace for count errors
+        return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
+
     except Exception as e: print(f"Warning: Failed getting graph counts for post {post_id}: {e}"); return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
 
 # --- Fetch list of posts (Combines relational + graph counts) ---

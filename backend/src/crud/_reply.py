@@ -1,4 +1,6 @@
 # backend/src/crud/_reply.py
+import traceback
+
 import psycopg2
 import psycopg2.extras
 from typing import List, Optional, Dict, Any
@@ -87,22 +89,47 @@ def get_reply_by_id(cursor: psycopg2.extensions.cursor, reply_id: int) -> Option
 
 # --- Fetch reply counts from graph (Python counting) ---
 def get_reply_counts(cursor: psycopg2.extensions.cursor, reply_id: int) -> Dict[str, int]:
+    # --- Add this debug query ---
+    debug_vote_edges_q = f"MATCH ()-[r:VOTED]->(rep:Reply {{id: {reply_id}}}) RETURN r as edge_props"
+    debug_expected_edges = [('edge_props', 'agtype')]
+    try:
+        all_vote_edges = execute_cypher(cursor, debug_vote_edges_q, fetch_all=True, expected_columns=debug_expected_edges)
+        print(f"DEBUG get_reply_counts R:{reply_id} - All VOTED edges found: {all_vote_edges}")
+        if all_vote_edges:
+            for edge_data_item in all_vote_edges:
+                parsed_edge_dict = edge_data_item.get('edge_props')
+                if isinstance(parsed_edge_dict, dict) and 'properties' in parsed_edge_dict:
+                    print(f"  Edge properties for Reply {reply_id}: {parsed_edge_dict.get('properties')}")
+                else:
+                    print(f"  Edge data for Reply {reply_id} (not expected dict or no props): {parsed_edge_dict}")
+    except Exception as debug_e:
+        print(f"DEBUG get_reply_counts R:{reply_id} - Error fetching raw edges: {debug_e}")
+    # --- End debug query ---
+
     cypher_q = f"""
         MATCH (rep:Reply {{id: {reply_id}}})
-        OPTIONAL MATCH (upvoter:User)-[:VOTED {{vote_type: true}}]->(rep)
-        OPTIONAL MATCH (downvoter:User)-[:VOTED {{vote_type: false}}]->(rep)
+        OPTIONAL MATCH (upvoter:User)-[v_up:VOTED]->(rep) WHERE v_up.vote_type = true
+        OPTIONAL MATCH (downvoter:User)-[v_down:VOTED]->(rep) WHERE v_down.vote_type = false
         OPTIONAL MATCH (fv:User)-[:FAVORITED]->(rep)
         RETURN count(DISTINCT upvoter) as upvotes,
                count(DISTINCT downvoter) as downvotes,
                count(DISTINCT fv) as favorite_count
     """
-    expected = [('upvotes', 'agtype'), ('downvotes', 'agtype'), ('favorite_count', 'agtype')]
+    expected_counts = [('upvotes', 'agtype'), ('downvotes', 'agtype'), ('favorite_count', 'agtype')]
     try:
-        result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected)
+        result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected_counts)
+        print(f"DEBUG get_reply_counts for R:{reply_id} - Raw result_map from graph count query: {result_map}")
         if isinstance(result_map, dict):
-            return {"upvotes": int(result_map.get('upvotes', 0)), "downvotes": int(result_map.get('downvotes', 0)), "favorite_count": int(result_map.get('favorite_count', 0))}
+            return {
+                "upvotes": int(result_map.get('upvotes', 0) or 0),
+                "downvotes": int(result_map.get('downvotes', 0) or 0),
+                "favorite_count": int(result_map.get('favorite_count', 0) or 0)
+            }
         else: return {"upvotes": 0, "downvotes": 0, "favorite_count": 0}
-    except Exception as e: print(f"Warning: Failed getting graph counts for reply {reply_id}: {e}"); return {"upvotes": 0, "downvotes": 0, "favorite_count": 0}
+    except Exception as e:
+        print(f"Warning: Failed getting graph counts for reply {reply_id}: {e}")
+        traceback.print_exc()
+        return {"upvotes": 0, "downvotes": 0, "favorite_count": 0}
 
 # --- Fetch list of replies for a post (Combines relational + graph counts) ---
 def get_replies_for_post_db(cursor: psycopg2.extensions.cursor, post_id: int) -> List[Dict[str, Any]]:

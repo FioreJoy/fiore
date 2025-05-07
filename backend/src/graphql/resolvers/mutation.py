@@ -82,23 +82,87 @@ async def delete_post_resolver(info: Info, post_id: strawberry.ID) -> bool:
 
 # --- (Implement ALL OTHER resolver functions here...) ---
 async def create_reply_resolver(info: Info, reply_input: ReplyCreateInput) -> ReplyType:
-    # ... implementation ...
     print(f"GraphQL Mutation: create_reply")
-    user_id = _get_authenticated_user_id(info); conn = None; reply_id = None
+    user_id = _get_authenticated_user_id(info) # This is the actor
+    conn = None; reply_id = None
     try:
         conn = get_db_connection(); cursor = conn.cursor()
-        post_check = crud.get_post_by_id(cursor, reply_input.post_id)
-        if not post_check: raise ValueError(f"Parent post {reply_input.post_id} not found.")
+
+        # Validation
+        parent_post = crud.get_post_by_id(cursor, reply_input.post_id)
+        if not parent_post: raise ValueError(f"Parent post {reply_input.post_id} not found.")
+        parent_post_author_id = parent_post['user_id'] # Get author ID
+
+        parent_reply_author_id = None
         if reply_input.parent_reply_id:
-            parent_reply_check = crud.get_reply_by_id(cursor, reply_input.parent_reply_id)
-            if not parent_reply_check: raise ValueError(f"Parent reply {reply_input.parent_reply_id} not found.")
-            if parent_reply_check.get('post_id') != reply_input.post_id: raise ValueError("Parent reply belongs to a different post.")
-        reply_id = crud.create_reply_db(cursor, post_id=reply_input.post_id, user_id=user_id, content=reply_input.content, parent_reply_id=reply_input.parent_reply_id)
+            parent_reply = crud.get_reply_by_id(cursor, reply_input.parent_reply_id)
+            if not parent_reply: raise ValueError(f"Parent reply {reply_input.parent_reply_id} not found.")
+            if parent_reply.get('post_id') != reply_input.post_id: raise ValueError("Parent reply belongs to a different post.")
+            parent_reply_author_id = parent_reply['user_id'] # Get parent reply author
+
+        # Create reply base
+        reply_id = crud.create_reply_db(
+            cursor, post_id=reply_input.post_id, user_id=user_id,
+            content=reply_input.content, parent_reply_id=reply_input.parent_reply_id
+        )
         if not reply_id: raise Exception("Failed to create reply record.")
-        conn.commit()
+
+        # --- Create Notifications (BEFORE commit) ---
+        content_preview = reply_input.content[:100] + ('...' if len(reply_input.content) > 100 else '')
+
+        # 1. Notify Original Post Author (if not the replier and not replying to own post)
+        if parent_post_author_id != user_id:
+            notif_id_post = crud.create_notification(
+                cursor=cursor,
+                recipient_user_id=parent_post_author_id,
+                actor_user_id=user_id,
+                type='post_reply', # Specific type for direct reply to post
+                related_entity_type='post',
+                related_entity_id=reply_input.post_id,
+                # Optionally link secondary entity (the reply itself)? Or just use preview.
+                # related_entity_2_type='reply',
+                # related_entity_2_id=reply_id,
+                content_preview=content_preview
+            )
+            if notif_id_post: print(f"Notification created (ID: {notif_id_post}) for post author {parent_post_author_id}.")
+            else: print(f"WARN: Failed to create notification for post author.")
+            # TODO: Trigger Push/WS for notif_id_post
+
+        # 2. Notify Parent Reply Author (if applicable and different from replier and OP)
+        if parent_reply_author_id is not None and \
+                parent_reply_author_id != user_id and \
+                parent_reply_author_id != parent_post_author_id: # Avoid double-notifying OP
+            notif_id_reply = crud.create_notification(
+                cursor=cursor,
+                recipient_user_id=parent_reply_author_id,
+                actor_user_id=user_id,
+                type='reply_reply', # Specific type for reply to reply
+                related_entity_type='reply', # Link to the parent reply
+                related_entity_id=reply_input.parent_reply_id,
+                # Optionally link secondary entity (the new reply)?
+                # related_entity_2_type='reply',
+                # related_entity_2_id=reply_id,
+                content_preview=content_preview
+            )
+            if notif_id_reply: print(f"Notification created (ID: {notif_id_reply}) for parent reply author {parent_reply_author_id}.")
+            else: print(f"WARN: Failed to create notification for parent reply author.")
+            # TODO: Trigger Push/WS for notif_id_reply
+
+        # TODO: Handle User Mentions (@username) by parsing content, finding user IDs,
+        # and creating 'user_mention' notifications.
+
+        # --- End Notifications ---
+
+        conn.commit() # Commit reply creation AND notification inserts
+
+        # Fetch created reply details
         created_reply_gql = await get_reply_resolver(info, strawberry.ID(str(reply_id)))
         if not created_reply_gql: raise Exception("Failed to fetch created reply details.")
-        ws_manager_instance = info.context.get("ws_manager"); room_key = None; community_id_for_broadcast = None
+
+        # Broadcast WebSocket event for the new reply itself (separate from notification system)
+        # ... (Keep existing WS broadcast logic for the reply content) ...
+        ws_manager_instance = info.context.get("ws_manager")
+        room_key = None; community_id_for_broadcast = None
         try:
             cypher_q_comm = f"MATCH (c:Community)-[:HAS_POST]->(:Post {{id: {reply_input.post_id}}}) RETURN c.id as id LIMIT 1"; expected_comm = [('id', 'agtype')]
             comm_res = crud.execute_cypher(cursor, cypher_q_comm, fetch_one=True, expected_columns=expected_comm)
@@ -109,8 +173,11 @@ async def create_reply_resolver(info: Info, reply_input: ReplyCreateInput) -> Re
             try: await ws_manager_instance.broadcast(json.dumps(broadcast_payload), room_key)
             except Exception as ws_err: print(f"GQL WARN: Failed WS broadcast for new reply {reply_id}: {ws_err}")
         return created_reply_gql
+
     except (ValueError, Exception, psycopg2.Error) as e:
-        if conn: conn.rollback(); print(f"Error in create_reply_resolver: {e}"); traceback.print_exc(); raise Exception(f"Could not create reply: {e}") from e
+        if conn: conn.rollback()
+        print(f"Error in create_reply_resolver: {e}"); traceback.print_exc()
+        raise Exception(f"Could not create reply: {e}") from e
     finally:
         if conn: conn.close()
 
@@ -231,19 +298,51 @@ async def leave_event_resolver(info: Info, event_id: strawberry.ID) -> bool:
         if conn: conn.close()
 
 async def follow_user_resolver(info: Info, user_id: strawberry.ID) -> bool:
-    # ... implementation ...
     print(f"GraphQL Mutation: follow_user(id={user_id})")
-    follower_id = _get_authenticated_user_id(info); conn = None
+    follower_id = _get_authenticated_user_id(info) # This is the actor
+    conn = None
     try:
-        following_id = int(user_id);
+        following_id = int(user_id) # This is the recipient
         if follower_id == following_id: raise ValueError("Cannot follow yourself.")
+
         conn = get_db_connection(); cursor = conn.cursor()
         target = crud.get_user_by_id(cursor, following_id)
         if not target: raise ValueError("User to follow not found.")
+
+        # --- Perform the follow action ---
         success = crud.follow_user(cursor, follower_id, following_id)
-        conn.commit(); return success
+        if not success:
+            # crud.follow_user might raise an exception on failure,
+            # or return False if MERGE didn't error but didn't create.
+            # Adjust based on crud.follow_user's actual behavior.
+            raise Exception("Follow operation failed.")
+
+        # --- Create Notification (BEFORE commit, part of same transaction) ---
+        notification_id = crud.create_notification(
+            cursor=cursor,
+            recipient_user_id=following_id, # The user being followed receives it
+            actor_user_id=follower_id,      # The user who clicked follow
+            type='new_follower',
+            related_entity_type='user',
+            related_entity_id=follower_id   # Link to the follower's profile
+        )
+        if notification_id:
+            print(f"Notification created (ID: {notification_id}) for new follower.")
+            # TODO: Enqueue push notification task (Phase 2.3)
+            # TODO: Broadcast real-time indicator (Phase 2.4 - Optional WS)
+            # Example: await info.context['ws_manager'].broadcast(...) to user_{following_id} room
+        else:
+            print(f"WARN: Failed to create notification record for follow action.")
+            # Don't fail the whole request, just log the warning.
+        # --- End Notification ---
+
+        conn.commit() # Commit follow and notification insert together
+        return True # Return overall success of the follow action
+
     except (ValueError, Exception, psycopg2.Error) as e:
-        if conn: conn.rollback(); print(f"Error in follow_user_resolver: {e}"); traceback.print_exc(); raise Exception(f"Could not follow user: {e}") from e
+        if conn: conn.rollback()
+        print(f"Error in follow_user_resolver: {e}"); traceback.print_exc()
+        raise Exception(f"Could not follow user: {e}") from e
     finally:
         if conn: conn.close()
 

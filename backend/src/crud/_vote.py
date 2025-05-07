@@ -3,104 +3,135 @@ import psycopg2
 import psycopg2.extras
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+import traceback
+import json
 
-# Import graph helpers and utils
 from ._graph import execute_cypher
-from .. import utils # Import root utils for quote_cypher_string
-
-# =========================================
-# Vote CRUD (Purely Graph Operations)
-# =========================================
+from .. import utils
 
 def cast_vote_db(
-    cursor: psycopg2.extensions.cursor,
-    user_id: int,
-    post_id: Optional[int],
-    reply_id: Optional[int],
-    vote_type: bool # True=Up, False=Down
+        cursor: psycopg2.extensions.cursor,
+        user_id: int,
+        post_id: Optional[int],
+        reply_id: Optional[int],
+        vote_type: bool
 ) -> bool:
-    """
-    Creates or updates a :VOTED edge in AGE between a User and a Post/Reply.
-    Sets/overwrites the vote_type and created_at properties.
-    Requires CALLING function to handle transaction commit/rollback.
-    Returns True on success.
-    """
     target_id = post_id if post_id is not None else reply_id
     target_label = "Post" if post_id is not None else "Reply"
     if target_id is None:
         raise ValueError("Vote target missing: Must provide post_id or reply_id")
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    created_at_quoted = utils.quote_cypher_string(now_iso)
-    vote_type_cypher = 'true' if vote_type else 'false'
+    created_at_cypher = utils.quote_cypher_string(now_iso)
+    vote_type_cypher = utils.quote_cypher_string(vote_type)
 
-    # MERGE finds or creates the edge, SET ensures properties are updated
-    cypher_q = f"""
+    # Step 1: Ensure the edge exists. MERGE also acts as a MATCH if the edge exists.
+    # We don't need to return anything from this if the next step will explicitly set and return.
+    merge_q = f"""
         MATCH (u:User {{id: {user_id}}})
         MATCH (target:{target_label} {{id: {target_id}}})
         MERGE (u)-[r:VOTED]->(target)
-        SET r.vote_type = {vote_type_cypher}, r.created_at = {created_at_quoted}
     """
     try:
-        print(f"CRUD: Casting vote (U:{user_id} -> {target_label}:{target_id}, Type:{vote_type})...")
-        execute_cypher(cursor, cypher_q) # Assumes raises on error
-        print(f"CRUD: Vote cast/updated successfully.")
-        return True
-    except Exception as e:
-        print(f"CRUD Error casting vote (U:{user_id} -> {target_label}:{target_id}): {e}")
-        raise # Re-raise for transaction rollback
+        print(f"CRUD cast_vote_db (Step 1 - MERGE): Ensuring VOTED edge exists (U:{user_id} to {target_label}:{target_id})")
+        execute_cypher(cursor, merge_q) # No fetch needed, just ensure it runs
+        print(f"CRUD cast_vote_db (Step 1 - MERGE): Edge ensured.")
+    except Exception as e_merge:
+        print(f"CRUD Error during MERGE in cast_vote_db: {e_merge}")
+        traceback.print_exc()
+        raise
 
+        # Step 2: Explicitly SET properties on the matched/merged edge and then RETURN the property.
+    # This ensures we are reading the property after the SET operation.
+    set_and_return_q = f"""
+        MATCH (u:User {{id: {user_id}}})-[r:VOTED]->(target:{target_label} {{id: {target_id}}})
+        SET r.vote_type = {vote_type_cypher}, r.created_at = {created_at_cypher}
+        RETURN r.vote_type as set_vote_type
+    """
+    expected_cols = [('set_vote_type', 'agtype')]
+    try:
+        print(f"CRUD cast_vote_db (Step 2 - SET & RETURN): Setting properties. vote_type = {vote_type_cypher}")
+        result_map = execute_cypher(cursor, set_and_return_q, fetch_one=True, expected_columns=expected_cols)
+        print(f"CRUD cast_vote_db (Step 2 - SET & RETURN): Raw result from graph: {result_map}")
+
+        if result_map and 'set_vote_type' in result_map:
+            persisted_vote_type = result_map.get('set_vote_type')
+            if persisted_vote_type == vote_type:
+                print(f"CRUD cast_vote_db: Successfully SET and VERIFIED vote_type to {persisted_vote_type}")
+                return True
+            else:
+                print(f"ERROR CRUD cast_vote_db: SET vote_type mismatch. Persisted: {persisted_vote_type} (type: {type(persisted_vote_type)}), Expected: {vote_type}")
+                return False
+        else:
+            print(f"ERROR CRUD cast_vote_db: SET properties query did not return 'set_vote_type'. Result: {result_map}")
+            # This could happen if the MATCH in step 2 failed, which implies the MERGE in step 1 also had an issue.
+            return False
+    except Exception as e_set:
+        print(f"CRUD Error during SET & RETURN in cast_vote_db (U:{user_id} on {target_label}:{target_id}): {e_set}")
+        traceback.print_exc()
+        raise
+
+# --- remove_vote_db and get_viewer_vote_status remain unchanged from the previous successful iteration ---
 def remove_vote_db(
-    cursor: psycopg2.extensions.cursor,
-    user_id: int,
-    post_id: Optional[int],
-    reply_id: Optional[int]
+        cursor: psycopg2.extensions.cursor,
+        user_id: int,
+        post_id: Optional[int],
+        reply_id: Optional[int]
 ) -> bool:
-    """
-    Removes a :VOTED edge in AGE between a User and a Post/Reply.
-    Requires CALLING function to handle transaction commit/rollback.
-    Returns True if an edge was deleted, False otherwise.
-    """
     target_id = post_id if post_id is not None else reply_id
     target_label = "Post" if post_id is not None else "Reply"
-    if target_id is None:
-        raise ValueError("Vote target missing: Must provide post_id or reply_id")
+    if target_id is None: raise ValueError("Vote target missing")
 
-    # MATCH the specific edge and DELETE it
-    cypher_q = f"""
+    cypher_q_remove = f"""
         MATCH (u:User {{id: {user_id}}})-[r:VOTED]->(target:{target_label} {{id: {target_id}}})
         DELETE r
-        RETURN count(r) as deleted_count
+        RETURN true AS was_deleted 
     """
-    expected = [('deleted_count', 'agtype')] # Define expected column
+    expected_cols_remove = [('was_deleted', 'agtype')]
     try:
-        # ... (execute_cypher with expected_columns) ...
-        result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected) # Use map directly
-        deleted_count = int(result_map.get('deleted_count', 0)) if isinstance(result_map, dict) else 0
-        print(f"CRUD: Vote removal result - Deleted count: {deleted_count}")
-        return deleted_count > 0 # True if count is 1
-    except Exception as e:
-        print(f"CRUD Error removing vote (U:{user_id} -> {target_label}:{target_id}): {e}")
-        raise # Re-raise for transaction rollback
+        print(f"CRUD: Removing vote (U:{user_id} -> {target_label}:{target_id})...")
+        result_map = execute_cypher(cursor, cypher_q_remove, fetch_one=True, expected_columns=expected_cols_remove)
 
-def get_viewer_vote_status(cursor, viewer_id: int, post_id: Optional[int] = None, reply_id: Optional[int] = None) -> Optional[bool]:
-    """Checks the viewer's vote status (True=up, False=down, None=no vote) for an item."""
+        if result_map and result_map.get('was_deleted') is True:
+            print(f"CRUD: remove_vote_db executed. Edge was found and deleted.")
+            return True
+        else:
+            print(f"CRUD: remove_vote_db executed. No edge found to delete or 'was_deleted' not true. Result: {result_map}")
+            return False
+    except psycopg2.Error as db_err:
+        print(f"CRUD DB Error removing vote: {db_err} (Code: {db_err.pgcode}).")
+        return False
+    except Exception as e:
+        print(f"CRUD Generic Error removing vote: {e}")
+        traceback.print_exc()
+        raise
+
+def get_viewer_vote_status(cursor: psycopg2.extensions.cursor, viewer_id: int, post_id: Optional[int] = None, reply_id: Optional[int] = None) -> Optional[bool]:
     target_id = post_id if post_id is not None else reply_id
     target_label = "Post" if post_id is not None else "Reply"
     if target_id is None: return None
 
     cypher_vote = f"MATCH (:User {{id:{viewer_id}}})-[r:VOTED]->(:{target_label} {{id:{target_id}}}) RETURN r.vote_type as vt"
-    expected = [('vt', 'agtype')] # Define expected column
+    expected = [('vt', 'agtype')]
     try:
-        parsed_res = execute_cypher(cursor, cypher_vote, fetch_one=True, expected_columns=expected) # Use map directly
-        if isinstance(parsed_res, dict) and 'vt' in parsed_res:
-            # ... (handle boolean/string parsing) ...
-            vote_val = parsed_res['vt']; # Access value from key
-            if isinstance(vote_val, bool): return vote_val
-            if isinstance(vote_val, str): return vote_val.lower() == 'true'
-            return None
-        return None # Not found or wrong format
-    except Exception as e: print(f"Error checking vote status (...): {e}"); return None
+        result_map = execute_cypher(cursor, cypher_vote, fetch_one=True, expected_columns=expected)
 
-# Note: Getting vote counts is handled by get_post_counts and get_reply_counts
-# in their respective files (_post.py, _reply.py)
+        if result_map is not None and 'vt' in result_map:
+            vote_value = result_map['vt']
+            print(f"DEBUG get_viewer_vote_status for U:{viewer_id} on {target_label}:{target_id} - Raw 'vt' from graph (after parse_agtype): {vote_value} (type: {type(vote_value)})")
+
+            if isinstance(vote_value, bool):
+                return vote_value
+            elif vote_value is None:
+                print(f"WARN get_viewer_vote_status: 'vt' property is NULL for {target_label} {target_id}.")
+                return None
+            else:
+                print(f"WARN get_viewer_vote_status: 'vt' property was '{vote_value}' (type: {type(vote_value)}), which is not a Python bool nor None after parsing, for {target_label} {target_id}. Returning None.")
+                return None
+
+        print(f"DEBUG get_viewer_vote_status for U:{viewer_id} on {target_label}:{target_id} - No vote edge found or 'vt' property not returned by Cypher (result_map: {result_map}).")
+        return None
+    except Exception as e:
+        print(f"Error checking vote status V:{viewer_id} -> {target_label}:{target_id} : {e}")
+        traceback.print_exc()
+        return None

@@ -11,7 +11,7 @@ import uuid # <-- ADD IMPORT
 # Use the central crud import
 from .. import schemas, crud, auth, utils
 from ..database import get_db_connection
-#from ..utils import upload_file_to_minio, get_minio_url, delete_from_minio, delete_media_item_db_and_file
+from ..utils import upload_file_to_minio, get_minio_url, delete_from_minio, delete_media_item_db_and_file
 
 # Import JWT for optional auth dependency
 import jwt
@@ -28,79 +28,124 @@ async def create_community(
         current_user_id: int = Depends(auth.get_current_user), # Require auth to create
         name: str = Form(...),
         description: Optional[str] = Form(None),
-        primary_location: str = Form("(0,0)"), # Expecting "(lon,lat)" string
-        interest: Optional[str] = Form(None), # Now optional, ensure DB allows NULL
+        primary_location: str = Form("(0,0)"),
+        interest: Optional[str] = Form(None),
         logo: Optional[UploadFile] = File(None)
 ):
-    """ Creates a new community (relational + graph), optionally with a logo. """
+    """ Creates a new community (relational + graph), optionally uploads/links a logo. """
     conn = None
-    minio_logo_path = None
     community_id = None
+    upload_result_dict: Optional[Dict[str, Any]] = None # To store result from MinIO upload
+    created_media_id: Optional[int] = None
+
     try:
-        # 1. Handle Logo Upload to MinIO first
+        # 1. Handle Logo Upload to MinIO first (if provided)
         if logo and utils.minio_client:
-            # Sanitize name for path prefix
             safe_name = name.replace(' ', '_').lower()
-            safe_name = ''.join(c for c in safe_name if c.isalnum() or c in ['_','-']) # Basic sanitize
+            safe_name = ''.join(c for c in safe_name if c.isalnum() or c in ['_','-']) or f"comm_{uuid.uuid4()}"
             object_name_prefix = f"communities/{safe_name}/logo"
-            minio_logo_path = await upload_file_to_minio(logo, object_name_prefix)
-            if minio_logo_path is None:
-                print(f"⚠️ Warning: MinIO community logo upload failed for {name}")
-                # Proceed without logo path
-        else:
-            minio_logo_path = None
+            # Store the dict returned by upload_file_to_minio
+            upload_result_dict = await utils.upload_file_to_minio(logo, object_name_prefix)
+            if upload_result_dict is None or 'minio_object_name' not in upload_result_dict:
+                print(f"⚠️ Warning: MinIO community logo upload failed for {name}. Proceeding without logo.")
+                upload_result_dict = None # Ensure it's None if upload failed
 
         # 2. Format location string for DB
         db_location_str = utils.format_location_for_db(primary_location)
 
-        # 3. Create Community in DB (relational + graph)
+        # --- Start DB Transaction ---
         conn = get_db_connection()
         cursor = conn.cursor()
-        # crud.create_community_db handles relational insert, graph vertex, and edges
+
+        # 3. Create Community base record (DB + Graph)
         community_id = crud.create_community_db(
             cursor, name=name, description=description, created_by=current_user_id,
-            primary_location_str=db_location_str, interest=interest, logo_path=minio_logo_path
+            primary_location_str=db_location_str, interest=interest
+            # REMOVE logo_path=... from this call
         )
         if community_id is None:
-            if minio_logo_path: delete_from_minio(minio_logo_path) # Cleanup upload
-            raise HTTPException(status_code=500, detail="Community creation failed in database")
+            # If community creation fails, cleanup potential upload BEFORE raising error
+            if upload_result_dict and 'minio_object_name' in upload_result_dict:
+                delete_from_minio(upload_result_dict['minio_object_name'])
+            raise HTTPException(status_code=500, detail="Community base creation failed in database")
 
-        # 4. Fetch created community details for response (includes counts)
+        # 4. Create Media Item record and Link logo (if upload succeeded)
+        if upload_result_dict and 'minio_object_name' in upload_result_dict:
+            # Use the dictionary returned by the upload function
+            created_media_id = crud.create_media_item(
+                cursor, uploader_user_id=current_user_id, **upload_result_dict
+            )
+            if created_media_id:
+                crud.set_community_logo(cursor, community_id, created_media_id)
+                print(f"Linked logo media {created_media_id} to community {community_id}")
+            else:
+                # If DB record for media fails, cleanup MinIO upload
+                print(f"WARN CreateCommunity: Failed to create media record for logo {upload_result_dict['minio_object_name']}")
+                delete_from_minio(upload_result_dict['minio_object_name'])
+                # Allow community creation to succeed, but log the warning
+                created_media_id = None # Ensure no attempt to delete it later
+
+        # 5. Fetch created community details for response
+        # get_community_details_db includes counts
         created_community_db = crud.get_community_details_db(cursor, community_id)
         if not created_community_db:
-            conn.rollback() # Rollback if fetch failed
-            if minio_logo_path: delete_from_minio(minio_logo_path)
-            raise HTTPException(status_code=500, detail="Could not retrieve created community details")
+            # This means fetching failed right after creation - indicates a problem
+            conn.rollback() # Rollback the creation
+            if upload_result_dict and 'minio_object_name' in upload_result_dict:
+                delete_from_minio(upload_result_dict['minio_object_name']) # Cleanup upload too
+            raise HTTPException(status_code=500, detail="Could not retrieve created community details after creation")
 
-        conn.commit() # Commit successful creation
+        # Fetch logo media info again to get URL for response object
+        logo_media_for_response = None
+        if created_media_id: # If we successfully linked a new logo
+            logo_media_for_response = crud.get_media_item_by_id(cursor, created_media_id)
 
-        # 5. Prepare response data
+        conn.commit() # Commit successful creation and potential logo link
+
+        # 6. Prepare response data
         response_data = dict(created_community_db)
-        # Location needs parsing from POINT string for display schema
-        loc_point_str = response_data.get('primary_location')
-        response_data['primary_location'] = str(loc_point_str) if loc_point_str else None # Send as string
-        # Generate logo URL
-        response_data['logo_url'] = utils.get_minio_url(response_data.get('logo_path'))
+        location_value = response_data.get('primary_location')
+        if isinstance(location_value, dict) and 'longitude' in location_value and 'latitude' in location_value:
+            # It's a dict, format it back to string
+            lon = location_value['longitude']
+            lat = location_value['latitude']
+            response_data['primary_location'] = f"({lon},{lat})"
+        elif isinstance(location_value, (str, type(None))):
+            # It's already a string (or None), or it's some other DB point type representation.
+            # If it's a DB point type, str(point_obj) usually gives "(x,y)"
+            response_data['primary_location'] = str(location_value) if location_value else None
+        else:
+            # Fallback if it's an unexpected type
+            print(f"WARN: Unexpected primary_location type: {type(location_value)}. Setting to None for response.")
+            response_data['primary_location'] = None
+        # --- END FIX ---
+        response_data['logo_url'] = utils.get_minio_url(logo_media_for_response.get('minio_object_name')) if logo_media_for_response else None
+        response_data.setdefault('is_member_by_viewer', True) # Creator is automatically a member
 
         print(f"✅ Community '{name}' (ID: {community_id}) created by User {current_user_id}")
         return schemas.CommunityDisplay(**response_data) # Validate
 
     except psycopg2.IntegrityError as e:
         if conn: conn.rollback()
-        if minio_logo_path: delete_from_minio(minio_logo_path)
+        # Cleanup potential upload if DB fails due to constraint (e.g., name exists)
+        if upload_result_dict and 'minio_object_name' in upload_result_dict: delete_from_minio(upload_result_dict['minio_object_name'])
         print(f"❌ Community Creation Integrity Error: {e}")
         detail="Community name may already exist or invalid data provided."
-        if 'communities_created_by_fkey' in str(e): detail = "Creator user not found."
+        # Check specific constraint if needed
+        if hasattr(e, 'diag') and e.diag.constraint_name == 'communities_name_key': detail = "Community name already taken."
+        elif hasattr(e, 'pgcode') and e.pgcode == '23503': detail = "Invalid creator user or other foreign key."
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     except HTTPException as http_exc:
-        if conn: conn.rollback() # Rollback on HTTP errors if transaction started
-        if minio_logo_path and community_id is None: delete_from_minio(minio_logo_path) # Cleanup if raised early
+        if conn: conn.rollback()
+        # Cleanup only if upload happened but DB steps failed before commit
+        if upload_result_dict and 'minio_object_name' in upload_result_dict and community_id is None:
+            delete_from_minio(upload_result_dict['minio_object_name'])
         raise http_exc
     except Exception as e:
         if conn: conn.rollback()
-        if minio_logo_path and community_id is None: delete_from_minio(minio_logo_path)
+        if upload_result_dict and 'minio_object_name' in upload_result_dict and community_id is None:
+            delete_from_minio(upload_result_dict['minio_object_name'])
         print(f"❌ Error creating community: {e}")
-        import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Could not create community: {e}")
     finally:

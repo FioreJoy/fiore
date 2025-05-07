@@ -1,3 +1,5 @@
+requests
+Request
 uvicorn
 fastapi
 strawberry-graphql[fastapi]
@@ -14,3 +16,6 @@ python-multipart
 websockets
 minio
 aiodataloader
+pytest
+pytest-asyncio
+pytest-ordering

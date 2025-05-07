@@ -86,5 +86,11 @@ from ._search import search_all
 from ._feed import (
     get_following_feed,
     get_discover_feed)
+
+from ._notifications import (
+    create_notification,
+    # get_notifications, # Add later
+    # mark_notifications_read, # Add later
+)
 # Import graph helpers only if they need to be used directly outside the crud package
 # from ._graph import execute_cypher, build_cypher_set_clauses, get_graph_counts

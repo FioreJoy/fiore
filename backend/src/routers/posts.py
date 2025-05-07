@@ -323,7 +323,7 @@ async def delete_post(
                 media_id = media_item.get("id")
                 minio_path = media_item.get("minio_object_name")
                 if media_id:
-                    await utils.delete_media_item_db_and_file(media_id, minio_path)
+                    utils.delete_media_item_db_and_file(media_id, minio_path)
                 elif minio_path: # If only path is known, try deleting file
                     utils.delete_from_minio(minio_path)
 

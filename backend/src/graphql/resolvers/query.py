@@ -11,9 +11,10 @@ from ...database import get_db_connection
 # Import GQL Types needed for return types (from the new structure)
 from ..types import UserType, CommunityType, PostType, ReplyType, EventType
 # Import Mapping functions
-from ..mappings import (
+from ..mappings import ( # Import ALL necessary mappers
     map_db_user_to_gql_user, map_db_community_to_gql_community,
-    map_db_post_to_gql_post, map_db_reply_to_gql_reply, map_db_event_to_gql_event
+    map_db_post_to_gql_post, map_db_reply_to_gql_reply,
+    map_db_event_to_gql_event, map_db_media_to_gql_media # <-- ADD THIS MAPPER
 )
 
 # --- Helper Function for Viewer Status ---
@@ -61,50 +62,57 @@ async def get_user_resolver(info: Info, id: strawberry.ID) -> Optional[UserType]
         if conn: conn.close()
 
 async def get_viewer(info: Info) -> Optional[UserType]:
-    """ Fetches the profile of the currently authenticated user. """
     print(f"GraphQL Resolver: get_viewer")
-    # Auth should ideally populate user_id in context via dependency/middleware
+    # Now relies on user_id being correctly set in context by get_graphql_context
     viewer_id: Optional[int] = info.context.get("user_id")
     if viewer_id is None:
-        print("WARN: get_viewer called but no user_id in context.")
-        return None
-    # Reuse the user resolver logic
+        print("WARN: get_viewer resolver - No user_id found in context.")
+        return None # Return None if not authenticated
     return await get_user_resolver(info, strawberry.ID(str(viewer_id)))
 
-async def get_posts_resolver(
-        info: Info,
-        community_id: Optional[int] = None,
-        user_id: Optional[int] = None, # Filter by author
-        # Removed post_id_single, use get_post_resolver for single fetch
-        limit: int = 20,
-        offset: int = 0
-) -> List[PostType]:
-    """ Fetches a list of posts, optionally filtered. Includes counts, media, author, viewer status. """
-    print(f"GraphQL Resolver: get_posts (Comm: {community_id}, User: {user_id}, Limit: {limit})")
+async def get_posts_resolver(info: Info, id: strawberry.ID) -> Optional[PostType]:
+    """ Fetches a single post by ID. """
+    print(f"GraphQL Resolver: get_post(id={id})")
     conn = None
     viewer_id: Optional[int] = info.context.get("user_id")
     try:
+        post_id_int = int(id)
         conn = get_db_connection(); cursor = conn.cursor()
-        # Pass viewer_id to CRUD if needed for filtering (e.g., blocked content)
-        posts_db = crud.get_posts_db(cursor, community_id=community_id, user_id=user_id, limit=limit, offset=offset)
-        gql_posts: List[PostType] = []
-        for db_post_dict in posts_db:
-            post_id = db_post_dict['id']
-            # Fetch Media
-            try:
-                db_media = crud.get_media_items_for_post(cursor, post_id)
-                gql_media = [map_db_media_to_gql_media(m) for m in db_media]
-                media_list = [m for m in gql_media if m is not None]
-            except Exception as e: print(f"WARN GQL posts: Failed getting media P:{post_id}: {e}"); media_list = []
-            # Fetch Viewer Status
-            viewer_status = _get_viewer_status_for_item(cursor, viewer_id, post_id=post_id)
-            # Map
-            gql_post = map_db_post_to_gql_post(db_post_dict, viewer_vote_status=viewer_status['vote_type'], viewer_favorite_status=viewer_status['is_favorited'])
-            if gql_post:
-                gql_post.media = media_list # Assign mapped media list
-                gql_posts.append(gql_post)
-        return gql_posts
-    except (Exception, psycopg2.Error) as e: print(f"GraphQL Resolver Error fetching posts: {e}"); traceback.print_exc(); return []
+        db_post = crud.get_post_by_id(cursor, post_id_int)
+        if not db_post: return None
+
+        # Augment
+        post_data = dict(db_post)
+        try: post_data.update(crud.get_post_counts(cursor, post_id_int))
+        except Exception as e: print(f"WARN get_post: counts failed P:{post_id_int}: {e}"); post_data.update({"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0})
+
+        # Fetch and map media
+        media_list = [] # Default empty list
+        try:
+            db_media = crud.get_media_items_for_post(cursor, post_id_int)
+            # --- FIX: Use the imported mapper ---
+            gql_media_items = [map_db_media_to_gql_media(m) for m in db_media]
+            media_list = [m for m in gql_media_items if m is not None] # Filter out None results
+            # --- End Fix ---
+        except Exception as e: print(f"WARN get_post: media failed P:{post_id_int}: {e}")
+        post_data['media_list_for_mapping'] = media_list # Temporary key for mapper if needed, or assign directly below
+
+        viewer_status = _get_viewer_status_for_item(cursor, viewer_id, post_id=post_id_int)
+
+        # Map final object
+        gql_post = map_db_post_to_gql_post(
+            post_data,
+            viewer_vote_status=viewer_status['vote_type'],
+            viewer_favorite_status=viewer_status['is_favorited']
+        )
+        # Assign media directly to the GQL object after mapping base fields
+        if gql_post:
+            gql_post.media = media_list # Assign the processed list
+
+        return gql_post
+
+    except ValueError: print(f"ERROR: Invalid post ID format '{id}'"); return None
+    except (Exception, psycopg2.Error) as e: print(f"Error in get_post_resolver: {e}"); traceback.print_exc(); return None
     finally:
         if conn: conn.close()
 

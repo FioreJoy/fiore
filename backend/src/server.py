@@ -43,42 +43,29 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- GraphQL ---
-graphql_app = GraphQLRouter(schema=gql_schema, graphiql=True, context_getter=get_graphql_context)
-app.include_router(graphql_app, prefix="/graphql", tags=["GraphQL"]) # Keep prefix for GraphQL
-
 # --- Mount REST Routers (REMOVED prefixes where routers define their own) ---
 api_key_dependency = Depends(security.get_api_key)
 auth_dependency = Depends(base_auth_module.get_current_user)
 optional_auth_dependency = Depends(base_auth_module.get_current_user_optional)
 common_auth_dependencies = [api_key_dependency, auth_dependency]
 
+# --- GraphQL ---
+graphql_app = GraphQLRouter(schema=gql_schema, graphiql=True, context_getter=get_graphql_context)
+app.include_router(graphql_app, prefix="/graphql", tags=["GraphQL"], dependencies=[api_key_dependency]) # Keep prefix for GraphQL
+
 app.include_router(auth_router.router, tags=["Authentication"]) # No prefix here or in router file
-app.include_router(users_router.router, tags=["Users"]) # Prefix is defined in users_router
+app.include_router(users_router.router, tags=["Users"], dependencies=[api_key_dependency]) # Prefix is defined in users_router
 app.include_router(communities_router.router, tags=["Communities"], dependencies=[api_key_dependency]) # Prefix defined in router
 app.include_router(events_router.router, tags=["Events"], dependencies=[api_key_dependency]) # Prefix defined in router
 app.include_router(posts_router.router, tags=["Posts"], dependencies=[api_key_dependency]) # Prefix defined in router
 app.include_router(replies_router.router, tags=["Replies"], dependencies=[api_key_dependency]) # Prefix defined in router
 app.include_router(votes_router.router, tags=["Votes"], dependencies=common_auth_dependencies) # Prefix defined in router
 app.include_router(search_router.router, tags=["Search"], dependencies=[api_key_dependency]) # Prefix defined in router
-app.include_router(feed_router.router, tags=["Feeds"]) # Prefix defined in router
+app.include_router(feed_router.router, tags=["Feeds"], dependencies=[api_key_dependency]) # Prefix defined in router
 app.include_router(settings_router.router, tags=["Settings"], dependencies=common_auth_dependencies) # Prefix defined in router
 app.include_router(block_router.router, tags=["Blocking"], dependencies=common_auth_dependencies) # Prefix defined in router
 app.include_router(chat_router.router, tags=["Chat"], dependencies=[api_key_dependency]) # Prefix defined in router
 app.include_router(websocket_router.router, tags=["WebSocket"]) # No prefix needed
-
-# --- Mount Static Files ---
-IMAGE_DIR_RELATIVE = "user_images"
-if os.path.exists(IMAGE_DIR_RELATIVE):
-    os.makedirs(IMAGE_DIR_RELATIVE, exist_ok=True)
-    static_path = f"/{IMAGE_DIR_RELATIVE.replace(os.sep, '/')}"
-    try:
-        app.mount(static_path, StaticFiles(directory=IMAGE_DIR_RELATIVE), name="user_images")
-        print(f"Serving static files from '{IMAGE_DIR_RELATIVE}' at '{static_path}'")
-    except Exception as e:
-        print(f"WARN: Failed to mount static directory '{IMAGE_DIR_RELATIVE}': {e}")
-else:
-    print(f"Static directory '{IMAGE_DIR_RELATIVE}' not found, skipping mount.")
 
 # --- Root Endpoint ---
 @app.get("/", tags=["Root"])

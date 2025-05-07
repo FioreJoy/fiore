@@ -45,20 +45,19 @@ class MediaItemDisplay(BaseModel):
 
 # --- User Schemas ---
 class UserBase(BaseModel):
+    id: int # *** ADDED ID HERE ***
     name: str
     username: str
     email: EmailStr
-    gender: str # Consider Enum: 'Male', 'Female', 'Other', 'PreferNotSay'
+    gender: str
     college: Optional[str] = None
-    interest: Optional[str] = None # Comma-separated string in DB
-    image_path: Optional[str] = None # Store path from MinIO
+    interest: Optional[str] = None # Comma-separated string for 'interest' text column
+    # image_path: Optional[str] = None # This field is not directly on the users table.
     image_url: Optional[str] = None # Generated full URL for responses
-    # Expect frontend to send dict {'latitude': float, 'longitude': float}
-    # Or backend parses "(lon,lat)" string from DB into this dict
     current_location: Optional[Dict[str, float]] = None
 
     class Config:
-        from_attributes = True # Pydantic v2 alias for orm_mode
+        from_attributes = True
 
 class SearchResultItem(BaseModel):
     """Represents a single item returned in search results."""
