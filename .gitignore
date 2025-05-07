@@ -15,6 +15,7 @@ backend/venv/
 backend/pyenv.cfg
 backend/.env
 backend/.pytest_cache
+backend/tests/__pycache__/
 
 frontend/.dart_tool/
 frontend/.idea/
