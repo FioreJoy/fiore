@@ -1,5 +1,4 @@
 requests
-Request
 uvicorn
 fastapi
 strawberry-graphql[fastapi]
