@@ -16,7 +16,8 @@ from .routers import (
     replies as replies_router, votes as votes_router, events as events_router,
     chat as chat_router, websocket as websocket_router, users as users_router,
     settings as settings_router, block as block_router, search as search_router,
-    feed as feed_router
+    feed as feed_router,
+    notifications as notifications_router # <-- ADD THIS
 )
 # --- GraphQL Imports ---
 from .graphql.schema import schema as gql_schema
@@ -66,6 +67,7 @@ app.include_router(settings_router.router, tags=["Settings"], dependencies=commo
 app.include_router(block_router.router, tags=["Blocking"], dependencies=common_auth_dependencies) # Prefix defined in router
 app.include_router(chat_router.router, tags=["Chat"], dependencies=[api_key_dependency]) # Prefix defined in router
 app.include_router(websocket_router.router, tags=["WebSocket"]) # No prefix needed
+app.include_router(notifications_router.router, tags=["Notifications"], dependencies=common_auth_dependencies)
 
 # --- Root Endpoint ---
 @app.get("/", tags=["Root"])

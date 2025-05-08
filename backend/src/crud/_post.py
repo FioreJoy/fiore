@@ -13,54 +13,33 @@ from .. import utils # Import root utils for quote_cypher_string and potentially
 # =========================================
 # Post CRUD (Relational + Graph + Media Link)
 # =========================================
-
 def create_post_db(
         cursor: psycopg2.extensions.cursor,
         user_id: int,
         title: str,
         content: str,
-        community_id: Optional[int] = None
-        # Removed image_path parameter
-) -> Optional[int]:
-    """
-    Creates post in public.posts, :Post vertex, and :WROTE edge.
-    Linking to community (:HAS_POST edge) and media (post_media table)
-    are handled separately by the caller (router) after getting the post_id.
-    Requires CALLING function to handle transaction commit/rollback.
-    Returns post ID on success.
-    """
+) -> Optional[int]: # Removed community_id from direct params, handled by router
     post_id = None
-    # No try/except here, let caller handle transaction
-    # 1. Insert into relational table (without image_path)
-    cursor.execute(
-        """
-        INSERT INTO public.posts (user_id, title, content)
-        VALUES (%s, %s, %s) RETURNING id, created_at;
-        """,
-        (user_id, title, content),
-    )
-    result = cursor.fetchone()
-    if not result or 'id' not in result: return None
-    post_id = result['id']
-    created_at = result['created_at']
-    print(f"CRUD: Inserted post {post_id} into public.posts.")
-
-    # 2. Create :Post vertex
     try:
-        # Store minimal props: id, title (searchable), created_at (sorting)
+        cursor.execute(
+            """
+            INSERT INTO public.posts (user_id, title, content)
+            VALUES (%s, %s, %s) RETURNING id, created_at;
+            """,
+            (user_id, title, content),
+        )
+        result = cursor.fetchone()
+        if not result or 'id' not in result: return None
+        post_id = result['id']
+        created_at = result['created_at']
+        print(f"CRUD: Inserted post {post_id} into public.posts.")
+
         post_props = {'id': post_id, 'title': title, 'created_at': created_at}
         set_clauses_str = build_cypher_set_clauses('p', post_props)
         cypher_q_vertex = f"CREATE (p:Post {{id: {post_id}}})"
         if set_clauses_str: cypher_q_vertex += f" SET {set_clauses_str}"
-        print(f"CRUD: Creating AGE vertex for post {post_id}...")
         execute_cypher(cursor, cypher_q_vertex)
-        print(f"CRUD: AGE vertex created for post {post_id}.")
-    except Exception as age_err:
-        print(f"CRUD WARNING: Failed to create AGE vertex for new post {post_id}: {age_err}")
-        # Allow relational part to succeed, caller handles transaction
 
-    # 3. Create :WROTE edge (User -> Post)
-    try:
         created_at_quoted = utils.quote_cypher_string(created_at)
         cypher_q_wrote = f"""
             MATCH (u:User {{id: {user_id}}})
@@ -69,82 +48,50 @@ def create_post_db(
             SET r.created_at = {created_at_quoted}
         """
         execute_cypher(cursor, cypher_q_wrote)
-        print(f"CRUD: :WROTE edge created for post {post_id}.")
-    except Exception as age_err:
-        print(f"CRUD WARNING: Failed to create :WROTE edge for post {post_id}: {age_err}")
-        # Allow relational part to succeed
-
-    # Note: Linking to community (:HAS_POST) is now done via crud.add_post_to_community_db
-    # which is called by the router *after* this function succeeds.
-
-    return post_id # Return ID
+        return post_id
+    except psycopg2.Error as db_err:
+        print(f"CRUD DB Error creating post: {db_err}")
+        raise
+    except Exception as e:
+        print(f"CRUD Unexpected error creating post: {e}")
+        raise
 
 def get_post_by_id(cursor: psycopg2.extensions.cursor, post_id: int) -> Optional[Dict[str, Any]]:
-    """Fetches post details from relational table ONLY. Media/Counts fetched separately."""
-    # Removed image_path
     cursor.execute(
         "SELECT id, user_id, content, title, created_at FROM public.posts WHERE id = %s",
         (post_id,)
     )
     return cursor.fetchone()
 
-# --- Fetch post counts from graph (Python counting workaround) ---
 def get_post_counts(cursor: psycopg2.extensions.cursor, post_id: int) -> Dict[str, int]:
-    # Debug query for edge properties
-    debug_vote_edges_q = f"MATCH ()-[r:VOTED]->(p:Post {{id: {post_id}}}) RETURN r as edge_props" # Changed 'r' to 'edge_props' for clarity
-    debug_expected_edges = [('edge_props', 'agtype')]
-    try:
-        all_vote_edges = execute_cypher(cursor, debug_vote_edges_q, fetch_all=True, expected_columns=debug_expected_edges)
-        print(f"DEBUG get_post_counts P:{post_id} - All VOTED edges found: {all_vote_edges}")
-        if all_vote_edges:
-            for edge_data_item in all_vote_edges: # Renamed to avoid conflict
-                # edge_data_item is expected to be a dict like {'edge_props': parsed_edge_dict}
-                parsed_edge_dict = edge_data_item.get('edge_props')
-                if isinstance(parsed_edge_dict, dict) and 'properties' in parsed_edge_dict:
-                    print(f"  Edge properties: {parsed_edge_dict.get('properties')}")
-                else:
-                    print(f"  Edge data (not expected dict or no props): {parsed_edge_dict}")
-    except Exception as debug_e:
-        print(f"DEBUG get_post_counts P:{post_id} - Error fetching raw edges: {debug_e}")
-
-    # Main count query
     cypher_q = f"""
         MATCH (p:Post {{id: {post_id}}})
         OPTIONAL MATCH (reply:Reply)-[:REPLIED_TO]->(p)
-        OPTIONAL MATCH (upvoter:User)-[v_up:VOTED]->(p) WHERE v_up.vote_type = true 
-        OPTIONAL MATCH (downvoter:User)-[v_down:VOTED]->(p) WHERE v_down.vote_type = false 
+        OPTIONAL MATCH (upvoter:User)-[v_up:VOTED {{vote_type: true}}]->(p)
+        OPTIONAL MATCH (downvoter:User)-[v_down:VOTED {{vote_type: false}}]->(p)
         OPTIONAL MATCH (favUser:User)-[:FAVORITED]->(p)
         RETURN count(DISTINCT reply) as reply_count,
                count(DISTINCT upvoter) as upvotes,
                count(DISTINCT downvoter) as downvotes,
                count(DISTINCT favUser) as favorite_count
     """
+    # Corrected property access in OPTIONAL MATCH for votes
     expected_counts = [('reply_count', 'agtype'), ('upvotes', 'agtype'), ('downvotes', 'agtype'), ('favorite_count', 'agtype')]
     try:
         result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected_counts)
-        print(f"DEBUG get_post_counts for P:{post_id} - Raw result_map from graph count query: {result_map}")
         if isinstance(result_map, dict):
-            # Ensure values are int after parse_agtype (which should handle numeric strings)
-            counts = {
+            return {
                 "reply_count": int(result_map.get('reply_count', 0) or 0),
                 "upvotes": int(result_map.get('upvotes', 0) or 0),
                 "downvotes": int(result_map.get('downvotes', 0) or 0),
                 "favorite_count": int(result_map.get('favorite_count', 0) or 0),
             }
-            return counts
         else: return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
     except Exception as e:
         print(f"Warning: Failed getting graph counts for post {post_id}: {e}")
         traceback.print_exc()
         return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
-    except Exception as e:
-        print(f"Warning: Failed getting graph counts for post {post_id}: {e}")
-        traceback.print_exc() # Print stack trace for count errors
-        return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
 
-    except Exception as e: print(f"Warning: Failed getting graph counts for post {post_id}: {e}"); return {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
-
-# --- Fetch list of posts (Combines relational + graph counts) ---
 def get_posts_db(
         cursor: psycopg2.extensions.cursor,
         community_id: Optional[int] = None,
@@ -152,21 +99,15 @@ def get_posts_db(
         limit: int = 50,
         offset: int = 0
 ) -> List[Dict[str, Any]]:
-    """
-    Fetches posts from relational table, adds graph counts and author/community info.
-    Media items are fetched separately by the router.
-    """
-    # Base query for relational post data (no image_path)
     sql = """
         SELECT
             p.id, p.user_id, p.content, p.title, p.created_at,
             u.username AS author_name,
-            u.id AS author_id, -- Include author ID for fetching avatar later
-            c.id as community_id,
-            c.name as community_name
+            u.id AS author_id,
+            c.id as community_id,    -- This will be NULL if not linked via community_posts
+            c.name as community_name -- This will be NULL if not linked
         FROM public.posts p
         JOIN public.users u ON p.user_id = u.id
-        -- Still use relational join for filtering/getting community info
         LEFT JOIN public.community_posts cp ON p.id = cp.post_id
         LEFT JOIN public.communities c ON cp.community_id = c.id
     """
@@ -183,95 +124,99 @@ def get_posts_db(
     cursor.execute(sql, tuple(params))
     posts_relational = cursor.fetchall()
 
-    # Augment with graph counts
     augmented_posts = []
-    for post_rel in posts_relational:
-        post_data = dict(post_rel)
+    for post_rel_dict in posts_relational:
+        post_data = dict(post_rel_dict) # Ensure it's a mutable dict
         post_id = post_data['id']
         counts = {"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0}
         try:
-            counts = get_post_counts(cursor, post_id) # Fetch counts
+            counts = get_post_counts(cursor, post_id)
         except Exception as e:
             print(f"CRUD Warning: Failed get counts for post {post_id}: {e}")
         post_data.update(counts)
         augmented_posts.append(post_data)
-
     return augmented_posts
 
-
-# --- delete_post_db ---
 def delete_post_db(cursor: psycopg2.extensions.cursor, post_id: int) -> bool:
-    """
-    Deletes post from public.posts AND AGE graph.
-    Requires CALLING function to handle media item deletion.
-    """
-    # 1. Delete from AGE graph
     cypher_q = f"MATCH (p:Post {{id: {post_id}}}) DETACH DELETE p"
-    print(f"CRUD: Deleting AGE vertex/edges for post {post_id}...")
     try:
         execute_cypher(cursor, cypher_q)
-        print(f"CRUD: AGE vertex/edges deleted for post {post_id}.")
     except Exception as age_err:
         print(f"CRUD WARNING: Failed delete AGE vertex for post {post_id}: {age_err}")
-        raise age_err # Fail delete if graph part fails
-
-    # 2. Delete from relational table (CASCADE should handle post_media links)
+        raise age_err
     cursor.execute("DELETE FROM public.posts WHERE id = %s;", (post_id,))
-    rows_deleted = cursor.rowcount
-    print(f"CRUD: Deleted post {post_id} from public.posts (Rows: {rows_deleted}).")
+    return cursor.rowcount > 0
 
-    return rows_deleted > 0
-
-
-# --- Complex Graph Query ---
-def get_followed_posts_in_community_graph(cursor: psycopg2.extensions.cursor, viewer_id: int, community_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
-    """
-    Fetches posts in a community authored by users the viewer follows.
-    Includes basic info and counts fetched via Python count workaround.
-    """
-    # Fetch IDs first, then counts for each post (less efficient but bypasses count() bug)
+def get_followed_posts_in_community_graph(
+        cursor: psycopg2.extensions.cursor, viewer_id: int, community_id: int,
+        limit: int, offset: int
+) -> List[Dict[str, Any]]:
+    # This query assumes Post nodes have 'created_at' property.
     cypher_ids = f"""
         MATCH (viewer:User {{id: {viewer_id}}})-[:FOLLOWS]->(author:User)-[:WROTE]->(p:Post)
         MATCH (:Community {{id: {community_id}}})-[:HAS_POST]->(p)
-        RETURN p.id as id, author.id as author_id
-        ORDER BY p.created_at DESC  // Assuming created_at IS stored on Post vertex now
+        RETURN p.id as id, author.id as author_id, p.created_at as post_created_at
+        ORDER BY p.created_at DESC
         SKIP {offset}
         LIMIT {limit}
     """
+    # Define expected columns for this specific query's RETURN statement
+    expected_cols_followed = [('id', 'agtype'), ('author_id', 'agtype'), ('post_created_at', 'agtype')]
     try:
-        print(f"CRUD: Fetching followed post IDs in comm {community_id} for viewer {viewer_id}")
-        post_author_ids = execute_cypher(cursor, cypher_ids, fetch_all=True, expected_columns=expected) or []
-
+        post_author_ids_data = execute_cypher(cursor, cypher_ids, fetch_all=True, expected_columns=expected_cols_followed) or []
         results = []
-        for item in post_author_ids:
-            if not isinstance(item, dict) or 'id' not in item or 'author_id' not in item: continue
-            post_id = item['id']
-            author_id = item['author_id']
+        for item_data in post_author_ids_data: # item_data is a dict
+            if not isinstance(item_data, dict) or 'id' not in item_data or 'author_id' not in item_data:
+                continue
+            post_id_val = item_data['id']
+            author_id_val = item_data['author_id']
 
-            # Fetch relational details for post and author
-            post_details = get_post_by_id(cursor, post_id)
-            author_details = crud.get_user_by_id(cursor, author_id) # Use user crud function
-            community_details = crud.get_community_by_id(cursor, community_id) # Get comm name
+            post_details = get_post_by_id(cursor, post_id_val) # Fetch relational data
+            # Need to import full crud to call crud.get_user_by_id etc.
+            # For now, assuming these are simple dict lookups or simplified fetching:
+            # This part might need adjustment based on how you want to structure calls between CRUD modules.
+            # If calling other CRUD functions, ensure `from . import _user` etc. is present.
+            # For this fix, we'll assume author_name and community_name are fetched via graph or simple lookup.
 
-            if post_details and author_details:
+            if post_details:
                 post_data = dict(post_details)
-                post_data['author_name'] = author_details.get('username')
-                post_data['author_avatar'] = author_details.get('image_path') # Get path for URL gen
-                post_data['community_id'] = community_id
-                post_data['community_name'] = community_details.get('name') if community_details else None
+                # Simplified fetching of author/community names for this context.
+                # A more robust solution might involve calling their respective get_by_id functions.
+                cursor.execute("SELECT username FROM public.users WHERE id = %s", (author_id_val,))
+                author_res = cursor.fetchone()
+                post_data['author_name'] = author_res['username'] if author_res else "Unknown Author"
 
-                # Fetch counts for this post
-                counts = get_post_counts(cursor, post_id)
+                cursor.execute("SELECT name FROM public.communities WHERE id = %s", (community_id,))
+                comm_res = cursor.fetchone()
+                post_data['community_name'] = comm_res['name'] if comm_res else "Unknown Community"
+                post_data['community_id'] = community_id
+
+                counts = get_post_counts(cursor, post_id_val)
                 post_data.update(counts)
                 results.append(post_data)
             else:
-                print(f"Warning: Couldn't fetch full details for followed post {post_id} or author {author_id}")
-
+                print(f"Warning: Couldn't fetch full details for followed post {post_id_val}")
         return results
-
     except Exception as e:
-        print(f"CRUD Error get_followed_posts C:{community_id} V:{viewer_id}: {e}")
+        print(f"CRUD Error get_followed_posts_in_community_graph C:{community_id} V:{viewer_id}: {e}")
+        traceback.print_exc()
         raise
+
+def get_reply_ids_for_post(cursor: psycopg2.extensions.cursor, post_id: int, limit: int, offset: int) -> List[int]:
+    cypher_q = f"""
+        MATCH (r:Reply)-[:REPLIED_TO]->(p:Post {{id: {post_id}}})
+        WHERE r.parent_reply_id IS NULL 
+        RETURN r.id as id, r.created_at as created_at
+        ORDER BY r.created_at ASC 
+        SKIP {offset} LIMIT {limit}
+    """
+    expected_cols_reply_ids = [('id', 'agtype'), ('created_at', 'agtype')]
+    try:
+        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols_reply_ids) or []
+        return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
+    except Exception as e:
+        print(f"CRUD Error getting reply IDs for post {post_id}: {e}")
+        return []
 def add_post_to_community_db(cursor: psycopg2.extensions.cursor, community_id: int, post_id: int) -> bool:
     """Creates :HAS_POST edge from Community to Post."""
     # Use datetime directly
@@ -291,20 +236,3 @@ def remove_post_from_community_db(cursor: psycopg2.extensions.cursor, community_
     try: return execute_cypher(cursor, cypher_q) # Assume success if no error
     except Exception as e: print(f"Error removing post from community: {e}"); return False
 
-def get_reply_ids_for_post(cursor: psycopg2.extensions.cursor, post_id: int, limit: int, offset: int) -> List[int]:
-    """Fetches IDs of replies to a specific post, ordered by creation time."""
-    # Fetch direct replies only for pagination, nested replies handled by parent_reply resolver
-    cypher_q = f"""
-        MATCH (r:Reply)-[:REPLIED_TO]->(p:Post {{id: {post_id}}})
-        WHERE r.parent_reply_id IS NULL -- Fetch only top-level replies for pagination
-        RETURN r.id as id, r.created_at as created_at
-        ORDER BY created_at ASC -- Usually show oldest first
-        SKIP {offset} LIMIT {limit}
-    """
-    expected_cols = [('id', 'agtype'), ('created_at', 'agtype')]
-    try:
-        results = execute_cypher(cursor, cypher_q, fetch_all=True, expected_columns=expected_cols) or []
-        return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
-    except Exception as e:
-        print(f"CRUD Error getting reply IDs for post {post_id}: {e}")
-        return []

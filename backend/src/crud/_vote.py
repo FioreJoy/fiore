@@ -118,7 +118,7 @@ def get_viewer_vote_status(cursor: psycopg2.extensions.cursor, viewer_id: int, p
 
         if result_map is not None and 'vt' in result_map:
             vote_value = result_map['vt']
-            print(f"DEBUG get_viewer_vote_status for U:{viewer_id} on {target_label}:{target_id} - Raw 'vt' from graph (after parse_agtype): {vote_value} (type: {type(vote_value)})")
+            #print(f"DEBUG get_viewer_vote_status for U:{viewer_id} on {target_label}:{target_id} - Raw 'vt' from graph (after parse_agtype): {vote_value} (type: {type(vote_value)})")
 
             if isinstance(vote_value, bool):
                 return vote_value
@@ -129,7 +129,7 @@ def get_viewer_vote_status(cursor: psycopg2.extensions.cursor, viewer_id: int, p
                 print(f"WARN get_viewer_vote_status: 'vt' property was '{vote_value}' (type: {type(vote_value)}), which is not a Python bool nor None after parsing, for {target_label} {target_id}. Returning None.")
                 return None
 
-        print(f"DEBUG get_viewer_vote_status for U:{viewer_id} on {target_label}:{target_id} - No vote edge found or 'vt' property not returned by Cypher (result_map: {result_map}).")
+        #print(f"DEBUG get_viewer_vote_status for U:{viewer_id} on {target_label}:{target_id} - No vote edge found or 'vt' property not returned by Cypher (result_map: {result_map}).")
         return None
     except Exception as e:
         print(f"Error checking vote status V:{viewer_id} -> {target_label}:{target_id} : {e}")

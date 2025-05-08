@@ -1,4 +1,6 @@
 # backend/src/crud/_event.py
+import traceback
+
 import psycopg2
 import psycopg2.extras
 from typing import List, Optional, Dict, Any
@@ -13,10 +15,13 @@ from .. import utils # Import root utils for quote_cypher_string
 # =========================================
 
 def create_event_db(
-    cursor: psycopg2.extensions.cursor, community_id: int, creator_id: int, title: str,
-    description: Optional[str], location: str, event_timestamp: datetime,
-    max_participants: int, image_url: Optional[str]
-) -> Optional[Dict[str, Any]]: # Return dict with id and created_at
+        cursor: psycopg2.extensions.cursor, community_id: int, creator_id: int, title: str,
+        description: Optional[str],
+        location_address: str, # Changed from 'location' to 'location_address'
+        event_timestamp: datetime,
+        max_participants: int, image_url: Optional[str],
+        location_coords_wkt: Optional[str] = None # New for PostGIS point
+) -> Optional[Dict[str, Any]]:
     """
     Creates event in public.events, :Event vertex, :CREATED edge (User->Event),
     and :PARTICIPATED_IN edge (Creator->Event).
@@ -24,28 +29,53 @@ def create_event_db(
     Returns {'id': event_id, 'created_at': created_at} on success.
     """
     event_id = None
-    # No try/except here, let caller handle transaction
     # 1. Insert into relational table
-    cursor.execute(
-        """
-        INSERT INTO public.events (community_id, creator_id, title, description, location, event_timestamp, max_participants, image_url)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id, created_at;
-        """,
-        (community_id, creator_id, title, description, location, event_timestamp, max_participants, image_url)
+    # Ensure the SQL uses location_address for the text location and location_coords for geography
+    sql_insert_event = """
+                INSERT INTO public.events 
+                    (community_id, creator_id, title, description, 
+                     location, -- This is the TEXT column for the address
+                     event_timestamp, max_participants, image_url, 
+                     location_coords -- This is the GEOGRAPHY column
+                    )
+                VALUES (%s, %s, %s, %s, 
+                        %s, -- for location_address
+                        %s, %s, %s, 
+                        CASE WHEN %s IS NOT NULL THEN ST_SetSRID(ST_GeomFromText(%s), 4326) ELSE NULL END
+                       ) 
+                RETURNING id, created_at;
+            """
+    params_insert_event = (
+        community_id, creator_id, title, description,
+        location_address, # Value for the 'location' TEXT column
+        event_timestamp, max_participants, image_url,
+        location_coords_wkt, location_coords_wkt # For the 'location_coords' GEOGRAPHY column
     )
+
+    cursor.execute(sql_insert_event, params_insert_event)
     result = cursor.fetchone()
-    if not result or 'id' not in result: return None # Indicate failure
+    if not result or 'id' not in result: return None
     event_id = result['id']
     created_at = result['created_at']
     print(f"CRUD: Inserted event {event_id} into public.events.")
 
     # 2. Create :Event vertex
-    # Store props useful for graph queries (id, title, maybe timestamp)
     event_props = {'id': event_id, 'title': title, 'event_timestamp': event_timestamp}
+    # If storing coordinates in graph properties as well:
+    if location_coords_wkt:
+        # Crude parsing of WKT POINT(lon lat) for graph properties if needed.
+        # This is just for example; storing complex geometry in graph props is often not ideal.
+        try:
+            coords_match = re.match(r"POINT\(([-\d\.]+) ([-\d\.]+)\)", location_coords_wkt)
+            if coords_match:
+                event_props['longitude'] = float(coords_match.group(1))
+                event_props['latitude'] = float(coords_match.group(2))
+        except: # nosec
+            pass # Ignore parsing errors for graph props
+
     set_clauses_str = build_cypher_set_clauses('e', event_props)
     cypher_q_vertex = f"CREATE (e:Event {{id: {event_id}}})"
     if set_clauses_str: cypher_q_vertex += f" SET {set_clauses_str}"
-    print(f"CRUD: Creating AGE vertex for event {event_id}...")
     execute_cypher(cursor, cypher_q_vertex)
     print(f"CRUD: AGE vertex created for event {event_id}.")
 
@@ -58,10 +88,9 @@ def create_event_db(
         SET r.created_at = {created_at_quoted}
     """
     execute_cypher(cursor, cypher_q_created)
-    print(f"CRUD: :CREATED edge created for event {event_id}.")
 
     # 4. Add creator as participant (:PARTICIPATED_IN edge)
-    joined_at_quoted = utils.quote_cypher_string(created_at) # Ensure utils. prefix
+    joined_at_quoted = utils.quote_cypher_string(created_at)
     cypher_q_participated = f"""
         MATCH (u:User {{id: {creator_id}}})
         MATCH (e:Event {{id: {event_id}}})
@@ -69,9 +98,8 @@ def create_event_db(
         SET r.joined_at = {joined_at_quoted}
     """
     execute_cypher(cursor, cypher_q_participated)
-    print(f"CRUD: Creator {creator_id} added as participant for event {event_id}.")
 
-    return {'id': event_id, 'created_at': created_at} # Return dict on success
+    return {'id': event_id, 'created_at': created_at}
 
 
 def get_event_by_id(cursor: psycopg2.extensions.cursor, event_id: int) -> Optional[Dict[str, Any]]:
@@ -276,11 +304,13 @@ def leave_event_db(cursor: psycopg2.extensions.cursor, event_id: int, user_id: i
 
 # Ensure get_event_details_db calls the fixed get_event_participant_count
 def get_event_participant_ids(cursor: psycopg2.extensions.cursor, event_id: int, limit: int, offset: int) -> List[int]:
-    """Fetches IDs of participants for a specific event, ordered by join time."""
+    """Fetches IDs of participants for an event, ordered by join time."""
+    # Comment moved outside the Cypher string
+    # Fetches join time for ordering
     cypher_q = f"""
         MATCH (u:User)-[p:PARTICIPATED_IN]->(e:Event {{id: {event_id}}})
-        RETURN u.id as id, p.joined_at as joined_at -- Fetch join time for ordering
-        ORDER BY joined_at DESC -- Show newest participants first? Or ASC?
+        RETURN u.id as id, p.joined_at as joined_at
+        ORDER BY p.joined_at DESC 
         SKIP {offset} LIMIT {limit}
     """
     expected_cols = [('id', 'agtype'), ('joined_at', 'agtype')]
@@ -289,4 +319,50 @@ def get_event_participant_ids(cursor: psycopg2.extensions.cursor, event_id: int,
         return [int(r['id']) for r in results if isinstance(r, dict) and r.get('id') is not None]
     except Exception as e:
         print(f"CRUD Error getting event participant IDs for E:{event_id}: {e}")
-        return []
+        # Re-raise the exception so the transaction state is handled by the caller
+        raise
+
+    # --- Spatial Query (Ensure this is present) ---
+def get_nearby_events_db(
+        cursor: psycopg2.extensions.cursor,
+        longitude: float, latitude: float, radius_meters: int,
+        limit: int, offset: int
+) -> List[Dict[str, Any]]:
+    """
+    Fetches events within a given radius from a point.
+    Includes event details and coordinates.
+    The 'location' column is the text address.
+    The 'location_coords' geography column is converted to lon/lat.
+    """
+    radius_meters_int = int(radius_meters)
+
+    query = """
+        SELECT 
+            e.id, e.community_id, e.creator_id, e.title, e.description, 
+            e.location, -- text address
+            e.event_timestamp, e.max_participants, e.image_url, e.created_at,
+            ST_X(e.location_coords::geometry) as longitude, 
+            ST_Y(e.location_coords::geometry) as latitude,
+            ST_Distance(e.location_coords, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) as distance_meters
+        FROM public.events e
+        WHERE e.location_coords IS NOT NULL AND ST_DWithin( -- Ensure location_coords is not null
+            e.location_coords,
+            ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+            %s -- radius in meters
+        )
+        AND e.event_timestamp >= NOW() -- Optionally filter for future events
+        ORDER BY distance_meters ASC, e.event_timestamp ASC 
+        LIMIT %s OFFSET %s;
+    """
+    params = (longitude, latitude, longitude, latitude, radius_meters_int, limit, offset)
+    try:
+        cursor.execute(query, params)
+        return cursor.fetchall()
+    except psycopg2.Error as db_err:
+        print(f"CRUD DB Error fetching nearby events: {db_err}")
+        traceback.print_exc()
+        raise
+    except Exception as e:
+        print(f"CRUD Unexpected error fetching nearby events: {e}")
+        traceback.print_exc()
+        raise

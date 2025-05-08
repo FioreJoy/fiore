@@ -1,4 +1,5 @@
 # backend/src/routers/events.py
+import traceback
 
 from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from typing import List, Optional, Dict, Any # Added Dict, Any
@@ -29,32 +30,38 @@ async def get_event_details(
 ):
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # crud.get_event_details_db fetches combined data
+        conn = get_db_connection(); cursor = conn.cursor()
         event_db = crud.get_event_details_db(cursor, event_id)
         if not event_db:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
         response_data = dict(event_db)
-        response_data['image_url'] = utils.get_minio_url(response_data.get('image_url')) # Generate URL if path stored
+        response_data['image_url'] = utils.get_minio_url(response_data.get('image_url'))
 
-        # Check participation status
+        # Convert lon/lat from DB to EventDisplay.location_coords
+        if response_data.get('longitude') is not None and response_data.get('latitude') is not None:
+            response_data['location_coords'] = schemas.LocationPointInput(
+                longitude=response_data['longitude'],
+                latitude=response_data['latitude']
+            )
+        # Clean up raw lon/lat if they were fetched (as they are now in location_coords)
+        if 'longitude' in response_data: del response_data['longitude']
+        if 'latitude' in response_data: del response_data['latitude']
+
+
         is_participating = False
         if current_user_id is not None:
             try:
                 is_participating = crud.check_is_participating(cursor, current_user_id, event_id)
             except Exception as check_err:
                 print(f"WARNING: Failed checking participation status for E:{event_id} U:{current_user_id}: {check_err}")
-        response_data['is_participating_by_viewer'] = is_participating # Add to schema if not present
+        response_data['is_participating_by_viewer'] = is_participating
 
-        # Add defaults for safety
         response_data.setdefault('participant_count', 0)
 
-        print(f"✅ Fetched details for event {event_id}")
         return schemas.EventDisplay(**response_data)
     except HTTPException as http_exc:
-        raise http_exc # Re-raise explicit exceptions
+        raise http_exc
     except psycopg2.Error as db_err:
         print(f"❌ DB Error fetching event details {event_id}: {db_err}")
         raise HTTPException(status_code=500, detail="Database error fetching event")
@@ -70,116 +77,106 @@ async def get_event_details(
 async def update_event(
         event_id: int,
         current_user_id: int = Depends(auth.get_current_user),
-        # Form data for update
         title: Optional[str] = Form(None),
         description: Optional[str] = Form(None),
-        location: Optional[str] = Form(None),
+        location_address: Optional[str] = Form(None), # Renamed from 'location'
         event_timestamp: Optional[datetime] = Form(None),
         max_participants: Optional[int] = Form(None),
-        image: Optional[UploadFile] = File(None) # Optional new image
+        image: Optional[UploadFile] = File(None),
+        latitude: Optional[float] = Form(None),
+        longitude: Optional[float] = Form(None)
 ):
     conn = None
-    update_data = {}
-    new_minio_object_name = None # Store the name/path of the newly uploaded file
-    old_minio_object_name = None # Store the name/path of the old file
-    upload_info = None # Store the dict from upload_file_to_minio if needed
+    update_data_for_crud = {} # Use a different name to avoid confusion with 'update_data' FastAPI uses
+    new_minio_object_name = None
+    old_minio_object_name = None
 
-    # Build update_data dict for text fields
-    if title is not None: update_data['title'] = title
-    if description is not None: update_data['description'] = description
-    if location is not None: update_data['location'] = location
-    if event_timestamp is not None: update_data['event_timestamp'] = event_timestamp
-    if max_participants is not None: update_data['max_participants'] = max_participants
+    if title is not None: update_data_for_crud['title'] = title
+    if description is not None: update_data_for_crud['description'] = description
+    if location_address is not None: update_data_for_crud['location_address'] = location_address # Maps to DB 'location'
+    if event_timestamp is not None: update_data_for_crud['event_timestamp'] = event_timestamp
+    if max_participants is not None: update_data_for_crud['max_participants'] = max_participants
+
+    if latitude is not None and longitude is not None:
+        update_data_for_crud['location_coords_wkt'] = f"POINT({longitude} {latitude})"
+    elif latitude is not None or longitude is not None:
+        raise HTTPException(status_code=422, detail="Both latitude and longitude must be provided for coordinate update.")
 
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        conn = get_db_connection(); cursor = conn.cursor()
+        event_db = crud.get_event_by_id(cursor, event_id)
+        if not event_db: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        if event_db['creator_id'] != current_user_id: raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+        old_minio_object_name = event_db.get('image_url')
 
-        # 1. Check ownership and get current event data / old image path
-        event = crud.get_event_by_id(cursor, event_id)
-        if not event: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
-        if event['creator_id'] != current_user_id: raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-        # Assuming image_url column stores the MinIO object name
-        old_minio_object_name = event.get('image_url') # Get the current object name
-
-        # 2. Handle Image Upload/Update (if new image provided)
         if image and utils.minio_client:
-            comm_info = crud.get_community_by_id(cursor, event['community_id'])
-            community_name = comm_info.get('name', f'community_{event["community_id"]}') if comm_info else f'community_{event["community_id"]}'
-            object_name_prefix = f"communities/{community_name.replace(' ', '_').lower()}/events"
-
-            upload_info = await utils.upload_file_to_minio(image, object_name_prefix) # Returns dict
+            comm_info = crud.get_community_by_id(cursor, event_db['community_id'])
+            community_name = comm_info.get('name', f'community_{event_db["community_id"]}') if comm_info else f'community_{event_db["community_id"]}'
+            object_name_prefix = f"media/communities/{community_name.replace(' ', '_').lower()}/events"
+            upload_info = await utils.upload_file_to_minio(image, object_name_prefix)
 
             if upload_info and 'minio_object_name' in upload_info:
-                new_minio_object_name = upload_info['minio_object_name'] # Get the new object name string
-                # --- FIX: Add the object name STRING to update_data ---
-                update_data['image_url'] = new_minio_object_name
-                # -----------------------------------------------------
-                print(f"✅ Event image updated in MinIO: {new_minio_object_name}")
+                new_minio_object_name = upload_info['minio_object_name']
+                update_data_for_crud['image_url'] = new_minio_object_name
             else:
                 print(f"⚠️ Warning: MinIO event image update failed for event {event_id}")
-                # Do not add 'image_url' to update_data if upload failed
 
-        elif image is None and 'image_url' in update_data:
-            # This case should not happen if image_url comes only from file upload
-            del update_data['image_url']
+        if not update_data_for_crud and not new_minio_object_name:
+            current_details = crud.get_event_details_db(cursor, event_id)
+            if not current_details: raise HTTPException(status_code=404, detail="Event not found")
+            response_data = dict(current_details)
+            response_data['image_url'] = get_minio_url(response_data.get('image_url'))
+            if response_data.get('longitude') is not None and response_data.get('latitude') is not None:
+                response_data['location_coords'] = {"longitude": response_data['longitude'], "latitude": response_data['latitude']}
+            return schemas.EventDisplay(**response_data)
 
-
-        # 3. Check if there's anything to update
-        # Check if text fields changed OR if a new image was successfully uploaded
-        if not update_data:
-            # If only image was provided but upload failed
-            if image and not new_minio_object_name:
-                raise HTTPException(status_code=500, detail="Image upload failed, no other data provided")
-            # If no image and no text fields provided
-            elif not image:
-                print(f"No update data provided for event {event_id}")
-                # Just return current data
-                current_details = crud.get_event_details_db(cursor, event_id)
-                if not current_details: raise HTTPException(status_code=404, detail="Event not found")
-                response_data = dict(current_details)
-                response_data['image_url'] = get_minio_url(response_data.get('image_url')) # Generate URL from stored path
-                return schemas.EventDisplay(**response_data)
-
-
-        # 4. Call CRUD update function (passing object name string in image_url field)
-        # Now update_data['image_url'] contains the STRING or is absent
-        updated_event_db = crud.update_event_db(cursor, event_id, update_data)
+        participant_ids_before_update = crud.get_event_participant_ids(cursor, event_id, limit=10000, offset=0)
+        updated_event_db = crud.update_event_db(cursor, event_id, update_data_for_crud)
         if not updated_event_db:
             conn.rollback()
-            if new_minio_object_name: delete_from_minio(new_minio_object_name) # Cleanup upload
+            if new_minio_object_name: delete_from_minio(new_minio_object_name)
             raise HTTPException(status_code=500, detail="Event update failed in database")
 
+        if participant_ids_before_update:
+            event_title_for_notif = updated_event_db.get('title', event_db.get('title', 'your event'))
+            content_preview = f"Event Updated: \"{event_title_for_notif[:50]}...\" Details may have changed."
+            print(f"Attempting to notify {len(participant_ids_before_update)} participants of event {event_id} update.")
+            for p_id in participant_ids_before_update:
+                if p_id != current_user_id:
+                    crud.create_notification(
+                        cursor=cursor, recipient_user_id=p_id, actor_user_id=current_user_id,
+                        type='event_update', related_entity_type='event', related_entity_id=event_id,
+                        content_preview=content_preview
+                    )
         conn.commit()
 
-        # 5. Delete old MinIO image AFTER DB commit is successful
-        # Check if a new image was uploaded AND there was an old one AND they are different
         if new_minio_object_name and old_minio_object_name and new_minio_object_name != old_minio_object_name:
-            print(f"Attempting to delete old event image: {old_minio_object_name}")
-            # Fetch the media item ID for the old object name before deleting
-            # This step is complex and maybe unnecessary if just deleting the file is okay
             delete_from_minio(old_minio_object_name)
 
-        # 6. Prepare and return response
         response_data = dict(updated_event_db)
-        response_data['image_url'] = get_minio_url(response_data.get('image_url')) # Generate URL from stored path
+        response_data['image_url'] = get_minio_url(response_data.get('image_url'))
+
+        if response_data.get('longitude') is not None and response_data.get('latitude') is not None:
+            response_data['location_coords'] = schemas.LocationPointInput(longitude=response_data['longitude'], latitude=response_data['latitude'])
+        if 'longitude' in response_data: del response_data['longitude'] # clean up raw fields
+        if 'latitude' in response_data: del response_data['latitude']
+
         print(f"✅ Event {event_id} updated successfully by User {current_user_id}")
         return schemas.EventDisplay(**response_data)
 
-    # ... (keep existing except blocks) ...
     except HTTPException as http_exc:
         if conn: conn.rollback()
-        if new_minio_object_name: delete_from_minio(new_minio_object_name) # Cleanup if failed before commit
+        if new_minio_object_name and not updated_event_db: delete_from_minio(new_minio_object_name)
         raise http_exc
     except psycopg2.Error as e:
         if conn: conn.rollback()
-        if new_minio_object_name: delete_from_minio(new_minio_object_name)
+        if new_minio_object_name and not updated_event_db: delete_from_minio(new_minio_object_name)
         print(f"❌ DB Error updating event {event_id}: {e}")
         detail = f"Database error: {e.pgerror}" if hasattr(e, 'pgerror') and e.pgerror else "Database error updating event"
-        raise HTTPException(status_code=500, detail=detail) # Pass detail
+        raise HTTPException(status_code=500, detail=detail)
     except Exception as e:
         if conn: conn.rollback()
-        if new_minio_object_name: delete_from_minio(new_minio_object_name)
+        if new_minio_object_name and not updated_event_db: delete_from_minio(new_minio_object_name)
         print(f"❌ Error updating event {event_id}: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

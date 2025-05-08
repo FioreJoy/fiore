@@ -32,7 +32,7 @@ class ApiClient {
       // In a real app, you might want a more graceful shutdown or error screen
       throw Exception(errorMessage);
     }
-    print("ApiClient initialized with base URL: $baseUrl and API Key (truncated): ${apiKey.substring(0, 5)}...");
+    print("ApiClient initialized with base URL: $baseUrl and API Key (truncated): ${apiKey.substring(0, 1)}...");
   }
 
   // --- Header Helper ---
@@ -144,32 +144,34 @@ class ApiClient {
   }
 
   /// Performs an HTTP DELETE request.
-  Future<dynamic> delete(String endpoint, {String? token, dynamic body}) async {
-      final url = Uri.parse('$baseUrl$endpoint');
-      print("ApiClient DELETE: $url");
-      try {
-          final request = http.Request('DELETE', url);
-          // Use getHeaders, set isJsonContent based on if body exists
-          request.headers.addAll(_getHeaders(token, isJsonContent: body != null));
-          if (body != null) {
-              request.body = json.encode(body); // Add body if provided
-          }
-          final streamedResponse = await _httpClient.send(request);
-          final response = await http.Response.fromStream(streamedResponse);
-          return _handleResponse(response);
-       } on TimeoutException catch (e) {
-          print("ApiClient DELETE Error (Timeout): $e"); throw Exception("Request timed out. Please check your connection.");
-       } on SocketException catch (e) {
-           print("ApiClient DELETE Error (Socket): $e"); throw Exception("Network error. Could not reach the server.");
-       } on TlsException catch (e) {
-           print("ApiClient DELETE Error (TLS): $e"); throw Exception("Secure connection failed. Certificate issue?");
-       } on http.ClientException catch (e) {
-            print("ApiClient DELETE Error (Client): $e"); throw Exception("HTTP client error: $e");
-       } catch (e) {
-          print("ApiClient DELETE Error (Unknown): $e"); throw Exception("An unexpected error occurred during DELETE request: $e");
-       }
-  }
+  Future<dynamic> delete(String endpoint, {String? token, dynamic body, Map<String, String>? queryParams}) async { // <-- ADDED queryParams
+    final Uri initialUrl = Uri.parse('$baseUrl$endpoint');
+    final Uri urlWithParams = queryParams != null && queryParams.isNotEmpty
+        ? initialUrl.replace(queryParameters: queryParams)
+        : initialUrl;
 
+    print("ApiClient DELETE: $urlWithParams");
+    try {
+      final request = http.Request('DELETE', urlWithParams); // Use urlWithParams
+      request.headers.addAll(_getHeaders(token, isJsonContent: body != null));
+      if (body != null) {
+        request.body = json.encode(body);
+      }
+      final streamedResponse = await _httpClient.send(request);
+      final response = await http.Response.fromStream(streamedResponse);
+      return _handleResponse(response);
+    } on TimeoutException catch (e) {
+      print("ApiClient DELETE Error (Timeout): $e"); throw Exception("Request timed out. Please check your connection.");
+    } on SocketException catch (e) {
+      print("ApiClient DELETE Error (Socket): $e"); throw Exception("Network error. Could not reach the server.");
+    } on TlsException catch (e) {
+      print("ApiClient DELETE Error (TLS): $e"); throw Exception("Secure connection failed. Certificate issue?");
+    } on http.ClientException catch (e) {
+      print("ApiClient DELETE Error (Client): $e"); throw Exception("HTTP client error: $e");
+    } catch (e) {
+      print("ApiClient DELETE Error (Unknown): $e"); throw Exception("An unexpected error occurred during DELETE request: $e");
+    }
+  }
 
   /// Performs a Multipart HTTP request (POST or PUT) for file uploads.
   Future<dynamic> multipartRequest(

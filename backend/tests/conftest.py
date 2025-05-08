@@ -8,8 +8,8 @@ import sys
 import time # For potential delays if needed
 
 # Add src to path if helpers are needed from there and not copied
-# sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
-
+#sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 # --- Load Test Configuration ---
 def load_test_config():
     """Loads configuration from .env and sets defaults."""

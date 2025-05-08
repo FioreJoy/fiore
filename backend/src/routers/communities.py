@@ -1,6 +1,6 @@
 # backend/src/routers/communities.py
 
-from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File, Query
 from typing import List, Optional, Dict, Any # Added Dict, Any
 import psycopg2
 from datetime import datetime
@@ -25,119 +25,100 @@ router = APIRouter(
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=schemas.CommunityDisplay)
 async def create_community(
-        current_user_id: int = Depends(auth.get_current_user), # Require auth to create
+        current_user_id: int = Depends(auth.get_current_user),
         name: str = Form(...),
         description: Optional[str] = Form(None),
-        primary_location: str = Form("(0,0)"),
         interest: Optional[str] = Form(None),
-        logo: Optional[UploadFile] = File(None)
+        logo: Optional[UploadFile] = File(None),
+        # New location fields
+        location_address: Optional[str] = Form(None),
+        latitude: Optional[float] = Form(None),
+        longitude: Optional[float] = Form(None)
 ):
-    """ Creates a new community (relational + graph), optionally uploads/links a logo. """
     conn = None
     community_id = None
-    upload_result_dict: Optional[Dict[str, Any]] = None # To store result from MinIO upload
+    upload_result_dict: Optional[Dict[str, Any]] = None
     created_media_id: Optional[int] = None
+    location_coords_wkt: Optional[str] = None
+
+    if latitude is not None and longitude is not None:
+        location_coords_wkt = f"POINT({longitude} {latitude})"
+    elif latitude is not None or longitude is not None:
+        raise HTTPException(status_code=422, detail="Both latitude and longitude must be provided if one is set.")
 
     try:
-        # 1. Handle Logo Upload to MinIO first (if provided)
         if logo and utils.minio_client:
             safe_name = name.replace(' ', '_').lower()
             safe_name = ''.join(c for c in safe_name if c.isalnum() or c in ['_','-']) or f"comm_{uuid.uuid4()}"
             object_name_prefix = f"communities/{safe_name}/logo"
-            # Store the dict returned by upload_file_to_minio
             upload_result_dict = await utils.upload_file_to_minio(logo, object_name_prefix)
             if upload_result_dict is None or 'minio_object_name' not in upload_result_dict:
                 print(f"⚠️ Warning: MinIO community logo upload failed for {name}. Proceeding without logo.")
-                upload_result_dict = None # Ensure it's None if upload failed
+                upload_result_dict = None
 
-        # 2. Format location string for DB
-        db_location_str = utils.format_location_for_db(primary_location)
-
-        # --- Start DB Transaction ---
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # 3. Create Community base record (DB + Graph)
+        conn = get_db_connection(); cursor = conn.cursor()
         community_id = crud.create_community_db(
             cursor, name=name, description=description, created_by=current_user_id,
-            primary_location_str=db_location_str, interest=interest
-            # REMOVE logo_path=... from this call
+            interest=interest,
+            location_address=location_address,
+            location_coords_wkt=location_coords_wkt
         )
         if community_id is None:
-            # If community creation fails, cleanup potential upload BEFORE raising error
             if upload_result_dict and 'minio_object_name' in upload_result_dict:
                 delete_from_minio(upload_result_dict['minio_object_name'])
             raise HTTPException(status_code=500, detail="Community base creation failed in database")
 
-        # 4. Create Media Item record and Link logo (if upload succeeded)
         if upload_result_dict and 'minio_object_name' in upload_result_dict:
-            # Use the dictionary returned by the upload function
             created_media_id = crud.create_media_item(
                 cursor, uploader_user_id=current_user_id, **upload_result_dict
             )
             if created_media_id:
                 crud.set_community_logo(cursor, community_id, created_media_id)
-                print(f"Linked logo media {created_media_id} to community {community_id}")
             else:
-                # If DB record for media fails, cleanup MinIO upload
                 print(f"WARN CreateCommunity: Failed to create media record for logo {upload_result_dict['minio_object_name']}")
                 delete_from_minio(upload_result_dict['minio_object_name'])
-                # Allow community creation to succeed, but log the warning
-                created_media_id = None # Ensure no attempt to delete it later
+                created_media_id = None
 
-        # 5. Fetch created community details for response
-        # get_community_details_db includes counts
         created_community_db = crud.get_community_details_db(cursor, community_id)
         if not created_community_db:
-            # This means fetching failed right after creation - indicates a problem
-            conn.rollback() # Rollback the creation
+            conn.rollback()
             if upload_result_dict and 'minio_object_name' in upload_result_dict:
-                delete_from_minio(upload_result_dict['minio_object_name']) # Cleanup upload too
+                delete_from_minio(upload_result_dict['minio_object_name'])
             raise HTTPException(status_code=500, detail="Could not retrieve created community details after creation")
 
-        # Fetch logo media info again to get URL for response object
         logo_media_for_response = None
-        if created_media_id: # If we successfully linked a new logo
+        if created_media_id:
             logo_media_for_response = crud.get_media_item_by_id(cursor, created_media_id)
+        conn.commit()
 
-        conn.commit() # Commit successful creation and potential logo link
-
-        # 6. Prepare response data
         response_data = dict(created_community_db)
-        location_value = response_data.get('primary_location')
-        if isinstance(location_value, dict) and 'longitude' in location_value and 'latitude' in location_value:
-            # It's a dict, format it back to string
-            lon = location_value['longitude']
-            lat = location_value['latitude']
-            response_data['primary_location'] = f"({lon},{lat})"
-        elif isinstance(location_value, (str, type(None))):
-            # It's already a string (or None), or it's some other DB point type representation.
-            # If it's a DB point type, str(point_obj) usually gives "(x,y)"
-            response_data['primary_location'] = str(location_value) if location_value else None
-        else:
-            # Fallback if it's an unexpected type
-            print(f"WARN: Unexpected primary_location type: {type(location_value)}. Setting to None for response.")
-            response_data['primary_location'] = None
-        # --- END FIX ---
+        # Convert raw lon/lat from DB (if present) to LocationDataOutput for response
+        if response_data.get('longitude') is not None and response_data.get('latitude') is not None:
+            response_data['location'] = schemas.LocationDataOutput(
+                longitude=response_data['longitude'],
+                latitude=response_data['latitude'],
+                address=response_data.get('location_address')
+            )
+        elif 'longitude' in response_data: # Clean up if they were fetched as None
+            del response_data['longitude']
+            del response_data['latitude']
+
         response_data['logo_url'] = utils.get_minio_url(logo_media_for_response.get('minio_object_name')) if logo_media_for_response else None
-        response_data.setdefault('is_member_by_viewer', True) # Creator is automatically a member
+        response_data.setdefault('is_member_by_viewer', True)
 
         print(f"✅ Community '{name}' (ID: {community_id}) created by User {current_user_id}")
-        return schemas.CommunityDisplay(**response_data) # Validate
+        return schemas.CommunityDisplay(**response_data)
 
     except psycopg2.IntegrityError as e:
         if conn: conn.rollback()
-        # Cleanup potential upload if DB fails due to constraint (e.g., name exists)
         if upload_result_dict and 'minio_object_name' in upload_result_dict: delete_from_minio(upload_result_dict['minio_object_name'])
         print(f"❌ Community Creation Integrity Error: {e}")
         detail="Community name may already exist or invalid data provided."
-        # Check specific constraint if needed
         if hasattr(e, 'diag') and e.diag.constraint_name == 'communities_name_key': detail = "Community name already taken."
         elif hasattr(e, 'pgcode') and e.pgcode == '23503': detail = "Invalid creator user or other foreign key."
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     except HTTPException as http_exc:
         if conn: conn.rollback()
-        # Cleanup only if upload happened but DB steps failed before commit
         if upload_result_dict and 'minio_object_name' in upload_result_dict and community_id is None:
             delete_from_minio(upload_result_dict['minio_object_name'])
         raise http_exc
@@ -152,92 +133,6 @@ async def create_community(
         if conn: conn.close()
 
 
-@router.get("", response_model=List[schemas.CommunityDisplay])
-async def get_communities(
-        current_user_id: Optional[int] = Depends(auth.get_current_user_optional) # Optional auth
-):
-    """ Fetches a list of all communities, augmented with counts. """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # Fetch relational data first
-        communities_relational = crud.get_communities_db(cursor)
-
-        processed_communities = []
-        # Augment with graph counts
-        for comm_rel in communities_relational:
-            comm_data = dict(comm_rel)
-            comm_id = comm_data['id']
-            try:
-                counts = crud.get_community_counts(cursor, comm_id)
-                comm_data.update(counts)
-            except Exception as e:
-                print(f"Warning: Failed to get counts for community {comm_id}: {e}")
-                comm_data.update({'member_count': 0, 'online_count': 0}) # Add defaults
-
-            # Format location and logo URL
-            loc_point_str = comm_data.get('primary_location')
-            comm_data['primary_location'] = str(loc_point_str) if loc_point_str else None
-            comm_data['logo_url'] = utils.get_minio_url(comm_data.get('logo_path'))
-
-            # TODO: Add user join status if authenticated
-            # is_joined = False
-            # if current_user_id is not None:
-            #     # Query graph: RETURN EXISTS((:User {id:..})-[:MEMBER_OF]->(:Community {id:..}))
-            #     pass
-            # comm_data['is_joined'] = is_joined # Add to schema if needed
-
-            processed_communities.append(schemas.CommunityDisplay(**comm_data)) # Validate
-
-        print(f"✅ Fetched {len(processed_communities)} communities")
-        return processed_communities
-    except Exception as e:
-        print(f"❌ Error fetching communities: {e}")
-        raise HTTPException(status_code=500, detail="Error fetching communities")
-    finally:
-        if conn: conn.close()
-
-
-@router.get("/trending", response_model=List[schemas.CommunityDisplay])
-async def get_trending_communities(
-        current_user_id: Optional[int] = Depends(auth.get_current_user_optional) # Optional auth
-):
-    """ Fetches trending communities (currently uses relational counts). """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # This still uses the relational-based query for trending logic
-        communities_db = crud.get_trending_communities_db(cursor)
-
-        processed_communities = []
-        for comm in communities_db:
-            data = dict(comm)
-            loc_point_str = comm.get('primary_location')
-            data['primary_location'] = str(loc_point_str) if loc_point_str else None
-            data['logo_url'] = utils.get_minio_url(comm.get('logo_path'))
-            # Fetch graph online count (member_count is from the SQL query)
-            try:
-                graph_counts = crud.get_community_counts(cursor, data['id'])
-                data['online_count'] = graph_counts.get('online_count', 0) # Get only online count
-            except Exception as e:
-                print(f"Warning: Failed fetching online count for trending comm {data['id']}: {e}")
-                data['online_count'] = 0
-
-            # TODO: Add join status if authenticated
-            # data['is_joined'] = ...
-
-            processed_communities.append(schemas.CommunityDisplay(**data))
-
-        print(f"✅ Fetched {len(processed_communities)} trending communities")
-        return processed_communities
-    except Exception as e:
-        print(f"❌ Error fetching trending communities: {e}")
-        raise HTTPException(status_code=500, detail="Error fetching trending communities")
-    finally:
-        if conn: conn.close()
-
 @router.get("/{community_id}/details", response_model=schemas.CommunityDisplay)
 async def get_community_details(
         community_id: int,
@@ -245,89 +140,104 @@ async def get_community_details(
 ):
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # Fetches relational data + graph counts
+        conn = get_db_connection(); cursor = conn.cursor()
         community_db = crud.get_community_details_db(cursor, community_id)
         if not community_db:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
 
         response_data = dict(community_db)
-        loc_point_str = response_data.get('primary_location')
-        response_data['primary_location'] = str(loc_point_str) if loc_point_str else None
 
-        # --- Explicitly fetch CURRENT logo media AFTER fetching base details ---
+        # Convert raw lon/lat from DB to LocationDataOutput for response
+        if response_data.get('longitude') is not None and response_data.get('latitude') is not None:
+            response_data['location'] = schemas.LocationDataOutput(
+                longitude=response_data['longitude'],
+                latitude=response_data['latitude'],
+                address=response_data.get('location_address')
+            )
+        elif 'longitude' in response_data:
+            del response_data['longitude']
+            del response_data['latitude']
+
         logo_media = crud.get_community_logo_media(cursor, community_id)
         response_data['logo_url'] = logo_media.get('url') if logo_media else None
-        print(f"DEBUG GET /details C:{community_id}: Fetched logo URL: {response_data['logo_url']}") # Log fetched URL
-        # --- End Logo Fetch ---
 
-        # Add defaults/viewer status
         response_data.setdefault('member_count', 0); response_data.setdefault('online_count', 0)
-        response_data.setdefault('is_member_by_viewer', False) # Default
+        response_data.setdefault('is_member_by_viewer', False)
         if current_user_id:
             try: response_data['is_member_by_viewer'] = crud.check_is_member(cursor, current_user_id, community_id)
             except Exception as e: print(f"WARN GET /details C:{community_id}: Check member failed: {e}")
 
-        print(f"✅ Details fetched for community {community_id}")
         return schemas.CommunityDisplay(**response_data)
-    # ... (keep existing error handling) ...
+    except HTTPException as http_exc:
+        raise http_exc
     except Exception as e:
         print(f"❌ Error fetching community details {community_id}: {e}")
-        traceback.print_exc() # Print traceback on error
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Error fetching community details")
     finally:
         if conn: conn.close()
 
+
 @router.put("/{community_id}", response_model=schemas.CommunityDisplay)
 async def update_community_details(
         community_id: int,
-        update_data_schema: schemas.CommunityUpdate, # Use schema for JSON body validation
-        current_user_id: int = Depends(auth.get_current_user) # Require auth
+        # Use Form data for PUT to match create and logo update
+        name: Optional[str] = Form(None),
+        description: Optional[str] = Form(None),
+        interest: Optional[str] = Form(None),
+        location_address: Optional[str] = Form(None),
+        latitude: Optional[float] = Form(None),
+        longitude: Optional[float] = Form(None),
+        current_user_id: int = Depends(auth.get_current_user)
 ):
-    """ Updates a community's details (name, description, etc.). Requires creator permission. """
     conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+    update_dict = {}
+    if name is not None: update_dict['name'] = name
+    if description is not None: update_dict['description'] = description # Allow empty string to clear
+    if interest is not None: update_dict['interest'] = interest
+    if location_address is not None: update_dict['location_address'] = location_address
 
-        # 1. Check Permissions: Verify current user is the creator
-        community = crud.get_community_by_id(cursor, community_id) # Fetch relational data for creator check
+    if latitude is not None and longitude is not None:
+        update_dict['location_coords_wkt'] = f"POINT({longitude} {latitude})"
+    elif latitude is not None or longitude is not None:
+        raise HTTPException(status_code=422, detail="Both latitude and longitude must be provided if one is set for coordinate update.")
+
+
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No update data provided")
+
+    try:
+        conn = get_db_connection(); cursor = conn.cursor()
+        community = crud.get_community_by_id(cursor, community_id)
         if not community:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
         if community['created_by'] != current_user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this community")
 
-        # 2. Prepare update data (only non-null fields from schema)
-        update_dict = update_data_schema.model_dump(exclude_unset=True) # Pydantic v2
-        if not update_dict:
-            raise HTTPException(status_code=400, detail="No update data provided")
-
-        # Format location if present
-        if 'primary_location' in update_dict and update_dict['primary_location']:
-            update_dict['primary_location'] = utils.format_location_for_db(update_dict['primary_location'])
-
-        # 3. Attempt Update (handles relational + graph)
         updated = crud.update_community_details_db(cursor, community_id, update_dict)
-
         if not updated:
-            # Could mean community not found during update or no rows affected
             conn.rollback()
             raise HTTPException(status_code=500, detail="Failed to update community in database")
+        conn.commit()
 
-        conn.commit() # Commit successful update
-
-        # 4. Fetch and return updated data (includes counts)
         updated_community_db = crud.get_community_details_db(cursor, community_id)
         if not updated_community_db:
-            # Should not happen if update succeeded, but handle defensively
             raise HTTPException(status_code=500, detail="Could not retrieve updated community details")
 
-        # Format response
         response_data = dict(updated_community_db)
-        loc_point_str = response_data.get('primary_location')
-        response_data['primary_location'] = str(loc_point_str) if loc_point_str else None
-        response_data['logo_url'] = utils.get_minio_url(response_data.get('logo_path'))
+        if response_data.get('longitude') is not None and response_data.get('latitude') is not None:
+            response_data['location'] = schemas.LocationDataOutput(
+                longitude=response_data['longitude'],
+                latitude=response_data['latitude'],
+                address=response_data.get('location_address')
+            )
+        elif 'longitude' in response_data:
+            del response_data['longitude']
+            del response_data['latitude']
+
+        logo_media = crud.get_community_logo_media(cursor, community_id) # Fetch current logo
+        response_data['logo_url'] = logo_media.get('url') if logo_media else None
+
         print(f"✅ Community {community_id} details updated by User {current_user_id}")
         return schemas.CommunityDisplay(**response_data)
 
@@ -342,10 +252,101 @@ async def update_community_details(
     except Exception as e:
         if conn: conn.rollback()
         print(f"❌ Error updating community details {community_id}: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Could not update community details")
     finally:
         if conn: conn.close()
 
+
+@router.get("", response_model=List[schemas.CommunityDisplay])
+async def get_communities(
+        current_user_id: Optional[int] = Depends(auth.get_current_user_optional),
+        limit: int = Query(50, ge=1, le=200), # Added limit/offset
+        offset: int = Query(0, ge=0)
+):
+    conn = None
+    try:
+        conn = get_db_connection(); cursor = conn.cursor()
+        communities_relational = crud.get_communities_db(cursor, limit=limit, offset=offset)
+        processed_communities = []
+        for comm_rel_dict in communities_relational:
+            comm_data = dict(comm_rel_dict) # Ensure it's a mutable dict
+            comm_id = comm_data['id']
+
+            counts = crud.get_community_counts(cursor, comm_id)
+            comm_data.update(counts)
+
+            logo_media = crud.get_community_logo_media(cursor, comm_id)
+            comm_data['logo_url'] = logo_media.get('url') if logo_media else None
+
+            if comm_data.get('longitude') is not None and comm_data.get('latitude') is not None:
+                comm_data['location'] = schemas.LocationDataOutput(
+                    longitude=comm_data['longitude'],
+                    latitude=comm_data['latitude'],
+                    address=comm_data.get('location_address')
+                )
+            elif 'longitude' in comm_data:
+                del comm_data['longitude']
+                del comm_data['latitude']
+
+            if current_user_id:
+                comm_data['is_member_by_viewer'] = crud.check_is_member(cursor, current_user_id, comm_id)
+            else:
+                comm_data['is_member_by_viewer'] = False
+
+            processed_communities.append(schemas.CommunityDisplay(**comm_data))
+
+        return processed_communities
+    except Exception as e:
+        print(f"❌ Error fetching communities: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Error fetching communities")
+    finally:
+        if conn: conn.close()
+
+@router.get("/trending", response_model=List[schemas.CommunityDisplay])
+async def get_trending_communities(
+        current_user_id: Optional[int] = Depends(auth.get_current_user_optional),
+        limit: int = Query(15, ge=1, le=50) # Added limit
+):
+    conn = None
+    try:
+        conn = get_db_connection(); cursor = conn.cursor()
+        communities_db = crud.get_trending_communities_db(cursor, limit=limit)
+        processed_communities = []
+        for comm_dict_db in communities_db:
+            comm_data = dict(comm_dict_db)
+            comm_id = comm_data['id']
+
+            counts = crud.get_community_counts(cursor, comm_id) # Get member/online from graph
+            comm_data.update(counts)
+
+            logo_media = crud.get_community_logo_media(cursor, comm_id)
+            comm_data['logo_url'] = logo_media.get('url') if logo_media else None
+
+            if comm_data.get('longitude') is not None and comm_data.get('latitude') is not None:
+                comm_data['location'] = schemas.LocationDataOutput(
+                    longitude=comm_data['longitude'],
+                    latitude=comm_data['latitude'],
+                    address=comm_data.get('location_address')
+                )
+            elif 'longitude' in comm_data:
+                del comm_data['longitude']
+                del comm_data['latitude']
+
+            if current_user_id:
+                comm_data['is_member_by_viewer'] = crud.check_is_member(cursor, current_user_id, comm_id)
+            else:
+                comm_data['is_member_by_viewer'] = False
+
+            processed_communities.append(schemas.CommunityDisplay(**comm_data))
+        return processed_communities
+    except Exception as e:
+        print(f"❌ Error fetching trending communities: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Error fetching trending communities")
+    finally:
+        if conn: conn.close()
 
 @router.post("/{community_id}/logo", response_model=schemas.CommunityDisplay)
 async def update_community_logo(
@@ -652,77 +653,116 @@ async def list_community_events(
 async def create_event_in_community(
         community_id: int,
         current_user_id: int = Depends(auth.get_current_user),
-        # Form data for event
         title: str = Form(...),
         description: Optional[str] = Form(None),
-        location: str = Form(...),
+        location: str = Form(...), # This is the address string
         event_timestamp: datetime = Form(...),
         max_participants: int = Form(100),
-        image: Optional[UploadFile] = File(None)
+        image: Optional[UploadFile] = File(None),
+        # New form fields for coordinates (optional for now)
+        latitude: Optional[float] = Form(None),
+        longitude: Optional[float] = Form(None),
 ):
+    """ Creates a new event within a community. Notifies community members. """
     conn = None
     minio_object_name = None
     event_id = None
     upload_info = None
+    community_db_info = None # To store fetched community details
 
     try:
-        # --- Define object_name_prefix BEFORE using it ---
-        object_name_prefix = f"media/events/unknown_community/{uuid.uuid4()}" # Default path
+        object_name_prefix = f"media/events/unknown_community/{uuid.uuid4()}"
 
-        # 1. Handle Image Upload
+        conn = get_db_connection(); cursor = conn.cursor()
+
+        # Validate community
+        community_db_info = crud.get_community_by_id(cursor, community_id)
+        if not community_db_info:
+            raise HTTPException(status_code=404, detail=f"Community {community_id} not found.")
+        community_name_for_path = community_db_info.get('name', f'c_{community_id}')
+        safe_community_name = community_name_for_path.replace(' ', '_').lower()
+        safe_community_name = ''.join(c for c in safe_community_name if c.isalnum() or c in ['_','-'])
+        object_name_prefix = f"media/communities/{safe_community_name}/events"
+
         if image and utils.minio_client:
-            # Fetch community name for path prefix (use temporary connection)
-            temp_conn_comm = None
-            try:
-                temp_conn_comm = get_db_connection(); temp_cursor_comm = temp_conn_comm.cursor()
-                comm_info = crud.get_community_by_id(temp_cursor_comm, community_id)
-                community_name_for_path = comm_info.get('name', f'c_{community_id}') if comm_info else f'c_{community_id}'
-                # Sanitize community name for path
-                safe_community_name = community_name_for_path.replace(' ', '_').lower()
-                safe_community_name = ''.join(c for c in safe_community_name if c.isalnum() or c in ['_','-'])
-                object_name_prefix = f"media/communities/{safe_community_name}/events" # Define path using community name
-            except Exception as comm_fetch_err:
-                print(f"WARN: Failed to fetch community name for event image path: {comm_fetch_err}. Using default path.")
-                # Keep the default object_name_prefix defined above
-            finally:
-                if temp_conn_comm: temp_conn_comm.close()
-
-            upload_info = await utils.upload_file_to_minio(image, object_name_prefix) # NOW prefix is defined
+            upload_info = await utils.upload_file_to_minio(image, object_name_prefix)
             if upload_info and 'minio_object_name' in upload_info:
                 minio_object_name = upload_info['minio_object_name']
             else:
-                print(f"⚠️ Event image upload failed")
+                print(f"⚠️ Event image upload failed for event in community {community_id}")
                 minio_object_name = None
 
-        # 2. Create Event in DB
-        conn = get_db_connection(); cursor = conn.cursor()
-        event_info = crud.create_event_db(
+        # Prepare event data, including optional PostGIS point
+        event_point_wkt = None
+        if latitude is not None and longitude is not None:
+            event_point_wkt = f"POINT({longitude} {latitude})"
+
+
+        # Create Event in DB (CRUD needs to handle event_point_wkt for location_coords)
+        # crud.create_event_db now expects location_coords_wkt parameter
+        event_info_dict = crud.create_event_db(
             cursor, community_id=community_id, creator_id=current_user_id, title=title,
-            description=description, location=location, event_timestamp=event_timestamp,
+            description=description, location_address=location, # Corrected parameter name
+            event_timestamp=event_timestamp,
             max_participants=max_participants,
-            image_url=minio_object_name # Pass the object NAME string or None
+            image_url=minio_object_name,
+            location_coords_wkt=event_point_wkt
         )
-        # ... (rest of the success path and error handling as before) ...
-        if not event_info or 'id' not in event_info:
+
+        if not event_info_dict or 'id' not in event_info_dict:
             if minio_object_name: delete_from_minio(minio_object_name);
             raise HTTPException(status_code=500, detail="Event creation failed in database")
-        event_id = event_info['id']
+
+        event_id = event_info_dict['id']
+
+        # --- Notify Community Members ---
+        # CAVEAT: This can be slow for large communities. Consider async fan-out.
+        community_member_ids = crud.get_community_member_ids(cursor, community_id, limit=10000, offset=0)
+        if community_member_ids: # Check if there are members to notify
+            community_name_for_notif = community_db_info.get('name', 'your community')
+            content_preview = f"New event in {community_name_for_notif}: \"{title[:50]}...\""
+            print(f"Attempting to notify {len(community_member_ids)} members of community {community_id} about new event {event_id}")
+            for member_id in community_member_ids:
+                if member_id != current_user_id:
+                    crud.create_notification(
+                        cursor=cursor,
+                        recipient_user_id=member_id,
+                        actor_user_id=current_user_id,
+                        type='new_community_event', # <-- USE THE CORRECT ENUM VALUE
+                        related_entity_type='event',
+                        related_entity_id=event_id,
+                        content_preview=content_preview
+                    )
+        # --- End Notify Community Members ---
+
         event_details_db = crud.get_event_details_db(cursor, event_id)
         if not event_details_db:
             conn.rollback();
             if minio_object_name: delete_from_minio(minio_object_name)
             raise HTTPException(status_code=500, detail="Could not retrieve created event details")
-        conn.commit()
+
+        conn.commit() # Commit event creation and notifications
+
         response_data = dict(event_details_db)
         response_data['image_url'] = utils.get_minio_url(response_data.get('image_url'))
-        print(f"✅ Event {event_id} created...")
+
+        # Handle location_coords for output, it should be a dict if present
+        if response_data.get('longitude') is not None and response_data.get('latitude') is not None:
+            response_data['location_coords'] = {
+                "longitude": response_data['longitude'],
+                "latitude": response_data['latitude']
+            }
+        elif 'longitude' in response_data: # Clean up if they were None but present
+            del response_data['longitude']
+            del response_data['latitude']
+
+        print(f"✅ Event {event_id} created in community {community_id}")
         return schemas.EventDisplay(**response_data)
 
-    # ... (keep existing except blocks, ensure traceback is imported if used) ...
     except psycopg2.Error as e:
         if conn: conn.rollback()
         if minio_object_name: delete_from_minio(minio_object_name)
-        print(f"❌ DB Error creating event: {e}")
+        print(f"❌ DB Error creating event in community {community_id}: {e}")
         detail = f"Database error: {e.pgerror}" if hasattr(e, 'pgerror') and e.pgerror else "Database error creating event"
         raise HTTPException(status_code=500, detail=detail)
     except HTTPException as http_exc:
@@ -732,8 +772,8 @@ async def create_event_in_community(
     except Exception as e:
         if conn: conn.rollback()
         if minio_object_name: delete_from_minio(minio_object_name)
-        print(f"❌ Error creating event: {e}")
-        traceback.print_exc() # Make sure traceback is imported
+        print(f"❌ Error creating event in community {community_id}: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn: conn.close()

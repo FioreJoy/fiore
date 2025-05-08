@@ -1,5 +1,5 @@
-name: connections
-description: A social network for communities
+name: fiore
+description: A social media app for on-the-go events
 version: 1.0.0+1
 publish_to: 'none'
 

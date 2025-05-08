@@ -528,9 +528,9 @@ def test_graphql():
         "query": "query GetPost($postId: ID!) { post(id: $postId) { id title media { url mimeType } } }",
         "variables": {"postId": str(created_post_id_with_media or CONFIG['EXISTING_POST_ID'])}
     }
-    make_request("POST", "/graphql", "GraphQL Get Viewer", data=gql_query_viewer, use_api_key=False, is_json=True)
-    make_request("POST", "/graphql", f"GraphQL Get User {CONFIG['TARGET_USER_ID_TO_VIEW_AND_BLOCK']}", data=gql_query_user_target, use_api_key=False, is_json=True)
-    make_request("POST", "/graphql", f"GraphQL Get Post with Media", data=gql_query_post_media, use_api_key=False, is_json=True)
+    make_request("POST", "/graphql", "GraphQL Get Viewer", data=gql_query_viewer, use_api_key=True, is_json=True)
+    make_request("POST", "/graphql", f"GraphQL Get User {CONFIG['TARGET_USER_ID_TO_VIEW_AND_BLOCK']}", data=gql_query_user_target, use_api_key=True, is_json=True)
+    make_request("POST", "/graphql", f"GraphQL Get Post with Media", data=gql_query_post_media, use_api_key=True, is_json=True)
 
 def print_summary():
     """Prints a summary of successful and failed tests."""

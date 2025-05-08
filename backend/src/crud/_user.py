@@ -26,19 +26,24 @@ def get_user_by_email(cursor: psycopg2.extensions.cursor, email: str) -> Optiona
     return cursor.fetchone()
 
 def get_user_by_id(cursor: psycopg2.extensions.cursor, user_id: int) -> Optional[Dict[str, Any]]:
-    """Fetches user details from relational table ONLY. Avatar fetched separately."""
-    # *** MODIFICATION: Removed image_path from this SELECT statement ***
+    """
+    Fetches user details from relational table.
+    Includes 'current_location_address' (text) and derives 'longitude', 'latitude' from 'location' (geography).
+    """
     cursor.execute(
         """SELECT id, name, username, email, gender,
-                  current_location, current_location_address,
-                  college, interest, interests, created_at, last_seen,
+                  college, interest, interests, -- Keep existing interest fields
+                  created_at, last_seen,
                   notify_new_post_in_community, notify_new_reply_to_post,
-                  notify_new_event_in_community, notify_event_reminder,
-                  notify_direct_message
+                  notify_new_event_in_community, notify_event_reminder, notify_event_update,
+                  notify_direct_message,
+                  current_location_address, -- The text address column
+                  location_last_updated,
+                  ST_X(location::geometry) as longitude, -- Derived from geography 'location'
+                  ST_Y(location::geometry) as latitude   -- Derived from geography 'location'
            FROM public.users WHERE id = %s;""",
         (user_id,)
     )
-    # *** END MODIFICATION ***
     return cursor.fetchone()
 
 def create_user(
@@ -46,7 +51,7 @@ def create_user(
         name: str, username: str, email: str, password: str, gender: str,
         current_location_str: str, # Expects "(lon,lat)"
         college: str, interests_str: Optional[str], # interests_str is comma-separated for 'interest' column
-        current_location_address: Optional[str]
+        current_current_location_address: Optional[str]
         # interests_json: Optional[List[str]] # For 'interests' jsonb column
 ) -> Optional[int]:
     """
@@ -72,12 +77,12 @@ def create_user(
         """
         INSERT INTO public.users (
             name, username, email, password_hash, gender, 
-            current_location, college, interest, interests, current_location_address
+            current_location, college, interest, interests, current_current_location_address
         )
         VALUES (%s, %s, %s, %s, %s, %s::point, %s, %s, %s, %s) RETURNING id;
         """,
         (name, username, email, hashed_password, gender,
-         current_location_str, college, interests_str, interests_json_val, current_location_address)
+         current_location_str, college, interests_str, interests_json_val, current_current_location_address)
     )
     result = cursor.fetchone()
     if not result or 'id' not in result: return None
@@ -119,7 +124,7 @@ def update_user_profile(
     # Routers should handle image updates by calling `crud.set_user_profile_picture`.
     allowed_relational_fields = [
         'name', 'username', 'gender', 'current_location', 'college',
-        'interest', 'interests', 'current_location_address' # 'interests' for JSONB, 'interest' for text
+        'interest', 'interests', 'current_current_location_address' # 'interests' for JSONB, 'interest' for text
     ]
     allowed_graph_props = ['username', 'name'] # Only update props that are actually on the User vertex
 
@@ -285,69 +290,65 @@ def check_is_following(cursor: psycopg2.extensions.cursor, viewer_id: int, targe
         print(f"Error checking follow status ({viewer_id}->{target_user_id}): {e}")
         return False
 
-def get_following(cursor: psycopg2.extensions.cursor, user_id: int) -> List[Dict[str, Any]]:
+def get_following(cursor: psycopg2.extensions.cursor, user_id: int, limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]: # Added limit/offset defaults
     # Fetch IDs and usernames from graph for correct ordering first
     id_username_query = f"""
         MATCH (u:User {{id: {user_id}}})-[:FOLLOWS]->(f:User)
         RETURN f.id as id, f.username as username 
         ORDER BY f.username 
+        SKIP {offset} LIMIT {limit} 
     """
     expected_id_usernames = [('id', 'agtype'), ('username', 'agtype')]
     try:
-        print(f"CRUD get_following: Fetching IDs and usernames for user {user_id}")
         following_basic_info = execute_cypher(cursor, id_username_query, fetch_all=True, expected_columns=expected_id_usernames) or []
-
         following_ids = [int(m['id']) for m in following_basic_info if isinstance(m, dict) and m.get('id') is not None]
 
-        print(f"CRUD get_following: Found {len(following_ids)} following IDs: {following_ids}")
-        if not following_ids:
-            return []
+        if not following_ids: return []
 
-        # Fetch full user details from relational table for these IDs, preserving the graph's order
-        # This requires fetching all and then re-ordering or ensuring the relational query orders the same way.
-        # For simplicity, let's fetch and then re-map based on the order from the graph query.
-
+        # Fetch full user details from relational table for these IDs
         sql_following_details = """
-            SELECT id, name, username, email, gender, college, interest, interests, current_location, current_location_address
+            SELECT id, name, username, email, gender, college, interest, interests,
+                   location_address, location_last_updated,
+                   ST_X(location::geometry) as longitude, 
+                   ST_Y(location::geometry) as latitude
             FROM public.users WHERE id = ANY(%s);
-        """
+        """ # Corrected column selection
         cursor.execute(sql_following_details, (following_ids,))
         users_detail_map = {row['id']: dict(row) for row in cursor.fetchall()}
 
-        # Reconstruct in the order obtained from the graph query (ordered by username)
         ordered_detailed_following = []
         for basic_info in following_basic_info:
             if isinstance(basic_info, dict) and basic_info.get('id') is not None:
                 user_id_from_graph = int(basic_info['id'])
                 if user_id_from_graph in users_detail_map:
                     ordered_detailed_following.append(users_detail_map[user_id_from_graph])
-
-        print(f"CRUD get_following: Fetched and ordered {len(ordered_detailed_following)} detailed user records.")
         return ordered_detailed_following
     except Exception as e:
         print(f"Error getting following for user {user_id}: {e}")
         traceback.print_exc()
         return []
 
-# Similarly for get_followers:
-def get_followers(cursor: psycopg2.extensions.cursor, user_id: int) -> List[Dict[str, Any]]:
+def get_followers(cursor: psycopg2.extensions.cursor, user_id: int, limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]: # Added limit/offset defaults
     id_username_query = f"""
         MATCH (f:User)-[:FOLLOWS]->(:User {{id: {user_id}}})
         RETURN f.id as id, f.username as username
         ORDER BY f.username
+        SKIP {offset} LIMIT {limit}
     """
-    expected_id_usernames = [('id', 'agtype'), ('username', 'agtype')]
+    expected_id_usernames_followers = [('id', 'agtype'), ('username', 'agtype')]
     try:
-        follower_basic_info = execute_cypher(cursor, id_username_query, fetch_all=True, expected_columns=expected_id_usernames) or []
+        follower_basic_info = execute_cypher(cursor, id_username_query, fetch_all=True, expected_columns=expected_id_usernames_followers) or []
         follower_ids = [int(m['id']) for m in follower_basic_info if isinstance(m, dict) and m.get('id') is not None]
 
-        if not follower_ids:
-            return []
+        if not follower_ids: return []
 
         sql_followers_details = """
-            SELECT id, name, username, email, gender, college, interest, interests, current_location, current_location_address
+            SELECT id, name, username, email, gender, college, interest, interests,
+                   location_address, location_last_updated,
+                   ST_X(location::geometry) as longitude, 
+                   ST_Y(location::geometry) as latitude
             FROM public.users WHERE id = ANY(%s);
-        """
+        """ # Corrected column selection
         cursor.execute(sql_followers_details, (follower_ids,))
         users_detail_map = {row['id']: dict(row) for row in cursor.fetchall()}
 
@@ -357,10 +358,10 @@ def get_followers(cursor: psycopg2.extensions.cursor, user_id: int) -> List[Dict
                 user_id_from_graph = int(basic_info['id'])
                 if user_id_from_graph in users_detail_map:
                     ordered_detailed_followers.append(users_detail_map[user_id_from_graph])
-
         return ordered_detailed_followers
     except Exception as e:
         print(f"Error getting followers for user {user_id}: {e}")
+        traceback.print_exc()
         return []
 
 def get_user_joined_communities_graph(cursor: psycopg2.extensions.cursor, user_id: int, limit: int, offset: int) -> List[Dict[str, Any]]:
@@ -464,3 +465,78 @@ def get_event_ids_participated_by_user(cursor: psycopg2.extensions.cursor, user_
     except Exception as e:
         print(f"CRUD Error getting event IDs participated by user {user_id}: {e}")
         return []
+
+# --- ADD THIS NEW FUNCTION ---
+def get_nearby_users_db(
+        cursor: psycopg2.extensions.cursor,
+        longitude: float,
+        latitude: float,
+        radius_meters: int,
+        limit: int,
+        offset: int,
+        viewer_id: Optional[int] = None # Optional: to check follow status
+) -> List[Dict[str, Any]]:
+    """
+    Fetches users within a given radius from a point, ordered by distance.
+    Includes basic profile info, location, and distance.
+    Does NOT include image_url or follow status here, those are typically augmented by the router.
+    """
+    radius_meters_int = int(radius_meters)
+
+    # Base query
+    query = """
+        SELECT 
+            u.id, u.name, u.username, u.gender, u.college, u.interest, u.interests, -- Include interests JSONB
+            u.current_location_address, u.location_last_updated,
+            ST_X(u.location::geometry) as longitude, 
+            ST_Y(u.location::geometry) as latitude,
+            ST_Distance(u.location, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) as distance_meters
+        FROM public.users u
+        WHERE ST_DWithin(
+            u.location,
+            ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+            %s -- radius in meters
+        )
+    """
+    params = [longitude, latitude, longitude, latitude, radius_meters_int]
+
+    # Exclude the viewer themselves from nearby results if viewer_id is provided
+    if viewer_id is not None:
+        query += " AND u.id != %s"
+        params.append(viewer_id)
+
+    query += """
+        ORDER BY distance_meters ASC, u.last_seen DESC NULLS LAST -- Prioritize closer and recently active users
+        LIMIT %s OFFSET %s;
+    """
+    params.extend([limit, offset])
+
+    try:
+        cursor.execute(query, tuple(params))
+        users_db = cursor.fetchall()
+
+        # Process 'interests' (JSONB) from string to list if needed by Pydantic schema upon return
+        # The RealDictCursor should handle JSONB to Python list/dict automatically.
+        # If it comes back as a string, manual parsing would be:
+        # results = []
+        # for row_dict in users_db:
+        #     if isinstance(row_dict.get('interests'), str):
+        #      try:
+        #                  row_dict['interests'] = json.loads(row_dict['interests'])
+        #     except json.JSONDecodeError:
+        #              row_dict['interests'] = [] # Fallback
+        #      elif row_dict.get('interests') is None:
+        #          row_dict['interests'] = []
+        #     results.append(row_dict)
+        # return results
+        return users_db # RealDictCursor should convert JSONB to list of dicts/primitives
+
+    except psycopg2.Error as db_err:
+        print(f"CRUD DB Error fetching nearby users: {db_err}")
+        traceback.print_exc()
+        raise
+    except Exception as e:
+        print(f"CRUD Unexpected error fetching nearby users: {e}")
+        traceback.print_exc()
+        raise
+# --- END OF NEW FUNCTION ---

@@ -1,14 +1,18 @@
 // frontend/lib/screens/main_navigation_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart'; // Keep provider
+import 'package:provider/provider.dart';
 
 // --- Screen Imports ---
-// import 'feed/explore_screen.dart'; // Comment out or remove ExploreScreen import
-import 'feed/posts_screen.dart';       // **** IMPORT PostsScreen ****
+import 'feed/posts_screen.dart';
 import 'communities/communities_screen.dart';
+import 'notifications_screen.dart';
 import 'chat/chat_screen.dart';
 import 'profile/profile_screen.dart';
+
+// --- Service Imports ---
+import '../services/notification_provider.dart';
+import '../services/auth_provider.dart';
 
 // --- Theme Imports ---
 import '../theme/theme_constants.dart';
@@ -22,21 +26,30 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _selectedIndex = 0;
-  late final PageController _pageController;
+  late PageController _pageController;
 
-  // **** UPDATE THE SCREEN LIST ****
-  static const List<Widget> _screens = [
-    PostsScreen(), // Use PostsScreen for the first tab (index 0)
-    CommunitiesScreen(),
-    ChatScreen(),
-    ProfileScreen(),
+  static final List<Widget> _screens = [
+    const PostsScreen(),
+    const CommunitiesScreen(),
+    const NotificationsScreen(),
+    const ChatScreen(),
+    const ProfileScreen(),
   ];
-  // **** END SCREEN LIST UPDATE ****
 
   @override
   void initState() {
     super.initState();
+    _selectedIndex = 0;
     _pageController = PageController(initialPage: _selectedIndex);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        if (authProvider.isAuthenticated) {
+          Provider.of<NotificationProvider>(context, listen: false).fetchUnreadCount();
+        }
+      }
+    });
   }
 
   @override
@@ -46,66 +59,107 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _onNavItemTapped(int index) {
+    if (index < 0 || index >= _screens.length) return;
     if (_selectedIndex == index) return;
-    setState(() {
-      _selectedIndex = index;
-      _pageController.animateToPage(
-        index,
-        duration: ThemeConstants.shortAnimation,
-        curve: Curves.easeInOut,
-      );
-    });
+    if (mounted) {
+      setState(() {
+        _selectedIndex = index;
+      });
+      if (_pageController.hasClients) {
+        _pageController.animateToPage(
+          index,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+        );
+      }
+    }
   }
+
+  // _buildNavItemIconWithBadge IS TEMPORARILY REMOVED FOR DEBUGGING
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    // We still need the count, but won't use the badge helper for now
+    final unreadNotificationCount = context.watch<NotificationProvider>().unreadCount;
+    final clampedSelectedIndex = _selectedIndex.clamp(0, _screens.length - 1);
 
     return Scaffold(
-      body: PageView(
+      body: PageView.builder(
         controller: _pageController,
-        onPageChanged: (index) => setState(() => _selectedIndex = index),
-        children: _screens, // Use the updated list
+        itemCount: _screens.length,
+        itemBuilder: (BuildContext context, int index) {
+          return _screens[index];
+        },
+        onPageChanged: (index) {
+          if (index >= 0 && index < _screens.length && mounted) {
+            setState(() => _selectedIndex = index);
+          }
+        },
         physics: const NeverScrollableScrollPhysics(),
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: isDark ? ThemeConstants.backgroundDarker : Colors.white,
-          boxShadow: [ BoxShadow( color: theme.shadowColor.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, -3), ) ],
-          border: Border( top: BorderSide( color: isDark ? Colors.grey.shade800 : Colors.grey.shade200, width: 0.5),),
+          boxShadow: [ BoxShadow(color: theme.shadowColor.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, -2),) ],
+          border: Border(top: BorderSide(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200, width: 0.5)),
         ),
         child: SafeArea(
           child: BottomNavigationBar(
-            // **** UPDATE LABELS/ICONS IF NEEDED ****
-            items: const <BottomNavigationBarItem>[
+            // TEMPORARILY USING PLAIN ICONS
+            items: <BottomNavigationBarItem>[
               BottomNavigationBarItem(
-                  icon: Icon(Icons.dynamic_feed_outlined), // Changed icon?
-                  activeIcon: Icon(Icons.dynamic_feed),   // Changed icon?
-                  label: 'Feed'),                       // Changed label to 'Feed'
+                  icon: Icon(clampedSelectedIndex == 0 ? Icons.dynamic_feed : Icons.dynamic_feed_outlined),
+                  label: 'Feed'),
               BottomNavigationBarItem(
-                  icon: Icon(Icons.people_outline),
-                  activeIcon: Icon(Icons.people),
+                  icon: Icon(clampedSelectedIndex == 1 ? Icons.people : Icons.people_outline),
                   label: 'Communities'),
               BottomNavigationBarItem(
-                  icon: Icon(Icons.chat_bubble_outline),
-                  activeIcon: Icon(Icons.chat_bubble),
+                // Manually add badge to the plain icon for this test
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(clampedSelectedIndex == 2 ? Icons.notifications : Icons.notifications_none_outlined),
+                      if (unreadNotificationCount > 0)
+                        Positioned(
+                          top: -5, right: -7,
+                          child: Container(
+                            padding: EdgeInsets.all(unreadNotificationCount > 9 ? 2.5 : 3.5),
+                            decoration: BoxDecoration(
+                              color: ThemeConstants.errorColor, shape: BoxShape.circle,
+                              border: Border.all(color: theme.bottomNavigationBarTheme.backgroundColor ?? theme.canvasColor, width: 1.5),
+                            ),
+                            constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                            child: Text(
+                              unreadNotificationCount > 99 ? '99+' : unreadNotificationCount.toString(),
+                              style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  label: 'Alerts'),
+              BottomNavigationBarItem(
+                  icon: Icon(clampedSelectedIndex == 3 ? Icons.chat_bubble : Icons.chat_bubble_outline),
                   label: 'Chat'),
               BottomNavigationBarItem(
-                  icon: Icon(Icons.person_outline),
-                  activeIcon: Icon(Icons.person),
+                  icon: Icon(clampedSelectedIndex == 4 ? Icons.person : Icons.person_outline),
                   label: 'Profile'),
             ],
-            // **** END LABEL/ICON UPDATE ****
-            currentIndex: _selectedIndex,
+            currentIndex: clampedSelectedIndex,
             onTap: _onNavItemTapped,
             type: BottomNavigationBarType.fixed,
             backgroundColor: Colors.transparent,
             elevation: 0,
             selectedItemColor: ThemeConstants.accentColor,
             unselectedItemColor: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
-            selectedFontSize: 12,
+            selectedFontSize: 11,
             unselectedFontSize: 10,
+            showSelectedLabels: true,
+            showUnselectedLabels: true,
           ),
         ),
       ),

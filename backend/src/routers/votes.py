@@ -12,104 +12,6 @@ router = APIRouter(
     prefix="/votes",
     tags=["Votes"],
 )
-#
-# @router.post("", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
-# async def manage_vote(
-#         vote_data: schemas.VoteCreate,
-#         current_user_id: int = Depends(auth.get_current_user)
-# ):
-#     if not ((vote_data.post_id is not None and vote_data.reply_id is None) or \
-#             (vote_data.post_id is None and vote_data.reply_id is not None)):
-#         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-#                             detail="Must vote on exactly one of post_id or reply_id")
-#
-#     conn = None
-#     post_id = vote_data.post_id
-#     reply_id = vote_data.reply_id
-#     requested_vote_type = vote_data.vote_type # The vote user wants to set (True for up, False for down)
-#     target_type_str = "Post" if post_id else "Reply"
-#     target_id = post_id if post_id else reply_id
-#
-#     try:
-#         # Use a single connection/cursor for the whole operation
-#         conn = get_db_connection(); cursor = conn.cursor()
-#
-#         # 1. Get current vote state (use the same cursor that will perform writes)
-#         current_db_vote_type: Optional[bool] = crud.get_viewer_vote_status(
-#             cursor, current_user_id, post_id=post_id, reply_id=reply_id
-#         )
-#
-#         print(f"DEBUG manage_vote: User {current_user_id} on {target_type_str} {target_id} - Current DB vote (before op): {current_db_vote_type}, Requested vote: {requested_vote_type}")
-#
-#         action_for_response = ""  # What the API response "action" field will be
-#         operation_successful = False # Did the DB operation achieve the desired state?
-#
-#         if current_db_vote_type == requested_vote_type:
-#             # User clicked the same vote button again (e.g., already upvoted, clicks upvote again)
-#             # Intent: Remove the vote.
-#             print(f"  Intent: REMOVE vote. Current: {current_db_vote_type}, Requested: {requested_vote_type}")
-#             db_op_succeeded = crud.remove_vote_db(cursor, current_user_id, post_id, reply_id)
-#             if db_op_succeeded:
-#                 print(f"  CRUD remove_vote_db: Successfully removed vote.")
-#                 action_for_response = "removed"
-#                 operation_successful = True
-#             else:
-#                 # remove_vote_db returns False if no edge was found/deleted.
-#                 # This means the vote was already not there, so desired "removed" state is met.
-#                 print(f"  CRUD remove_vote_db: No vote found to remove, or failed. (Returned False)")
-#                 action_for_response = "removed" # Still, the desired state is "removed"
-#                 operation_successful = True # Considered success as vote is not present
-#
-#         else: # current_db_vote_type is different from requested_vote_type, OR current_db_vote_type is None
-#             # Intent: Cast a new vote or change an existing one.
-#             print(f"  Intent: CAST/UPDATE vote. Current: {current_db_vote_type}, Requested: {requested_vote_type}")
-#             db_op_succeeded = crud.cast_vote_db(cursor, current_user_id, post_id, reply_id, requested_vote_type)
-#             if db_op_succeeded:
-#                 print(f"  CRUD cast_vote_db: Successfully cast/updated vote.")
-#                 action_for_response = "cast/updated"
-#                 operation_successful = True
-#             else:
-#                 # cast_vote_db returned False (e.g. SET property mismatch or other failure)
-#                 print(f"  CRUD cast_vote_db: Failed to cast/update vote. (Returned False)")
-#                 action_for_response = "cast_or_update_failed"
-#                 operation_successful = False
-#
-#         conn.commit()
-#         print(f"DEBUG manage_vote: Transaction committed. Action for response: '{action_for_response}'")
-#
-#         counts = {}
-#         # Fetch counts using a new cursor to see committed data
-#         with get_db_connection() as count_conn:
-#             with count_conn.cursor() as count_cursor:
-#                 if target_id is not None:
-#                     if post_id: counts = crud.get_post_counts(count_cursor, post_id)
-#                     elif reply_id: counts = crud.get_reply_counts(count_cursor, reply_id)
-#
-#         print(f"✅ Vote action outcome: '{action_for_response}'. API Response Success: {operation_successful}. New Counts: {counts}")
-#
-#         return {"message": f"Vote action: {action_for_response}", "action": action_for_response, "success": operation_successful, "new_counts": counts}
-#
-#     except ValueError as ve: # From crud functions for invalid args
-#         if conn: conn.rollback()
-#         print(f"❌ Vote Value Error: {ve}")
-#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
-#     except psycopg2.Error as db_err: # DB level errors
-#         if conn: conn.rollback()
-#         print(f"❌ Vote DB Error: {db_err} (Code: {db_err.pgcode})")
-#         traceback.print_exc()
-#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database error during voting operation.")
-#     except Exception as e: # Other unexpected errors
-#         if conn: conn.rollback()
-#         print(f"❌ Vote general error [{type(e).__name__}]: {e}")
-#         traceback.print_exc()
-#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred: {e}")
-#     finally:
-#         if conn: conn.close()
-
-# Fix for backend/src/routers/votes.py
-
-# The core issue is in the vote router - when a user tries to remove a vote by clicking
-# the same button again, the comparison isn't working correctly
 
 @router.post("", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
 async def manage_vote(
@@ -140,7 +42,7 @@ async def manage_vote(
                     fresh_cursor, current_user_id, post_id=post_id, reply_id=reply_id
                 )
 
-        print(f"DEBUG manage_vote: User {current_user_id} on {target_type_str} {target_id} - Current DB vote: {current_db_vote_type}, Requested vote: {requested_vote_type}")
+        #print(f"DEBUG manage_vote: User {current_user_id} on {target_type_str} {target_id} - Current DB vote: {current_db_vote_type}, Requested vote: {requested_vote_type}")
 
         action_taken_api_string = "" # For the API response "action" field
         successful_operation = False # Overall success of the user's intent
@@ -149,7 +51,7 @@ async def manage_vote(
         # The problem might be with the comparison of None and boolean values
         if current_db_vote_type is not None and current_db_vote_type == requested_vote_type:
             # User clicked the same vote button again (e.g., upvoted, clicks upvote again) -> remove vote
-            print(f"  Attempting to remove existing vote for {target_type_str} {target_id}")
+            #print(f"  Attempting to remove existing vote for {target_type_str} {target_id}")
             db_op_removed = crud.remove_vote_db(cursor, current_user_id, post_id, reply_id)
             if db_op_removed:
                 action_taken_api_string = "removed"
@@ -175,7 +77,7 @@ async def manage_vote(
                 print(f"  CRUD cast_vote_db returned False.")
 
         conn.commit()
-        print(f"DEBUG manage_vote: Transaction committed. Router action: '{action_taken_api_string}'")
+        #print(f"DEBUG manage_vote: Transaction committed. Router action: '{action_taken_api_string}'")
 
         counts = {}
         # Fetch counts using a new cursor to ensure we see committed data
@@ -239,10 +141,10 @@ def cast_vote_db(
     """
     expected_cols = [('set_vote_type', 'agtype')]
     try:
-        print(f"CRUD: Casting/Updating vote (U:{user_id} on {target_label}:{target_id} to {vote_type}) with Cypher: SET r.vote_type = {vote_type_cypher}")
+        #print(f"CRUD: Casting/Updating vote (U:{user_id} on {target_label}:{target_id} to {vote_type}) with Cypher: SET r.vote_type = {vote_type_cypher}")
         result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected_cols)
 
-        print(f"CRUD cast_vote_db: Raw result from graph SET: {result_map}")
+        #print(f"CRUD cast_vote_db: Raw result from graph SET: {result_map}")
 
         # Now update the vote counts for the target
         if existing_vote is not None:

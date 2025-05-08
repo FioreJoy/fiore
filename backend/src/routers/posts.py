@@ -190,34 +190,32 @@ async def create_post(
         community_id: Optional[int] = Form(None),
         files: List[UploadFile] = File(default=[])
 ):
-    """ Creates a new post with optional media and community linking. Broadcasts update via WebSocket. """
+    """ Creates a new post. If community_id is provided, links to community and notifies members. """
     conn = None
     post_id = None
     media_ids_created = []
     minio_objects_created = []
-    comm_exists = None # Store community check result
+    comm_exists = None
 
     try:
         conn = get_db_connection(); cursor = conn.cursor()
+        actor_user = crud.get_user_by_id(cursor, current_user_id) # For notification content
+        actor_username = actor_user.get('username', 'Someone') if actor_user else 'Someone'
 
-        # 1. Check community existence *before* creating post if ID provided
         if community_id is not None:
             comm_exists = crud.get_community_by_id(cursor, community_id)
             if not comm_exists:
-                # Use 404 if community doesn't exist
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Community {community_id} not found")
 
-        # 2. Create the post entry (relational + graph vertex + WROTE edge)
         post_id = crud.create_post_db(
             cursor, user_id=current_user_id, title=title, content=content
         )
         if post_id is None: raise HTTPException(status_code=500, detail="Post base creation failed")
 
-        # 3. Handle File Uploads and Linking
-        for file in files:
-            if file and file.filename:
+        for file_upload in files:
+            if file_upload and file_upload.filename:
                 object_name_prefix = f"media/posts/{post_id}"
-                upload_info = await utils.upload_file_to_minio(file, object_name_prefix)
+                upload_info = await utils.upload_file_to_minio(file_upload, object_name_prefix)
                 if upload_info:
                     minio_objects_created.append(upload_info['minio_object_name'])
                     media_id = crud.create_media_item(cursor, uploader_user_id=current_user_id, **upload_info)
@@ -225,41 +223,80 @@ async def create_post(
                     else: print(f"WARN: Failed media_item record for post {post_id}")
                 else: print(f"WARN: Failed upload for post {post_id}")
 
-        # 4. Link to community if ID provided (graph edge)
-        if community_id is not None:
+        if community_id is not None and comm_exists: # Ensure comm_exists is checked
             crud.add_post_to_community_db(cursor, community_id, post_id)
 
-        # 5. Fetch full post details for response
+            # --- Notify Community Members ---
+            # CAVEAT: This can be slow for large communities. Consider async fan-out.
+            community_member_ids = crud.get_community_member_ids(cursor, community_id, limit=10000, offset=0) # Arbitrary high limit
+            content_preview = f"New post in {comm_exists.get('name', 'your community')}: \"{title[:50]}...\""
+            print(f"Attempting to notify {len(community_member_ids)} members of community {community_id} about new post {post_id}")
+            for member_id in community_member_ids:
+                if member_id != current_user_id: # Don't notify the post author
+                    crud.create_notification(
+                        cursor=cursor,
+                        recipient_user_id=member_id,
+                        actor_user_id=current_user_id,
+                        type='community_post',
+                        related_entity_type='post',
+                        related_entity_id=post_id,
+                        # Optional: link to community as secondary entity
+                        # related_entity_2_type='community',
+                        # related_entity_2_id=community_id,
+                        content_preview=content_preview
+                    )
+            # --- End Notify Community Members ---
+
+        # Fetch full post details for response
         post_relational = crud.get_post_by_id(cursor, post_id)
         if not post_relational: raise HTTPException(status_code=500, detail="Could not retrieve created post")
         created_post_data = dict(post_relational)
+
         # Augment (Author, Community, Counts, Media, Viewer Status)
-        author_info = crud.get_user_by_id(cursor, created_post_data['user_id']);
-        if author_info: created_post_data['author_name'] = author_info.get('username'); author_avatar_media = crud.get_user_profile_picture_media(cursor, created_post_data['user_id']); created_post_data['author_avatar_url'] = utils.get_minio_url(author_avatar_media.get('minio_object_name') if author_avatar_media else None)
-        else: created_post_data['author_name'] = "Unknown"; created_post_data['author_avatar_url'] = None
+        if actor_user:
+            created_post_data['author_name'] = actor_user.get('username')
+            author_avatar_media = crud.get_user_profile_picture_media(cursor, current_user_id) # current_user_id is author
+            created_post_data['author_avatar_url'] = utils.get_minio_url(author_avatar_media.get('minio_object_name') if author_avatar_media else None)
+        else:
+            created_post_data['author_name'] = "Unknown"
+            created_post_data['author_avatar_url'] = None
+
         created_post_data['community_id'] = community_id
-        created_post_data['community_name'] = comm_exists.get('name') if community_id and comm_exists else None # Use checked data
-        try: counts = crud.get_post_counts(cursor, post_id); created_post_data.update(counts)
-        except Exception as e: created_post_data.update({"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0})
+        created_post_data['community_name'] = comm_exists.get('name') if community_id and comm_exists else None
+
         try:
-            media_items = crud.get_media_items_for_post(cursor, post_id);
+            counts = crud.get_post_counts(cursor, post_id)
+            created_post_data.update(counts)
+        except Exception as e:
+            created_post_data.update({"reply_count": 0, "upvotes": 0, "downvotes": 0, "favorite_count": 0})
+
+        try:
+            media_items_db = crud.get_media_items_for_post(cursor, post_id)
             processed_media = []
-            for item in media_items: item_dict = dict(item); item_dict['url'] = utils.get_minio_url(item_dict.get('minio_object_name')); processed_media.append(schemas.MediaItemDisplay(**item_dict))
+            for item in media_items_db:
+                item_dict = dict(item)
+                item_dict['url'] = utils.get_minio_url(item_dict.get('minio_object_name'))
+                processed_media.append(schemas.MediaItemDisplay(**item_dict))
             created_post_data['media'] = processed_media
-        except Exception as e: created_post_data['media'] = []
-        created_post_data['viewer_vote_type'] = None; created_post_data['viewer_has_favorited'] = False; created_post_data.setdefault('upvotes', 0); created_post_data.setdefault('downvotes', 0); created_post_data.setdefault('reply_count', 0); created_post_data.setdefault('favorite_count', 0); created_post_data.setdefault('image_url', None)
+        except Exception as e:
+            created_post_data['media'] = []
 
-        # Validate before commit & broadcast
+        created_post_data['viewer_vote_type'] = None
+        created_post_data['viewer_has_favorited'] = False
+        created_post_data.setdefault('upvotes', 0)
+        created_post_data.setdefault('downvotes', 0)
+        created_post_data.setdefault('reply_count', 0)
+        created_post_data.setdefault('favorite_count', 0)
+        created_post_data.setdefault('image_url', None)
+
         response_object = schemas.PostDisplay(**created_post_data)
+        conn.commit() # Commit post, media, community link, and notifications
 
-        conn.commit()
-
-        # 6. Broadcast WebSocket Event
         if community_id is not None:
             room_key = f"community_{community_id}"
             broadcast_payload = {"type": "new_post", "data": { "post_id": post_id, "community_id": community_id, "user_id": current_user_id, "title": title }}
             print(f"Broadcasting new post notification to room: {room_key}")
-            try: # Wrap broadcast in try/except
+            try:
                 await manager.broadcast(json.dumps(broadcast_payload), room_key)
             except Exception as ws_err: print(f"WARN: Failed to broadcast new post to {room_key}: {ws_err}")
         else:

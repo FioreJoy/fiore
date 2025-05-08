@@ -58,7 +58,7 @@ class WebSocketService {
       throw Exception(errorMessage);
     }
     _connectionStateController.add('disconnected'); // Initial state
-    print("WebSocketService initialized. Base URL: $wsBaseUrl, API Key: ${apiKey.substring(0,5)}...");
+    print("WebSocketService initialized. Base URL: $wsBaseUrl, API Key: ${apiKey.substring(0,1)}...");
   }
 
   // --- Public Getters ---

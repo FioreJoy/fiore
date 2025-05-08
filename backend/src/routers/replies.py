@@ -26,7 +26,7 @@ async def create_reply(
         parent_reply_id: Optional[int] = Form(None),
         files: List[UploadFile] = File(default=[]) # Accept media files
 ):
-    """ Creates a new reply with optional media. Broadcasts update via WebSocket. """
+    """ Creates a new reply with optional media. Broadcasts update via WebSocket. Creates notifications."""
     conn = None
     reply_id = None
     media_ids_created = []
@@ -36,18 +36,21 @@ async def create_reply(
         conn = get_db_connection(); cursor = conn.cursor()
 
         # Check if parent post exists
-        parent_post_check = crud.get_post_by_id(cursor, post_id)
-        if not parent_post_check:
+        parent_post_db = crud.get_post_by_id(cursor, post_id)
+        if not parent_post_db:
             raise HTTPException(status_code=404, detail=f"Parent post {post_id} not found")
+        parent_post_author_id = parent_post_db['user_id']
 
         # Check if parent reply exists (if provided)
+        parent_reply_author_id = None
         if parent_reply_id is not None:
-            parent_reply_check = crud.get_reply_by_id(cursor, parent_reply_id)
-            if not parent_reply_check:
+            parent_reply_db = crud.get_reply_by_id(cursor, parent_reply_id)
+            if not parent_reply_db:
                 raise HTTPException(status_code=404, detail=f"Parent reply {parent_reply_id} not found")
-            # Optional: Check if parent reply belongs to the same post_id
-            if parent_reply_check.get('post_id') != post_id:
+            if parent_reply_db.get('post_id') != post_id:
                 raise HTTPException(status_code=400, detail="Parent reply does not belong to the specified post")
+            parent_reply_author_id = parent_reply_db['user_id']
+
 
         # 1. Create reply base record (relational + graph)
         reply_id = crud.create_reply_db(
@@ -57,10 +60,10 @@ async def create_reply(
         if reply_id is None: raise HTTPException(status_code=500, detail="Reply base creation failed")
 
         # 2. Link Media
-        for file in files:
-            if file and file.filename:
+        for file_upload in files: # Renamed 'file' to 'file_upload' to avoid conflict
+            if file_upload and file_upload.filename:
                 object_name_prefix = f"media/replies/{reply_id}"
-                upload_info = await utils.upload_file_to_minio(file, object_name_prefix)
+                upload_info = await utils.upload_file_to_minio(file_upload, object_name_prefix)
                 if upload_info:
                     minio_objects_created.append(upload_info['minio_object_name'])
                     media_id = crud.create_media_item(cursor, uploader_user_id=current_user_id, **upload_info)
@@ -68,32 +71,87 @@ async def create_reply(
                     else: print(f"WARN: Failed media_item record for reply {reply_id}")
                 else: print(f"WARN: Failed upload for reply {reply_id}")
 
+        # --- Create Notifications (BEFORE commit for transactional integrity) ---
+        content_preview = content[:100] + ('...' if len(content) > 100 else '')
+        actor_user = crud.get_user_by_id(cursor, current_user_id) # For actor info
+        actor_username = actor_user.get('username', 'Someone') if actor_user else 'Someone'
+
+        # 2.1. Notify Original Post Author (if not the replier and not replying to own post)
+        if parent_post_author_id != current_user_id:
+            crud.create_notification(
+                cursor=cursor,
+                recipient_user_id=parent_post_author_id,
+                actor_user_id=current_user_id,
+                type='post_reply',
+                related_entity_type='post',
+                related_entity_id=post_id,
+                content_preview=f"{actor_username} replied: \"{content_preview}\""
+            )
+
+        # 2.2. Notify Parent Reply Author (if applicable, different from replier, and different from OP)
+        if parent_reply_author_id is not None and \
+                parent_reply_author_id != current_user_id and \
+                parent_reply_author_id != parent_post_author_id: # Avoid double-notifying OP
+            crud.create_notification(
+                cursor=cursor,
+                recipient_user_id=parent_reply_author_id,
+                actor_user_id=current_user_id,
+                type='reply_reply',
+                related_entity_type='reply', # Link to the parent reply
+                related_entity_id=parent_reply_id,
+                content_preview=f"{actor_username} also replied: \"{content_preview}\""
+            )
+        # TODO: Add user mention notifications here if parsing content
+
+        # --- End Notifications ---
+
         # 3. Fetch details for response
         created_reply_relational = crud.get_reply_by_id(cursor, reply_id)
         if not created_reply_relational: raise HTTPException(status_code=500, detail="Could not retrieve created reply")
         created_reply_data = dict(created_reply_relational)
         # Augment (Author, Counts, Media)
         author_info = crud.get_user_by_id(cursor, created_reply_data['user_id'])
-        if author_info: created_reply_data['author_name']=author_info.get('username'); author_avatar_media = crud.get_user_profile_picture_media(cursor, created_reply_data['user_id']); created_reply_data['author_avatar_url'] = utils.get_minio_url(author_avatar_media.get('minio_object_name') if author_avatar_media else None)
-        else: created_reply_data['author_name'] = "Unknown"; created_reply_data['author_avatar_url'] = None
-        try: counts = crud.get_reply_counts(cursor, reply_id); created_reply_data.update(counts)
-        except Exception as e: print(f"WARN create_reply: Failed counts R:{reply_id}: {e}"); created_reply_data.update({"upvotes": 0, "downvotes": 0, "favorite_count": 0})
+        if author_info:
+            created_reply_data['author_name']=author_info.get('username')
+            author_avatar_media = crud.get_user_profile_picture_media(cursor, created_reply_data['user_id'])
+            created_reply_data['author_avatar_url'] = utils.get_minio_url(author_avatar_media.get('minio_object_name') if author_avatar_media else None)
+        else:
+            created_reply_data['author_name'] = "Unknown"
+            created_reply_data['author_avatar_url'] = None
+
         try:
-            media_items = crud.get_media_items_for_reply(cursor, reply_id)
+            counts = crud.get_reply_counts(cursor, reply_id)
+            created_reply_data.update(counts)
+        except Exception as e:
+            print(f"WARN create_reply: Failed counts R:{reply_id}: {e}")
+            created_reply_data.update({"upvotes": 0, "downvotes": 0, "favorite_count": 0})
+
+        try:
+            media_items_db = crud.get_media_items_for_reply(cursor, reply_id) # Use 'media_items_db'
             processed_media = []
-            for item in media_items: item_dict = dict(item); item_dict['url'] = utils.get_minio_url(item_dict.get('minio_object_name')); processed_media.append(schemas.MediaItemDisplay(**item_dict))
+            for item in media_items_db: # Iterate over 'media_items_db'
+                item_dict = dict(item)
+                item_dict['url'] = utils.get_minio_url(item_dict.get('minio_object_name'))
+                processed_media.append(schemas.MediaItemDisplay(**item_dict))
             created_reply_data['media'] = processed_media
-        except Exception as e: print(f"WARN create_reply: Failed media R:{reply_id}: {e}"); created_reply_data['media'] = []
-        created_reply_data['viewer_vote_type'] = None; created_reply_data['viewer_has_favorited'] = False; created_reply_data.setdefault('upvotes', 0); created_reply_data.setdefault('downvotes', 0); created_reply_data.setdefault('favorite_count', 0)
+        except Exception as e:
+            print(f"WARN create_reply: Failed media R:{reply_id}: {e}")
+            created_reply_data['media'] = []
+
+        created_reply_data['viewer_vote_type'] = None
+        created_reply_data['viewer_has_favorited'] = False
+        created_reply_data.setdefault('upvotes', 0)
+        created_reply_data.setdefault('downvotes', 0)
+        created_reply_data.setdefault('favorite_count', 0)
 
         # Validate response object
         response_object = schemas.ReplyDisplay(**created_reply_data)
 
-        conn.commit()
+        conn.commit() # Commit reply, media links, and notifications
 
         # --- 4. Broadcast WebSocket Event ---
         room_key = None
-        community_id_for_broadcast = None # Store community ID if found
+        community_id_for_broadcast = None
         try:
             cypher_q_comm = f"MATCH (c:Community)-[:HAS_POST]->(:Post {{id: {post_id}}}) RETURN c.id as id LIMIT 1"
             expected_comm = [('id', 'agtype')]
@@ -101,7 +159,6 @@ async def create_reply(
             if comm_res and comm_res.get('id'):
                 community_id_for_broadcast = comm_res['id']
                 room_key = f"community_{community_id_for_broadcast}"
-            # TODO: Else check if post belongs to an event?
         except Exception as e: print(f"WARN: Failed to determine room key for post {post_id} during reply broadcast: {e}")
 
         if room_key:
@@ -112,7 +169,7 @@ async def create_reply(
                     "reply_id": reply_id,
                     "parent_reply_id": parent_reply_id,
                     "user_id": current_user_id,
-                    "community_id": community_id_for_broadcast, # Include context
+                    "community_id": community_id_for_broadcast,
                     "content_snippet": content[:50] + ('...' if len(content)>50 else '')
                 }
             }
@@ -120,7 +177,6 @@ async def create_reply(
             try: await manager.broadcast(json.dumps(broadcast_payload), room_key)
             except Exception as ws_err: print(f"WARN: Failed to broadcast new reply to {room_key}: {ws_err}")
         else: print(f"No specific room key found for post {post_id}, cannot broadcast reply {reply_id}.")
-        # --- End Broadcast ---
 
         print(f"✅ Reply {reply_id} created by User {current_user_id} for Post {post_id}")
         return response_object

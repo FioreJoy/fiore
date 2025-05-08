@@ -25,11 +25,13 @@ async def get_user_profile_route(
     conn = None
     try:
         conn = get_db_connection(); cursor = conn.cursor()
+        # crud.get_user_by_id now fetches longitude and latitude if location is not null
         user_db = crud.get_user_by_id(cursor, user_id)
         if not user_db:
             raise HTTPException(status_code=404, detail="User not found")
 
         user_data_dict = dict(user_db)
+
         counts = {"followers_count": 0, "following_count": 0}
         try: counts = crud.get_user_graph_counts(cursor, user_id)
         except Exception as e: print(f"WARNING: Failed graph counts for user {user_id}: {e}")
@@ -41,35 +43,58 @@ async def get_user_profile_route(
             except Exception as e: print(f"WARNING: Check follow status failed for {requesting_user_id}->{user_id}: {e}")
         user_data_dict['is_following'] = is_following
 
-        # Get profile picture
         profile_media = crud.get_user_profile_picture_media(cursor, user_id)
         user_data_dict['image_url'] = profile_media.get('url') if profile_media else None
-        # user_data_dict['image_path'] = profile_media.get('minio_object_name') if profile_media else None # Not needed by UserDisplay
 
-        # Parse location string to dict
-        loc_str = user_data_dict.get('current_location')
-        user_data_dict['current_location'] = parse_point_string(str(loc_str)) if loc_str else None
+        # --- Location Handling ---
+        db_longitude = user_data_dict.get('longitude')
+        db_latitude = user_data_dict.get('latitude')
+        db_current_location_address = user_data_dict.get('current_location_address')
+        db_location_last_updated = user_data_dict.get('location_last_updated')
 
-        # Handle interests (assuming 'interest' is comma-sep and 'interests' is JSONB)
-        # UserDisplay now expects 'interests' (list) not 'interest' (string)
-        interests_jsonb = user_data_dict.get('interests') # This should be a list if from JSONB
-        if isinstance(interests_jsonb, list):
-            user_data_dict['interests'] = interests_jsonb
-        elif isinstance(user_data_dict.get('interest'), str) and user_data_dict['interest'].strip():
-            user_data_dict['interests'] = [i.strip() for i in user_data_dict['interest'].split(',')]
+        if db_longitude is not None and db_latitude is not None:
+            user_data_dict['location'] = schemas.LocationDataOutput( # Use 'location' to match alias in UserBase
+                longitude=float(db_longitude),
+                latitude=float(db_latitude),
+                address=db_current_location_address,
+                last_updated=db_location_last_updated
+            )
         else:
-            user_data_dict['interests'] = []
+            user_data_dict['location'] = None
 
-        # Ensure all fields for UserDisplay are present or have defaults
+        # Clean up raw lon/lat keys if they exist, as they are now in the 'location' object
+        if 'longitude' in user_data_dict: del user_data_dict['longitude']
+        if 'latitude' in user_data_dict: del user_data_dict['latitude']
+        if 'current_location_address' in user_data_dict: del user_data_dict['current_location_address'] # Now part of location object
+        if 'location_last_updated' in user_data_dict: del user_data_dict['location_last_updated']
+
+
+        # Handle interests (JSONB 'interests' to list, fallback to text 'interest')
+        interests_jsonb = user_data_dict.get('interests')
+        if isinstance(interests_jsonb, list):
+            user_data_dict['interests_list_for_schema'] = interests_jsonb # Use a temp key
+        elif isinstance(user_data_dict.get('interest'), str) and user_data_dict['interest'].strip():
+            user_data_dict['interests_list_for_schema'] = [i.strip() for i in user_data_dict['interest'].split(',')]
+        else:
+            user_data_dict['interests_list_for_schema'] = []
+        # The UserDisplay schema expects `interests` field to be populated by this list
+        user_data_dict['interests'] = user_data_dict.pop('interests_list_for_schema')
+
+
         user_data_dict.setdefault('last_seen', None)
+        # Ensure all UserBase fields are present before passing to Pydantic model
+        # UserBase expects: id, name, username, email, gender. Others are optional or aliased.
+        # Ensure email from db is used if present, otherwise a default or handle error
+        if 'email' not in user_data_dict or not user_data_dict['email']:
+            user_data_dict['email'] = f"missing_email_{user_id}@example.com" # Placeholder, ideally should not happen
 
         return schemas.UserDisplay(**user_data_dict)
 
     except HTTPException as http_exc: raise http_exc
     except psycopg2.Error as db_err:
-        print(f"DB Error GET /users/{user_id} (base fetch): {db_err}")
+        print(f"DB Error GET /users/{user_id}: {db_err}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Database error fetching profile base")
+        raise HTTPException(status_code=500, detail="Database error fetching profile")
     except Exception as e:
         print(f"Error GET /users/{user_id}: {e}")
         traceback.print_exc()
@@ -79,8 +104,8 @@ async def get_user_profile_route(
 
 @router.post("/{user_id}/follow", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
 async def follow_user_route(
-        user_id: int, # This is the user_id to be followed
-        current_user_id: int = Depends(get_current_user) # This is the actor
+        user_id: int, # This is the user_id to be followed (target_user_id)
+        current_user_id: int = Depends(get_current_user) # This is the actor (follower_id)
 ):
     if user_id == current_user_id:
         raise HTTPException(status_code=400, detail="Cannot follow yourself")
@@ -88,49 +113,75 @@ async def follow_user_route(
     conn = None
     try:
         conn = get_db_connection(); cursor = conn.cursor()
-        target_user = crud.get_user_by_id(cursor, user_id) # Check if user to follow exists
+
+        # Check if target user exists
+        target_user = crud.get_user_by_id(cursor, user_id)
         if not target_user: raise HTTPException(status_code=404, detail="User to follow not found.")
 
-        print(f"Router follow_user: Calling crud.follow_user for {current_user_id} -> {user_id}")
+        # Get actor (current user) details for notification content
+        actor_user = crud.get_user_by_id(cursor, current_user_id)
+        actor_username = actor_user.get('username', 'Someone') if actor_user else 'Someone'
+
+        # --- Perform the follow action ---
         success = crud.follow_user(cursor, follower_id=current_user_id, following_id=user_id)
-        print(f"Router follow_user: crud.follow_user returned: {success}")
 
         if not success:
-            # This might happen if MERGE failed or returned an unexpected value.
-            # crud.follow_user should ideally raise on DB error.
-            # If it returns False for "already following", the router should handle that.
-            # For now, assume False means a general failure in the CRUD operation.
-            conn.rollback() # Rollback if CRUD indicates failure but didn't raise
-            raise Exception("Follow operation failed at CRUD level.")
+            # If crud.follow_user returns False on "already following" or other non-error scenarios.
+            # For now, assume it raises on DB error, and False means a logical "did not perform action".
+            # Check if already following to provide a more specific message if needed.
+            is_already_following = crud.check_is_following(cursor, current_user_id, user_id)
+            if is_already_following:
+                # If it was already following and `follow_user` did nothing, commit is fine.
+                # Counts will be fetched after potential commit.
+                pass # Or return a specific message like "Already following"
+            else:
+                # If not already following and `follow_user` still returned false, it's an issue.
+                conn.rollback()
+                raise Exception("Follow operation failed at CRUD level.")
+
+        # --- Create Notification (part of the same transaction) ---
+        notification_id = crud.create_notification(
+            cursor=cursor,
+            recipient_user_id=user_id,            # The user being followed
+            actor_user_id=current_user_id,        # The user who initiated the follow
+            type='new_follower',
+            related_entity_type='user',
+            related_entity_id=current_user_id,    # Link to the follower's profile
+            content_preview=f"{actor_username} started following you."
+        )
+        if not notification_id:
+            print(f"WARN: Failed to create notification for new follower (F:{current_user_id} -> T:{user_id})")
+            # Decide if this should cause the follow to fail (rollback) or just log.
+            # For now, let follow succeed.
 
         conn.commit()
-        print(f"Router follow_user: Commit successful.")
+        print(f"Router follow_user: Commit successful. Follow: {success}, Notif ID: {notification_id}")
 
         counts = {"followers_count": 0, "following_count": 0}
         try:
-            counts = crud.get_user_graph_counts(cursor, user_id) # Counts of the user being followed
+            counts = crud.get_user_graph_counts(cursor, user_id)
         except Exception as count_err:
             print(f"WARNING: Failed to get counts after follow for user {user_id}: {count_err}")
 
-        print(f"✅ User {current_user_id} followed user {user_id}. Success: {success}")
         return {
-            "message": "User followed successfully",
-            "success": success,
-            "new_follower_count": counts.get('followers_count') # Follower count of the TARGET user
+            "message": "User followed successfully", # Or "Already following" if logic is added
+            "success": True, # True if desired state is achieved
+            "new_follower_count": counts.get('followers_count')
         }
-    except HTTPException as http_exc:
+    # ... (rest of the error handling) ...
+    except HTTPException as http_exc: # Important to catch HTTPException first
         if conn: conn.rollback()
         raise http_exc
-    except psycopg2.Error as db_err:
+    except psycopg2.Error as db_err: # Catch DB errors
         if conn: conn.rollback()
-        print(f"Database error following user: {db_err}")
+        print(f"Database error following user ({current_user_id} -> {user_id}): {db_err}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Database error processing follow request")
-    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database error processing follow request")
+    except Exception as e: # Catch other exceptions
         if conn: conn.rollback()
-        print(f"Error in follow_user_route: {e}")
+        print(f"Error in follow_user_route ({current_user_id} -> {user_id}): {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Could not process follow request: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not process follow request: {e}")
     finally:
         if conn: conn.close()
 

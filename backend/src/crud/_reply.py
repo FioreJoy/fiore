@@ -94,7 +94,7 @@ def get_reply_counts(cursor: psycopg2.extensions.cursor, reply_id: int) -> Dict[
     debug_expected_edges = [('edge_props', 'agtype')]
     try:
         all_vote_edges = execute_cypher(cursor, debug_vote_edges_q, fetch_all=True, expected_columns=debug_expected_edges)
-        print(f"DEBUG get_reply_counts R:{reply_id} - All VOTED edges found: {all_vote_edges}")
+        #print(f"DEBUG get_reply_counts R:{reply_id} - All VOTED edges found: {all_vote_edges}")
         if all_vote_edges:
             for edge_data_item in all_vote_edges:
                 parsed_edge_dict = edge_data_item.get('edge_props')
@@ -118,7 +118,7 @@ def get_reply_counts(cursor: psycopg2.extensions.cursor, reply_id: int) -> Dict[
     expected_counts = [('upvotes', 'agtype'), ('downvotes', 'agtype'), ('favorite_count', 'agtype')]
     try:
         result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected_counts)
-        print(f"DEBUG get_reply_counts for R:{reply_id} - Raw result_map from graph count query: {result_map}")
+        #print(f"DEBUG get_reply_counts for R:{reply_id} - Raw result_map from graph count query: {result_map}")
         if isinstance(result_map, dict):
             return {
                 "upvotes": int(result_map.get('upvotes', 0) or 0),

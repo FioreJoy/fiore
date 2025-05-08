@@ -4,7 +4,6 @@ from ._user import (
     get_user_by_email, get_user_by_id, create_user, update_user_profile,
     update_user_last_seen, delete_user, follow_user, unfollow_user,
     get_followers, get_following, get_user_graph_counts,
-    # --- NEW USER EXPORTS ---
     get_user_joined_communities_graph,
     get_user_participated_events_graph,
     check_is_following,
@@ -12,18 +11,19 @@ from ._user import (
     get_user_participated_events_count,
     get_post_ids_by_user,
     get_community_ids_joined_by_user,
-    get_event_ids_participated_by_user
-    # --- END NEW USER EXPORTS ---
+    get_event_ids_participated_by_user,
+    get_nearby_users_db # Added for location
 )
 from ._community import (
     create_community_db, get_community_by_id, get_communities_db, get_community_counts,
-    update_community_details_db, update_community_logo_path_db, # <-- ADDED
+    update_community_details_db, update_community_logo_path_db,
     get_trending_communities_db, get_community_details_db, delete_community_db,
     join_community_db, leave_community_db, add_post_to_community_db,
     remove_post_from_community_db, get_community_members_graph, check_is_member,
     get_community_member_ids,
     get_community_event_ids,
-    get_post_ids_for_community
+    get_post_ids_for_community,
+    get_nearby_communities_db # Added for location
 )
 
 from ._post import (
@@ -39,7 +39,8 @@ from ._event import (
     get_events_for_community_db, update_event_db, delete_event_db, join_event_db, leave_event_db,
     get_event_participants_graph,
     check_is_participating,
-    get_event_participant_ids
+    get_event_participant_ids,
+    get_nearby_events_db # Added for location
 )
 from ._chat import (
     create_chat_message_db,
@@ -59,7 +60,6 @@ from ._favorite import (
 from ._graph import (
     execute_cypher,
     build_cypher_set_clauses,
-    #get_graph_counts
 )
 
 from ._settings import (
@@ -89,8 +89,11 @@ from ._feed import (
 
 from ._notifications import (
     create_notification,
-    # get_notifications, # Add later
-    # mark_notifications_read, # Add later
+    get_notifications_for_user,
+    mark_notifications_as_read,
+    mark_all_notifications_as_read,
+    get_unread_notification_count,
+    register_user_device_token,
+    unregister_user_device_token,
+    get_user_device_tokens
 )
-# Import graph helpers only if they need to be used directly outside the crud package
-# from ._graph import execute_cypher, build_cypher_set_clauses, get_graph_counts
