@@ -1,70 +1,86 @@
 // frontend/lib/services/api_endpoints.dart
 
 /// Defines constants for API endpoint paths.
-/// Using static constants helps avoid typos and centralizes URL management.
 class ApiEndpoints {
-  // Base URL is typically handled by the ApiClient using AppConstants or environment variables.
-  // These constants represent the PATHS only.
+  // Base URL is handled by ApiClient
 
   // --- Authentication ---
   static const String login = '/auth/login';
   static const String signup = '/auth/signup';
-  static const String currentUser = '/auth/me'; // Used for GET (read), PUT (update), DELETE (delete)
-  static const String changePassword = '/auth/me/password'; // Used for PUT
+  static const String currentUser = '/auth/me';
+  static const String changePassword = '/auth/me/password';
 
   // --- Users ---
-  static const String userBase = '/users'; // Base for potential future user-specific actions (e.g., GET /users/{id})
-  static const String currentUserCommunities = '/users/me/communities'; // GET joined communities
-  static const String currentUserEvents = '/users/me/events'; // GET joined events
+  static const String userBase = '/users';
+  static String userProfile(int userId) => '/users/$userId';
+  static const String currentUserCommunities = '/users/me/communities';
+  static const String currentUserEvents = '/users/me/events';
+  static const String currentUserStats = '/users/me/stats';
 
-  // Blocking Endpoints (Adjust paths based on your actual backend implementation)
-  static const String blockedUsers = '/users/me/blocked'; // GET list of blocked users
-  static String blockUser(int userId) => '/users/me/block/$userId'; // POST to block a user
-  static String unblockUser(int userId) => '/users/me/unblock/$userId'; // DELETE to unblock a user
+  static String followUser(int userIdToFollow) => '/users/$userIdToFollow/follow';
+  static String unfollowUser(int userIdToUnfollow) => '/users/$userIdToUnfollow/follow';
+  static String followers(int userId) => '/users/$userId/followers';
+  static String following(int userId) => '/users/$userId/following';
+
+  static const String blockedUsers = '/users/me/blocked';
+  static String blockUser(int userId) => '/users/me/block/$userId';
+  static String unblockUser(int userId) => '/users/me/unblock/$userId';
 
   // --- Communities ---
-  static const String communitiesBase = '/communities'; // GET (list all), POST (create new)
-  static const String communitiesTrending = '/communities/trending'; // GET trending communities
-  static String communityDetail(int id) => '/communities/$id/details'; // GET specific community details
-  static String communityBaseId(int id) => '/communities/$id'; // Base for actions on a specific community (e.g., DELETE)
-  static String communityJoin(int id) => '/communities/$id/join'; // POST to join
-  static String communityLeave(int id) => '/communities/$id/leave'; // DELETE to leave
-  static String communityAddPost(int communityId, int postId) => '/communities/$communityId/add_post/$postId'; // POST link post
-  static String communityRemovePost(int communityId, int postId) => '/communities/$communityId/remove_post/$postId'; // DELETE link post
-  static String communityCreateEvent(int communityId) => '/communities/$communityId/events'; // POST to create event in community
-  static String communityListEvents(int communityId) => '/communities/$communityId/events'; // GET events for community
+  static const String communitiesBase = '/communities';
+  static const String communitiesTrending = '/communities/trending';
+  static String communityBaseId(int id) => '/communities/$id';
+  static String communityDetail(int id) => '/communities/$id/details';
+  static String communityJoin(int id) => '/communities/$id/join';
+  static String communityLeave(int id) => '/communities/$id/leave';
+  static String communityUpdateLogo(int id) => '/communities/$id/logo';
+  static String communityPostLink(int communityId, int postId) => '/communities/$communityId/posts/$postId';
+  static String communityCreateEvent(int communityId) => '/communities/$communityId/events';
+  static String communityListEvents(int communityId) => '/communities/$communityId/events';
 
   // --- Events ---
-  static const String eventsBase = '/events'; // Base path if needed for future event-only actions
-  static String eventDetail(int id) => '/events/$id'; // GET (details), PUT (update), DELETE (delete)
-  static String eventJoin(int id) => '/events/$id/join'; // POST to join event
-  static String eventLeave(int id) => '/events/$id/leave'; // DELETE to leave event
+  static const String eventsBase = '/events';
+  static String eventDetail(int id) => '/events/$id';
+  static String eventJoin(int id) => '/events/$id/join';
+  static String eventLeave(int id) => '/events/$id/leave';
 
   // --- Posts ---
-  static const String postsBase = '/posts'; // GET (list all/filtered), POST (create new)
-  static const String postsTrending = '/posts/trending'; // GET trending posts
-  static String postDetail(int id) => '/posts/$id'; // GET (specific post - if needed), DELETE (delete post)
-  // Add favorite endpoint if implemented, e.g.:
-  // static String postFavorite(int id) => '/posts/$id/favorite'; // POST/DELETE
+  static const String postsBase = '/posts';
+  static const String postsTrending = '/posts/trending';
+  static String postDetail(int id) => '/posts/$id';
+  static String postFavorite(int id) => '/posts/$id/favorite';
 
   // --- Replies ---
-  static const String repliesBase = '/replies'; // POST (create new)
-  static String repliesForPost(int postId) => '/replies/$postId'; // GET replies for a specific post
-  static String replyDetail(int id) => '/replies/$id'; // DELETE reply
-  // Add favorite endpoint if implemented, e.g.:
-  // static String replyFavorite(int id) => '/replies/$id/favorite'; // POST/DELETE
+  static const String repliesBase = '/replies';
+  static String repliesForPost(int postId) => '/replies/$postId';
+  static String replyDetail(int id) => '/replies/$id';
+  static String replyFavorite(int id) => '/replies/$id/favorite';
 
   // --- Votes ---
-  static const String votesBase = '/votes'; // POST (cast/update/remove vote)
-  // GET endpoint for votes might not be commonly used directly by client
+  static const String votesBase = '/votes';
 
   // --- Chat ---
-  static const String chatMessages = '/chat/messages'; // GET (fetch history), POST (send via HTTP)
+  static const String chatMessages = '/chat/messages';
 
-  // --- Settings (Example Paths - Adjust to your actual backend routes) ---
-  static const String notificationSettings = '/settings/notifications'; // GET, PUT
-  // Add other settings endpoints as needed (e.g., /settings/privacy, /settings/account)
+  // --- Settings ---
+  static const String notificationSettings = '/settings/notifications';
+
+  // --- Notifications (NEWLY ADDED SECTION) ---
+  static const String notificationsBase = '/notifications'; // For GET list
+  static const String notificationsRead = '/notifications/read'; // For POST to mark as read/unread
+  static const String notificationsReadAll = '/notifications/read-all'; // For POST to mark all as read
+  static const String notificationsUnreadCount = '/notifications/unread-count'; // For GET unread count
+  static const String notificationsDeviceTokens = '/notifications/device-tokens'; // POST to register, DELETE to unregister
+  // --- End Notifications Section ---
+
+  // --- Location ---
+  static String nearbyEvents = '/location/events/nearby';
+  static String nearbyUsers = '/location/users/nearby';
+  static String nearbyCommunities = '/location/communities/nearby';
+
   // --- WebSocket ---
-  // Path structure only, base URL handled separately.
   static String websocketRoomPath(String type, int id) => '/ws/$type/$id';
+
+  // --- GraphQL ---
+  static const String graphql = '/graphql';
 }

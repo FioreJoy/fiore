@@ -54,12 +54,17 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       // Extract data (keys match backend response/TokenData schema)
-      final String token = responseData['token'];
-      final int userIdInt = responseData['user_id'];
-      final String? imageUrl = responseData['image_url'];
+      final token = responseData['token'] as String?;
+      final userIdInt = responseData['user_id'] as int?;
+      final imageUrl = responseData['image_url'] as String?;
+
+      if (token == null || userIdInt == null) {
+        throw Exception('Login failed: Missing token or user_id in response.');
+      }
+
 
       // Use the correct AuthProvider method: loginSuccess
-      await authProvider.loginSuccess(token, userIdInt.toString(), imageUrl);
+      await authProvider.loginSuccess(token, userIdInt.toString(), imageUrl ?? '');
 
       // Navigation is handled by the Consumer<AuthProvider> in main.dart
       // No explicit navigation here needed after successful login state update

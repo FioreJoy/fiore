@@ -1,27 +1,38 @@
-import '../services/auth_provider.dart';
-import '../services/api/reply_service.dart';
 // frontend/lib/screens/replies_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:provider/provider.dart';
-import '../../services/api/REPLACE_WITH_SERVICE.dart';
-import '../../services/auth_provider.dart';
-import '../../widgets/reply_card.dart';
-import 'create_reply_screen.dart';
-import '../../theme/theme_constants.dart';
-import 'package:intl/intl.dart'; // For date formatting
+import 'package:shimmer/shimmer.dart'; // For loading state
 
-// Helper data structure for replies hierarchy
+// --- Service Imports ---
+import '../../services/api/reply_service.dart'; // Correct service
+import '../../services/auth_provider.dart';
+// VoteService and FavoriteService are used within ReplyCard now
+
+// --- Widget Imports ---
+import '../../widgets/reply_card.dart'; // Updated ReplyCard
+import '../../widgets/custom_button.dart'; // For error/empty states
+
+// --- Navigation Imports ---
+import 'create/create_reply_screen.dart'; // Correct path
+
+// --- Theme and Constants ---
+import '../../theme/theme_constants.dart';
+import '../../app_constants.dart';
+
+// --- Formatting ---
+import 'package:intl/intl.dart';
+
+// Helper data structure for replies hierarchy (Keep as is)
 class ReplyNode {
   final Map<String, dynamic> data;
   final List<ReplyNode> children;
-  bool isExpanded; // State for expanding/collapsing children
+  bool isExpanded;
 
-  ReplyNode(this.data, {this.children = const [], this.isExpanded = true}); // Default to expanded
+  ReplyNode(this.data, {this.children = const [], this.isExpanded = true});
 }
 
 class RepliesScreen extends StatefulWidget {
-  final String postId;
+  final String postId; // Keep as String if consistently used, else int
   final String? postTitle;
 
   const RepliesScreen({
@@ -37,84 +48,84 @@ class RepliesScreen extends StatefulWidget {
 class _RepliesScreenState extends State<RepliesScreen> {
 
   Future<List<ReplyNode>>? _loadRepliesFuture;
-  // State map for vote status on replies: Key: replyId (String), Value: Map<String, dynamic>
-  final Map<String, Map<String, dynamic>> _replyVoteData = {};
+  String? _error;
+
+  // No longer need local vote map, ReplyCard handles its state
+  // final Map<String, Map<String, dynamic>> _replyVoteData = {};
 
   @override
   void initState() {
     super.initState();
-    _triggerLoadReplies();
+    // Initial load triggered by FutureBuilder
+    _loadRepliesFuture = _fetchAndStructureReplies();
   }
 
-  void _triggerLoadReplies() {
+  // Renamed from _triggerLoadReplies
+  Future<void> _refreshReplies() async {
     if (!mounted) return;
-    final apiService = Provider.of<ReplyService>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     setState(() {
-      _loadRepliesFuture = _fetchAndStructureReplies(apiService, authProvider.token);
+      _error = null; // Clear previous error
+      _loadRepliesFuture = _fetchAndStructureReplies(); // Re-assign Future
     });
   }
 
-  Future<List<ReplyNode>> _fetchAndStructureReplies(ReplyService replyService, String? token) async {
-    final flatReplies = await apiService.fetchReplies(widget.postId, token);
+  // Fetch and structure replies
+  Future<List<ReplyNode>> _fetchAndStructureReplies() async {
+    if (!mounted) return [];
+    final replyService = Provider.of<ReplyService>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    // Initialize vote data for fetched replies
-    if (mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        bool needsUiUpdate = false;
-        for (var reply in flatReplies) {
-          final replyId = reply['id'].toString();
-          if (!_replyVoteData.containsKey(replyId)) {
-            _replyVoteData[replyId] = {
-              'vote_type': null, // TODO: Fetch user's vote status for reply
-              'upvotes': reply['upvotes'] ?? 0,
-              'downvotes': reply['downvotes'] ?? 0,
-            };
-            needsUiUpdate = true;
-          } else {
-            // Update counts if they differ
-            if (_replyVoteData[replyId]!['upvotes'] != (reply['upvotes'] ?? 0) ||
-                _replyVoteData[replyId]!['downvotes'] != (reply['downvotes'] ?? 0)) {
-              _replyVoteData[replyId]!['upvotes'] = reply['upvotes'] ?? 0;
-              _replyVoteData[replyId]!['downvotes'] = reply['downvotes'] ?? 0;
-              needsUiUpdate = true;
-            }
-          }
+    try {
+      // Fetch replies - backend now includes counts and viewer status if authenticated
+      final flatReplies = await replyService.getRepliesForPost(
+        int.parse(widget.postId), // Convert postId to int for service
+        token: authProvider.token, // Pass token to get viewer status
+      );
+
+      if (!mounted) return []; // Check again after await
+
+      // --- Build Tree Structure (Keep existing logic) ---
+      final Map<int?, List<Map<String, dynamic>>> repliesByParentId = {};
+      for (var reply in flatReplies) {
+        // Ensure reply is a Map
+        if (reply is Map<String, dynamic>) {
+          final parentId = reply['parent_reply_id'] as int?;
+          repliesByParentId.putIfAbsent(parentId, () => []).add(reply);
+        } else {
+          print("Warning: Received non-map item in replies list: $reply");
         }
-        if (needsUiUpdate && mounted) {
-          setState(() {});
-        }
-      });
-    }
-
-
-    final Map<int?, List<Map<String, dynamic>>> repliesByParentId = {};
-    for (var reply in flatReplies) {
-      final parentId = reply['parent_reply_id'] as int?;
-      repliesByParentId.putIfAbsent(parentId, () => []).add(reply);
-    }
-
-    List<ReplyNode> buildTree(int? parentId) {
-      if (!repliesByParentId.containsKey(parentId)) {
-        return [];
       }
-      // Sort replies by creation time before building the tree
-      repliesByParentId[parentId]!.sort((a, b) {
-        DateTime timeA = DateTime.tryParse(a['created_at'] ?? '') ?? DateTime(0);
-        DateTime timeB = DateTime.tryParse(b['created_at'] ?? '') ?? DateTime(0);
-        return timeA.compareTo(timeB); // Ascending order
-      });
 
-      return repliesByParentId[parentId]!.map((replyData) {
-        final children = buildTree(replyData['id'] as int?);
-        return ReplyNode(replyData, children: children);
-      }).toList();
+      List<ReplyNode> buildTree(int? parentId) {
+        if (!repliesByParentId.containsKey(parentId)) { return []; }
+        repliesByParentId[parentId]!.sort((a, b) {
+          DateTime timeA = DateTime.tryParse(a['created_at'] ?? '') ?? DateTime(0);
+          DateTime timeB = DateTime.tryParse(b['created_at'] ?? '') ?? DateTime(0);
+          return timeA.compareTo(timeB);
+        });
+        return repliesByParentId[parentId]!.map((replyData) {
+          final children = buildTree(replyData['id'] as int?);
+          return ReplyNode(replyData, children: children);
+        }).toList();
+      }
+      // --- End Build Tree ---
+
+      return buildTree(null); // Build tree from top-level replies
+
+    } catch (e) {
+      print("Error fetching/structuring replies: $e");
+      if (mounted) {
+        setState(() {
+          _error = "Failed to load replies: ${e.toString().replaceFirst("Exception: ", "")}";
+        });
+      }
+      // Re-throw error for FutureBuilder
+      throw e;
     }
-
-    return buildTree(null); // Start from top-level replies
   }
 
 
+  // --- Actions ---
   void _navigateToAddReply(BuildContext context, {String? parentReplyId, String? parentContent}) {
     final authProvider = context.read<AuthProvider>();
     if (!authProvider.isAuthenticated) {
@@ -122,27 +133,32 @@ class _RepliesScreenState extends State<RepliesScreen> {
       return;
     }
 
-    Navigator.push(
+    Navigator.push<bool>( // Expect boolean result
       context,
       MaterialPageRoute(
           builder: (context) => CreateReplyScreen(
-            postId: widget.postId,
-            parentReplyId: parentReplyId,
+            postId: int.parse(widget.postId), // Pass int ID
+            parentReplyId: parentReplyId != null ? int.parse(parentReplyId) : null, // Pass int ID
             parentReplyContent: parentContent,
           )),
-    ).then((_) => _triggerLoadReplies()); // Refresh replies after returning
+    ).then((didCreate) { // Refresh replies if one was created
+      if (didCreate == true && mounted) {
+        _refreshReplies();
+      }
+    });
   }
 
   Future<void> _deleteReply(String replyId) async {
     if (!mounted) return;
-    final apiService = Provider.of<ReplyService>(context, listen: false);
+    final replyService = Provider.of<ReplyService>(context, listen: false); // Use ReplyService
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    if (!authProvider.isAuthenticated) return;
+    if (!authProvider.isAuthenticated || authProvider.token == null) return;
 
+    // Confirmation Dialog (Keep as is)
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AlertDialog( /* ... dialog content ... */
         title: const Text('Delete Reply?'),
         content: const Text('Are you sure you want to delete this reply?'),
         actions: [
@@ -154,73 +170,26 @@ class _RepliesScreenState extends State<RepliesScreen> {
 
     if (confirmed == true) {
       try {
-        await apiService.deleteReply(replyId, authProvider.token!);
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reply deleted'), duration: Duration(seconds: 1)));
-        _triggerLoadReplies(); // Refresh replies
+        // Call delete service method
+        await replyService.deleteReply(token: authProvider.token!, replyId: int.parse(replyId));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Reply deleted'), duration: Duration(seconds: 1)));
+          _refreshReplies(); // Refresh replies list
+        }
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error deleting reply: ${e.toString()}'), backgroundColor: ThemeConstants.errorColor));
-      }
-    }
-  }
-
-  Future<void> _voteOnReply(String replyId, bool voteType) async {
-    if (!mounted) return;
-    final apiService = Provider.of<ReplyService>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-    if (!authProvider.isAuthenticated) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please log in to vote.')));
-      return;
-    }
-
-    final currentVoteData = _replyVoteData[replyId] ?? {'vote_type': null, 'upvotes': 0, 'downvotes': 0};
-    final previousVoteType = currentVoteData['vote_type'] as bool?;
-    final currentUpvotes = currentVoteData['upvotes'] as int? ?? 0;
-    final currentDownvotes = currentVoteData['downvotes'] as int? ?? 0;
-
-    // Optimistic UI Update
-    setState(() {
-      final newData = Map<String, dynamic>.from(currentVoteData);
-      int newUpvotes = currentUpvotes;
-      int newDownvotes = currentDownvotes;
-
-      if (previousVoteType == voteType) { // Undoing vote
-        newData['vote_type'] = null;
-        if (voteType == true) newUpvotes--; else newDownvotes--;
-      } else { // Casting or switching vote
-        newData['vote_type'] = voteType;
-        if (voteType == true) { // Upvoting
-          newUpvotes++;
-          if (previousVoteType == false) newDownvotes--;
-        } else { // Downvoting
-          newDownvotes++;
-          if (previousVoteType == true) newUpvotes--;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Error deleting reply: ${e.toString().replaceFirst("Exception: ", "")}'),
+              backgroundColor: ThemeConstants.errorColor));
         }
       }
-      newData['upvotes'] = newUpvotes < 0 ? 0 : newUpvotes;
-      newData['downvotes'] = newDownvotes < 0 ? 0 : newDownvotes;
-      _replyVoteData[replyId] = newData;
-    });
-
-    try {
-      await apiService.vote(replyId: int.parse(replyId), voteType: voteType, token: authProvider.token!);
-      // Optional: Update counts from API response for eventual consistency
-      // _triggerLoadReplies(); // Simple refresh for now
-    } catch (e) {
-      if (!mounted) return;
-      // Revert UI
-      setState(() {
-        final revertedData = Map<String, dynamic>.from(currentVoteData);
-        revertedData['vote_type'] = previousVoteType;
-        revertedData['upvotes'] = currentUpvotes;
-        revertedData['downvotes'] = currentDownvotes;
-        _replyVoteData[replyId] = revertedData;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Vote failed: ${e.toString()}'), backgroundColor: ThemeConstants.errorColor));
     }
   }
 
-  // Format DateTime string
+  // Note: _voteOnReply is REMOVED, as this logic now resides within ReplyCard
+
+  // --- Format Time (Keep helper) ---
   String _formatTimeAgo(String? dateTimeString) {
     if (dateTimeString == null) return '';
     try {
@@ -233,44 +202,33 @@ class _RepliesScreenState extends State<RepliesScreen> {
       if (difference.inHours < 24) return '${difference.inHours}h';
       if (difference.inDays < 7) return '${difference.inDays}d';
       return DateFormat('MMM d').format(dateTime);
-    } catch (e) {
-      return '';
-    }
+    } catch (e) { return ''; }
   }
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context); // Listen for auth changes
+    //super.build(context); // Keep state
+    final authProvider = Provider.of<AuthProvider>(context); // Listen for auth changes if needed
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.postTitle ?? "Replies")),
       body: RefreshIndicator(
-        onRefresh: () async => _triggerLoadReplies(),
+        onRefresh: _refreshReplies, // Use simple refresh trigger
         child: FutureBuilder<List<ReplyNode>>(
-          future: _loadRepliesFuture,
+          future: _loadRepliesFuture, // Use state Future
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+              return _buildLoadingShimmer(); // Use shimmer
+            }
+            // Check local error state first
+            if (_error != null) {
+              return _buildErrorUI(_error!, Theme.of(context).brightness == Brightness.dark);
             }
             if (snapshot.hasError) {
-              return Center(child: Text('Error loading replies: ${snapshot.error}'));
+              return _buildErrorUI(snapshot.error, Theme.of(context).brightness == Brightness.dark);
             }
             if (!snapshot.hasData || snapshot.data!.isEmpty) {
-              return Center(
-                  child: Column( // Provide context and action
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.comment_outlined, size: 50, color: Colors.grey),
-                      const SizedBox(height: 16),
-                      const Text('No replies yet.'),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: () => _navigateToAddReply(context),
-                        child: const Text('Be the first to reply!'),
-                      ),
-                    ],
-                  )
-              );
+              return _buildEmptyUI(Theme.of(context).brightness == Brightness.dark); // Use empty state UI
             }
 
             final structuredReplies = snapshot.data!;
@@ -279,66 +237,111 @@ class _RepliesScreenState extends State<RepliesScreen> {
             List<Widget> buildReplyWidgets(List<ReplyNode> nodes, int level) {
               List<Widget> widgets = [];
               for (var node in nodes) {
-                final reply = node.data;
-                final replyId = reply['id'].toString();
-                final isOwner = authProvider.isAuthenticated &&
-                    authProvider.userId != null &&
-                    reply['user_id'].toString() == authProvider.userId;
+                final reply = node.data; // This is the Map<String, dynamic> for the reply
+                final replyId = reply['id']?.toString() ?? ''; // Safe access
+                if (replyId.isEmpty) continue; // Skip if ID is invalid
 
-                // Get vote data from state map
-                final voteData = _replyVoteData[replyId] ?? {'vote_type': null, 'upvotes': reply['upvotes'] ?? 0, 'downvotes': reply['downvotes'] ?? 0};
-                final bool hasUpvoted = voteData['vote_type'] == true;
-                final bool hasDownvoted = voteData['vote_type'] == false;
-                final int displayUpvotes = voteData['upvotes'];
-                final int displayDownvotes = voteData['downvotes'];
+                final bool isOwner = authProvider.isAuthenticated &&
+                    authProvider.userId != null &&
+                    reply['user_id']?.toString() == authProvider.userId;
+
+                // Extract initial state for ReplyCard from the fetched data
+                bool initialUpvoted = reply['viewer_vote_type'] == 'UP';
+                bool initialDownvoted = reply['viewer_vote_type'] == 'DOWN';
+                bool initialFavorited = reply['viewer_has_favorited'] == true;
 
                 widgets.add(
-                  Padding(
-                    padding: EdgeInsets.only(bottom: level > 0 ? 2 : 8.0, top: level > 0 ? 2 : 0), // Compact vertical spacing for nested
-                    child: ReplyCard(
-                      content: reply['content'] ?? '...',
-                      authorName: reply['author_name'] ?? 'Anonymous',
-                      authorAvatar: reply['author_avatar'], // Pass avatar URL/path
-                      timeAgo: _formatTimeAgo(reply['created_at']),
-                      upvotes: displayUpvotes,
-                      downvotes: displayDownvotes,
-                      isOwner: isOwner,
-                      hasUpvoted: hasUpvoted,
-                      hasDownvoted: hasDownvoted,
-                      indentLevel: level,
-                      onReply: () => _navigateToAddReply(
-                        context,
-                        parentReplyId: replyId,
-                        parentContent: reply['content'],
-                      ),
-                      onDelete: isOwner ? () => _deleteReply(replyId) : null,
-                      onUpvote: () => _voteOnReply(replyId, true),
-                      onDownvote: () => _voteOnReply(replyId, false),
+                  // Removed extra Padding, ReplyCard handles its margin/padding
+                  ReplyCard(
+                    key: ValueKey(replyId), // Use unique key
+                    replyId: replyId,
+                    content: reply['content'] ?? '...',
+                    authorName: reply['author_name'] ?? 'Anonymous',
+                    authorAvatarUrl: reply['author_avatar_url'], // Pass URL directly
+                    timeAgo: _formatTimeAgo(reply['created_at']),
+                    // Pass initial counts and states
+                    initialUpvotes: reply['upvotes'] ?? 0,
+                    initialDownvotes: reply['downvotes'] ?? 0,
+                    initialFavoriteCount: reply['favorite_count'] ?? 0,
+                    initialHasUpvoted: initialUpvoted,
+                    initialHasDownvoted: initialDownvoted,
+                    initialIsFavorited: initialFavorited,
+                    isOwner: isOwner,
+                    indentLevel: level,
+                    // Pass callbacks (vote/favorite handled internally by ReplyCard)
+                    onReply: () => _navigateToAddReply(
+                      context,
+                      parentReplyId: replyId,
+                      parentContent: reply['content'],
                     ),
+                    onDelete: isOwner ? () => _deleteReply(replyId) : null,
                   ),
                 );
-                // Recursively add children if the node is expanded (if expansion is implemented)
-                // if (node.isExpanded) {
+                // Recursively add children
                 widgets.addAll(buildReplyWidgets(node.children, level + 1));
-                // }
               }
               return widgets;
             }
 
             return ListView(
-              padding: const EdgeInsets.all(8),
-              children: buildReplyWidgets(structuredReplies, 0), // Start rendering from level 0
+              padding: const EdgeInsets.all(ThemeConstants.smallPadding), // Add some padding around the list
+              children: buildReplyWidgets(structuredReplies, 0),
             );
           },
         ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _navigateToAddReply(context), // Add top-level reply
-        child: const Icon(Icons.add_comment),
         tooltip: "Add Reply",
-        backgroundColor: ThemeConstants.accentColor,
-        foregroundColor: ThemeConstants.primaryColor,
+        child: const Icon(Icons.add_comment),
       ),
     );
+  }
+
+  // --- Helper Build Methods ---
+  Widget _buildLoadingShimmer() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseColor = isDark ? Colors.grey.shade800 : Colors.grey.shade300;
+    final highlightColor = isDark ? Colors.grey.shade700 : Colors.grey.shade100;
+    return Shimmer.fromColors(
+      baseColor: baseColor, highlightColor: highlightColor,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(ThemeConstants.smallPadding),
+        itemCount: 8, // Placeholder count
+        itemBuilder: (_, __) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6.0),
+          child: Container(
+            height: 80, // Approximate height of a reply card
+            decoration: BoxDecoration(
+              color: Colors.white, // Base for shimmer
+              borderRadius: BorderRadius.circular(ThemeConstants.borderRadius),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyUI(bool isDark) {
+    return Center( child: SingleChildScrollView( // Allow scrolling on small screens
+      padding: const EdgeInsets.all(ThemeConstants.largePadding),
+      child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(Icons.comment_outlined, size: 60, color: isDark ? Colors.grey.shade600 : Colors.grey.shade400),
+        const SizedBox(height: 16),
+        Text('No replies yet.', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
+        const SizedBox(height: 8),
+        TextButton( onPressed: () => _navigateToAddReply(context), child: const Text('Be the first to reply!'),),
+      ],),
+    ),);
+  }
+
+  Widget _buildErrorUI(Object? error, bool isDark) {
+    return Center( child: SingleChildScrollView( padding: const EdgeInsets.all(ThemeConstants.largePadding), child: Column( mainAxisSize: MainAxisSize.min, children: [
+      const Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 48), const SizedBox(height: ThemeConstants.mediumPadding),
+      Text('Failed to load replies', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+      const SizedBox(height: ThemeConstants.smallPadding),
+      Text( error.toString().replaceFirst("Exception: ",""), textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600)), const SizedBox(height: ThemeConstants.largePadding),
+      CustomButton(text: 'Retry', icon: Icons.refresh, onPressed: _refreshReplies, type: ButtonType.secondary),
+    ],),),);
   }
 }

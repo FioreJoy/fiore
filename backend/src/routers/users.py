@@ -1,345 +1,444 @@
 # backend/src/routers/users.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, status, Header
+from typing import List, Optional, Dict, Any
 import psycopg2
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+import jwt
+import traceback # Added for logging
 
-from .. import schemas, crud, auth
+from .. import schemas, crud, utils, auth, database
+from ..auth import get_current_user, get_current_user_optional
 from ..database import get_db_connection
-from ..utils import get_minio_url, format_location_for_db # Added format_location_for_db just in case
+from ..utils import get_minio_url, parse_point_string # parse_point_string is key here
 
 router = APIRouter(
     prefix="/users",
     tags=["Users"],
-    dependencies=[Depends(auth.get_current_user)]
 )
 
-# --- Helper function to fetch joined communities with online count ---
-def get_user_communities_with_online_count(cursor: psycopg2.extensions.cursor, user_id: int) -> List[dict]:
-    """ Fetches communities joined by the user, including online member counts AND ALL fields required by CommunityDisplay. """
-    ONLINE_THRESHOLD_MINUTES = 5
-    online_threshold = datetime.now(timezone.utc) - timedelta(minutes=ONLINE_THRESHOLD_MINUTES)
-
-    # --- UPDATED QUERY ---
-    # Select ALL necessary fields from the communities table (c.*)
-    query = """
-        SELECT
-            c.*, -- Select all columns from communities table
-            COUNT(DISTINCT cm.user_id) AS member_count,
-            COUNT(DISTINCT CASE WHEN u.last_seen >= %s THEN cm.user_id ELSE NULL END) AS online_count
-        FROM communities c
-        -- Join only once on community_members filtered by the current user to ensure we only get communities they are a member of
-        JOIN community_members cm_user ON c.id = cm_user.community_id AND cm_user.user_id = %s
-        -- Left join community_members again (aliased) to count ALL members for the filtered communities
-        LEFT JOIN community_members cm ON c.id = cm.community_id
-        -- Left join users to check the last_seen status for the online count
-        LEFT JOIN users u ON cm.user_id = u.id
-        GROUP BY c.id -- Group by primary key (includes all columns selected by c.*)
-        ORDER BY c.name;
-    """
-    # --- END UPDATED QUERY ---
-
-    cursor.execute(query, (online_threshold, user_id))
-    communities_db = cursor.fetchall() # Fetch all results
-
-    processed_communities = []
-    for comm_row in communities_db:
-        # Convert RealDictRow to a mutable dict
-        comm_data = dict(comm_row)
-
-        # Generate full logo URL
-        comm_data['logo_url'] = get_minio_url(comm_row.get('logo_path'))
-
-        # Format primary_location (which is a Point object from DB) into string if needed by schema
-        # The CommunityDisplay schema expects a string for primary_location now
-        location_point = comm_row.get('primary_location')
-        if location_point:
-            # Assuming location_point looks like Point(x=lon, y=lat) or similar string representation from RealDictCursor
-            # We need to reliably convert it back to "(lon,lat)" string format.
-            # psycopg2 returns it directly as a string like '(lon,lat)' when fetched with RealDictCursor usually.
-            # Let's assume it's already the correct string format. If not, parsing is needed.
-            comm_data['primary_location'] = str(location_point)
-        else:
-            comm_data['primary_location'] = '(0,0)' # Default if null
-
-        processed_communities.append(comm_data)
-
-    return processed_communities
-
-
-@router.get("/me/communities", response_model=List[schemas.CommunityDisplay])
-async def get_my_joined_communities(
-        current_user_id: int = Depends(auth.get_current_user)
-):
-    """
-    Fetches the list of communities the currently authenticated user has joined,
-    including member and online counts.
-    """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        communities_list = get_user_communities_with_online_count(cursor, current_user_id)
-        # communities_list now contains dicts with all required fields and logo_url
-        # Pydantic will validate the list against List[CommunityDisplay]
-        return communities_list
-    except Exception as e:
-        # Log the detailed error
-        import traceback
-        print(f"❌ Error fetching user's communities for user {current_user_id}:")
-        print(traceback.format_exc()) # Print full traceback
-        raise HTTPException(status_code=500, detail=f"Failed to fetch joined communities: {e}")
-    finally:
-        if conn: conn.close()
-
-# --- NEW: Function to fetch joined events ---
-def get_user_events(cursor: psycopg2.extensions.cursor, user_id: int) -> List[dict]:
-    """ Fetches events the user has joined, including participant counts. """
-    # Query to select events where the user is a participant
-    query = """
-        SELECT
-            e.*, -- Select all event columns
-            COUNT(ep_all.user_id) as participant_count -- Count all participants for the event
-        FROM events e
-        JOIN event_participants ep_user ON e.id = ep_user.event_id AND ep_user.user_id = %s -- Filter for current user's participation
-        LEFT JOIN event_participants ep_all ON e.id = ep_all.event_id -- Join again to count all participants
-        GROUP BY e.id -- Group by event primary key
-        ORDER BY e.event_timestamp DESC; -- Order by newest first, or desired order
-    """
-    cursor.execute(query, (user_id,))
-    events_db = cursor.fetchall()
-
-    # Process results (e.g., format timestamps if needed, handle image_url)
-    # The EventDisplay schema expects image_url which is already selected by e.*
-    # Timestamps should be handled by Pydantic automatically if they are datetime objects
-    processed_events = [dict(event_row) for event_row in events_db]
-
-    return processed_events
-
-
-# --- NEW: Endpoint for joined events ---
-@router.get("/me/events", response_model=List[schemas.EventDisplay])
-async def get_my_joined_events(
-        current_user_id: int = Depends(auth.get_current_user)
-):
-    """
-    Fetches the list of events the currently authenticated user has joined.
-    """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        events_list = get_user_events(cursor, current_user_id)
-        # The EventDisplay schema handles the fields from the fetched dictionaries
-        return events_list
-    except Exception as e:
-        import traceback
-        print(f"❌ Error fetching user's events for user {current_user_id}:")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to fetch joined events: {e}")
-    finally:
-        if conn: conn.close()
-
-@router.get("/me/stats", response_model=schemas.UserStats)
-async def get_user_stats(current_user_id: int = Depends(auth.get_current_user)):
-    """Fetches statistics for the currently authenticated user."""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Fetch communities joined
-        cursor.execute("SELECT COUNT(*) FROM community_members WHERE user_id = %s;", (current_user_id,))
-        communities_joined = cursor.fetchone()['count']
-
-        # Fetch events attended
-        cursor.execute("SELECT COUNT(*) FROM event_participants WHERE user_id = %s;", (current_user_id,))
-        events_attended = cursor.fetchone()['count']
-
-        # Fetch posts created
-        cursor.execute("SELECT COUNT(*) FROM posts WHERE user_id = %s;", (current_user_id,))
-        posts_created = cursor.fetchone()['count']
-
-        return {
-            "communities_joined": communities_joined,
-            "events_attended": events_attended,
-            "posts_created": posts_created
-        }
-    except Exception as e:
-        # Log the detailed error
-        import traceback
-        print(f"❌ Error fetching user stats for user {current_user_id}:")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail="Failed to fetch user statistics")
-    finally:
-        if conn: conn.close()
-
-
 @router.get("/{user_id}", response_model=schemas.UserDisplay)
-async def get_user_profile_route(user_id: int, current_user_id: int = Depends(auth.get_current_user)): # Renamed function slightly
+async def get_user_profile_route(
+        user_id: int,
+        requesting_user_id: Optional[int] = Depends(get_current_user_optional)
+):
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # Assume a simpler CRUD function 'get_raw_user_profile' exists now
-        user_db = crud.get_user_profile(cursor, user_id) # Fetch raw data
+        conn = get_db_connection(); cursor = conn.cursor()
+        # crud.get_user_by_id now fetches longitude and latitude if location is not null
+        user_db = crud.get_user_by_id(cursor, user_id)
         if not user_db:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Process the raw data into the Pydantic model HERE
-        user_data_dict = dict(user_db) # Convert RealDictRow to dict
+        user_data_dict = dict(user_db)
 
-        # Generate image URL
-        image_path = user_data_dict.get('image_path')
-        user_data_dict['image_url'] = get_minio_url(image_path)
+        counts = {"followers_count": 0, "following_count": 0}
+        try: counts = crud.get_user_graph_counts(cursor, user_id)
+        except Exception as e: print(f"WARNING: Failed graph counts for user {user_id}: {e}")
+        user_data_dict.update(counts)
 
-        # Parse location
-        location_str = user_data_dict.get('current_location')
-        user_data_dict['current_location'] = parse_point_string(str(location_str)) if location_str else None
+        is_following = False
+        if requesting_user_id is not None and requesting_user_id != user_id:
+            try: is_following = crud.check_is_following(cursor, requesting_user_id, user_id)
+            except Exception as e: print(f"WARNING: Check follow status failed for {requesting_user_id}->{user_id}: {e}")
+        user_data_dict['is_following'] = is_following
 
-        # Split interests
-        interests_db = user_data_dict.get('interest') # Assuming 'interest' is the comma-sep string column
-        user_data_dict['interests'] = interests_db.split(',') if interests_db else []
+        profile_media = crud.get_user_profile_picture_media(cursor, user_id)
+        user_data_dict['image_url'] = profile_media.get('url') if profile_media else None
 
-        # Ensure counts exist, default to 0 if somehow missing from query result
-        user_data_dict['followers_count'] = user_data_dict.get('followers_count', 0)
-        user_data_dict['following_count'] = user_data_dict.get('following_count', 0)
+        # --- Location Handling ---
+        db_longitude = user_data_dict.get('longitude')
+        db_latitude = user_data_dict.get('latitude')
+        db_current_location_address = user_data_dict.get('current_location_address')
+        db_location_last_updated = user_data_dict.get('location_last_updated')
+
+        if db_longitude is not None and db_latitude is not None:
+            user_data_dict['location'] = schemas.LocationDataOutput( # Use 'location' to match alias in UserBase
+                longitude=float(db_longitude),
+                latitude=float(db_latitude),
+                address=db_current_location_address,
+                last_updated=db_location_last_updated
+            )
+        else:
+            user_data_dict['location'] = None
+
+        # Clean up raw lon/lat keys if they exist, as they are now in the 'location' object
+        if 'longitude' in user_data_dict: del user_data_dict['longitude']
+        if 'latitude' in user_data_dict: del user_data_dict['latitude']
+        if 'current_location_address' in user_data_dict: del user_data_dict['current_location_address'] # Now part of location object
+        if 'location_last_updated' in user_data_dict: del user_data_dict['location_last_updated']
 
 
-        # Validate and return using the schema
+        # Handle interests (JSONB 'interests' to list, fallback to text 'interest')
+        interests_jsonb = user_data_dict.get('interests')
+        if isinstance(interests_jsonb, list):
+            user_data_dict['interests_list_for_schema'] = interests_jsonb # Use a temp key
+        elif isinstance(user_data_dict.get('interest'), str) and user_data_dict['interest'].strip():
+            user_data_dict['interests_list_for_schema'] = [i.strip() for i in user_data_dict['interest'].split(',')]
+        else:
+            user_data_dict['interests_list_for_schema'] = []
+        # The UserDisplay schema expects `interests` field to be populated by this list
+        user_data_dict['interests'] = user_data_dict.pop('interests_list_for_schema')
+
+
+        user_data_dict.setdefault('last_seen', None)
+        # Ensure all UserBase fields are present before passing to Pydantic model
+        # UserBase expects: id, name, username, email, gender. Others are optional or aliased.
+        # Ensure email from db is used if present, otherwise a default or handle error
+        if 'email' not in user_data_dict or not user_data_dict['email']:
+            user_data_dict['email'] = f"missing_email_{user_id}@example.com" # Placeholder, ideally should not happen
+
         return schemas.UserDisplay(**user_data_dict)
 
+    except HTTPException as http_exc: raise http_exc
+    except psycopg2.Error as db_err:
+        print(f"DB Error GET /users/{user_id}: {db_err}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Database error fetching profile")
     except Exception as e:
-         print(f"Error getting profile for user {user_id}: {e}")
-         # Handle specific DB errors if needed, otherwise default 500
-         raise HTTPException(status_code=500, detail="Internal server error fetching profile")
+        print(f"Error GET /users/{user_id}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Internal server error fetching profile")
     finally:
         if conn: conn.close()
 
-
-# --- Revised get_followers ---
-# CRUD function fix:
-# def get_raw_followers(cursor, user_id: int):
-#     cursor.execute("""
-#         SELECT u.id, u.name, u.username, u.image_path -- Select image_path
-#         FROM user_followers f
-#         JOIN users u ON f.follower_id = u.id
-#         WHERE f.following_id = %s
-#     """, (user_id,))
-#     return cursor.fetchall() # Returns list of RealDictRow
-
-@router.get("/{user_id}/followers", response_model=List[schemas.UserBase]) # UserBase is likely okay if image_url is generated
-async def get_followers_route(user_id: int, current_user_id: int = Depends(auth.get_current_user)): # Renamed function slightly
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # Assume CRUD func 'get_raw_followers' returns list of dicts with image_path
-        followers_db = crud.get_followers(cursor, user_id)
-
-        processed_followers = []
-        for follower_row in followers_db:
-            follower_data = dict(follower_row)
-            print(follower_data)
-
-            # Generate image URL
-            image_path = follower_data.get('image_path')
-            follower_data['image_url'] = get_minio_url(image_path)
-
-            # --- *** IMPORTANT: Align with UserBase *** ---
-            # UserBase might expect other fields like email, gender, etc.
-            # You either need a different, simpler schema (e.g., FollowerInfo)
-            # OR ensure get_raw_followers selects ALL fields required by UserBase
-            # OR adjust UserBase to only include id, name, username, image_path/image_url.
-            # Let's assume UserBase is simple for now or you adjust the query/schema.
-
-            # Add missing fields expected by UserBase with defaults if necessary
-            # before validation. Example (adjust based on actual UserBase):
-            if 'email' not in follower_data: follower_data['email'] = 'anonymous@anonymous.anonymous' # Placeholder
-            if 'gender' not in follower_data: follower_data['gender'] = 'Others' # Placeholder
-            if 'college' not in follower_data: follower_data['college'] = None
-            if 'interest' not in follower_data: follower_data['interest'] = None
-            if 'current_location' not in follower_data: follower_data['current_location'] = None
-
-
-            processed_followers.append(schemas.UserBase(**follower_data)) # Validate against schema
-
-        return processed_followers
-
-    except Exception as e:
-        print(f"Error getting followers for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error fetching followers")
-    finally:
-        if conn: conn.close()
-
-# --- follow_user route (Keep as is, maybe improve error handling) ---
-@router.post("/{user_id}/follow", status_code=status.HTTP_200_OK) # Use 200 OK, response indicates outcome
-async def follow_user_route(user_id: int, current_user_id: int = Depends(auth.get_current_user)): # Renamed function slightly
+@router.post("/{user_id}/follow", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
+async def follow_user_route(
+        user_id: int, # This is the user_id to be followed (target_user_id)
+        current_user_id: int = Depends(get_current_user) # This is the actor (follower_id)
+):
     if user_id == current_user_id:
         raise HTTPException(status_code=400, detail="Cannot follow yourself")
 
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # Consider using try-except around crud call if it raises exceptions
-        success = crud.follow_user(cursor, current_user_id, user_id)
-        conn.commit()
-        if success:
-            return {"message": "User followed successfully"}
-        else:
-            # This means ON CONFLICT happened, or a DB error occurred and crud returned False
-            # Check if the relationship exists to be sure it's "already-following"
-            cursor.execute("SELECT 1 FROM user_followers WHERE follower_id = %s AND following_id = %s", (current_user_id, user_id))
-            already_following = cursor.fetchone()
-            if already_following:
-                return {"message": "Already following this user"}
+        conn = get_db_connection(); cursor = conn.cursor()
+
+        # Check if target user exists
+        target_user = crud.get_user_by_id(cursor, user_id)
+        if not target_user: raise HTTPException(status_code=404, detail="User to follow not found.")
+
+        # Get actor (current user) details for notification content
+        actor_user = crud.get_user_by_id(cursor, current_user_id)
+        actor_username = actor_user.get('username', 'Someone') if actor_user else 'Someone'
+
+        # --- Perform the follow action ---
+        success = crud.follow_user(cursor, follower_id=current_user_id, following_id=user_id)
+
+        if not success:
+            # If crud.follow_user returns False on "already following" or other non-error scenarios.
+            # For now, assume it raises on DB error, and False means a logical "did not perform action".
+            # Check if already following to provide a more specific message if needed.
+            is_already_following = crud.check_is_following(cursor, current_user_id, user_id)
+            if is_already_following:
+                # If it was already following and `follow_user` did nothing, commit is fine.
+                # Counts will be fetched after potential commit.
+                pass # Or return a specific message like "Already following"
             else:
-                # If not already following and crud returned False, it must have been an error
-                raise HTTPException(status_code=500, detail="Failed to follow user due to an unexpected error")
-    except psycopg2.Error as db_err:
-         if conn: conn.rollback()
-         print(f"Database error following user: {db_err}")
-         # Check for specific integrity errors if needed
-         raise HTTPException(status_code=500, detail="Database error processing follow request")
-    except Exception as e:
+                # If not already following and `follow_user` still returned false, it's an issue.
+                conn.rollback()
+                raise Exception("Follow operation failed at CRUD level.")
+
+        # --- Create Notification (part of the same transaction) ---
+        notification_id = crud.create_notification(
+            cursor=cursor,
+            recipient_user_id=user_id,            # The user being followed
+            actor_user_id=current_user_id,        # The user who initiated the follow
+            type='new_follower',
+            related_entity_type='user',
+            related_entity_id=current_user_id,    # Link to the follower's profile
+            content_preview=f"{actor_username} started following you."
+        )
+        if not notification_id:
+            print(f"WARN: Failed to create notification for new follower (F:{current_user_id} -> T:{user_id})")
+            # Decide if this should cause the follow to fail (rollback) or just log.
+            # For now, let follow succeed.
+
+        conn.commit()
+        print(f"Router follow_user: Commit successful. Follow: {success}, Notif ID: {notification_id}")
+
+        counts = {"followers_count": 0, "following_count": 0}
+        try:
+            counts = crud.get_user_graph_counts(cursor, user_id)
+        except Exception as count_err:
+            print(f"WARNING: Failed to get counts after follow for user {user_id}: {count_err}")
+
+        return {
+            "message": "User followed successfully", # Or "Already following" if logic is added
+            "success": True, # True if desired state is achieved
+            "new_follower_count": counts.get('followers_count')
+        }
+    # ... (rest of the error handling) ...
+    except HTTPException as http_exc: # Important to catch HTTPException first
         if conn: conn.rollback()
-        print(f"Error in follow_user_route: {e}")
-        raise HTTPException(status_code=500, detail="Could not process follow request")
+        raise http_exc
+    except psycopg2.Error as db_err: # Catch DB errors
+        if conn: conn.rollback()
+        print(f"Database error following user ({current_user_id} -> {user_id}): {db_err}")
+        traceback.print_exc()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database error processing follow request")
+    except Exception as e: # Catch other exceptions
+        if conn: conn.rollback()
+        print(f"Error in follow_user_route ({current_user_id} -> {user_id}): {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not process follow request: {e}")
     finally:
         if conn: conn.close()
 
-# --- ADD unfollow endpoint ---
-@router.delete("/{user_id}/unfollow", status_code=status.HTTP_200_OK)
-async def unfollow_user_route(user_id: int, current_user_id: int = Depends(auth.get_current_user)):
+@router.delete("/{user_id}/follow", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
+async def unfollow_user_route(
+        user_id: int, # User to unfollow
+        current_user_id: int = Depends(get_current_user)
+):
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # Add a crud function: def unfollow_user(cursor, follower_id, following_id): ...
-        # It should execute: DELETE FROM user_followers WHERE follower_id = %s AND following_id = %s
-        # And return cursor.rowcount > 0
-        deleted = crud.unfollow_user(cursor, current_user_id, user_id) # Create this CRUD func
+        conn = get_db_connection(); cursor = conn.cursor()
+
+        # Optional: Check if currently following before attempting to unfollow
+        # is_currently_following = crud.check_is_following(cursor, current_user_id, user_id)
+        # if not is_currently_following:
+        #     counts = crud.get_user_graph_counts(cursor, user_id) # Counts of the user being unfollowed
+        #     return {"message": "You were not following this user.", "success": True, "new_follower_count": counts.get('followers_count')}
+
+        deleted = crud.unfollow_user(cursor, follower_id=current_user_id, following_id=user_id)
         conn.commit()
-        if deleted:
-            return {"message": "User unfollowed successfully"}
-        else:
-             # Could be user wasn't following, or DB error
-             # Add check if needed
-             return {"message": "User was not followed"}
+
+        counts = {"followers_count": 0, "following_count": 0}
+        try:
+            counts = crud.get_user_graph_counts(cursor, user_id) # Counts of the user being unfollowed
+        except Exception as count_err:
+            print(f"WARNING: Failed to get counts after unfollow for user {user_id}: {count_err}")
+
+        print(f"✅ User {current_user_id} unfollowed user {user_id}. CRUD reported: {deleted}")
+        # crud.unfollow_user might return True even if no edge was deleted (if MATCH finds nothing).
+        # The message should reflect this.
+        return {
+            "message": "User unfollowed successfully" if deleted else "You were not following this user or unfollow failed.",
+            "success": deleted, # This reflects the DB operation attempt.
+            "new_follower_count": counts.get('followers_count')
+        }
+    except psycopg2.Error as db_err:
+        if conn: conn.rollback()
+        print(f"Database error unfollowing user: {db_err}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Database error processing unfollow request")
     except Exception as e:
         if conn: conn.rollback()
         print(f"Error unfollowing user: {e}")
-        raise HTTPException(status_code=500, detail="Could not process unfollow request")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Could not process unfollow request: {e}")
     finally:
         if conn: conn.close()
 
-# --- ADD get_following endpoint (similar to get_followers) ---
-# @router.get("/{user_id}/following", response_model=List[schemas.UserBase])
-# async def get_following_route(user_id: int, current_user_id: int = Depends(auth.get_current_user)):
-#     # ... similar logic to get_followers_route, but query WHERE follower_id = user_id
-#     # and join users on f.following_id = u.id
-#     # Remember to process data and generate image_url
-#     pass
-        #if conn: conn.close()
+@router.get("/{user_id}/followers", response_model=List[schemas.UserBase])
+async def get_followers_route(
+        user_id: int,
+        requesting_user_id: Optional[int] = Depends(get_current_user_optional)
+):
+    conn = None
+    try:
+        conn = get_db_connection(); cursor = conn.cursor()
+        # crud.get_followers now returns list of full user dicts from relational table, ordered by username
+        followers_db = crud.get_followers(cursor, user_id)
+        processed_followers = []
+        for user_data_dict in followers_db: # user_data_dict is already a dict
+            # Profile picture URL needs to be generated
+            # Ensure 'id' exists before trying to fetch profile media
+            current_follower_id = user_data_dict.get('id')
+            if current_follower_id is None:
+                print(f"WARN: Follower data missing ID: {user_data_dict}")
+                continue
+
+            profile_media = crud.get_user_profile_picture_media(cursor, current_follower_id)
+            user_data_dict['image_url'] = profile_media.get('url') if profile_media else None
+
+            loc_str = user_data_dict.get('current_location')
+            user_data_dict['current_location'] = parse_point_string(str(loc_str)) if loc_str else None
+
+            # Ensure all fields expected by UserBase are present or have defaults
+            # UserBase expects 'name', 'username', 'email', 'gender'.
+            # 'college', 'interest', 'image_path', 'image_url', 'current_location' are Optional.
+            user_data_dict.setdefault('email', f"default_follower_{current_follower_id}@example.com") # Pydantic EmailStr needs valid format
+            user_data_dict.setdefault('gender', 'Others') # Default gender
+            user_data_dict.setdefault('college', None)
+            user_data_dict.setdefault('interest', None)
+            user_data_dict.setdefault('image_path', None) # Not in UserBase, but good to have consistent keys
+
+            try:
+                processed_followers.append(schemas.UserBase(**user_data_dict))
+            except Exception as pyd_err:
+                print(f"Pydantic validation error for follower ID {current_follower_id}: {pyd_err}")
+                print(f"Data: {user_data_dict}")
+                # Optionally skip this user or re-raise
+        return processed_followers
+    except Exception as e:
+        print(f"Error GET /users/{user_id}/followers: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Error fetching followers")
+    finally:
+        if conn: conn.close()
+
+@router.get("/{user_id}/following", response_model=List[schemas.UserBase])
+async def get_following_route(
+        user_id: int,
+        requesting_user_id: Optional[int] = Depends(get_current_user_optional)
+):
+    conn = None
+    try:
+        conn = get_db_connection(); cursor = conn.cursor()
+        # crud.get_following now returns list of full user dicts from relational table
+        following_db_list = crud.get_following(cursor, user_id)
+
+        print(f"Router get_following_route: CRUD returned {len(following_db_list)} users. Data from CRUD: {following_db_list}") # Detailed log
+
+        processed_following = []
+        for user_data_from_crud in following_db_list:
+            # Ensure it's a dict, as expected from RealDictCursor conversion in CRUD
+            if not isinstance(user_data_from_crud, dict):
+                print(f"WARN: Item from crud.get_following is not a dict: {user_data_from_crud}")
+                continue
+
+            data_dict = user_data_from_crud.copy() # Work with a copy
+
+            current_following_id = data_dict.get('id')
+            if current_following_id is None:
+                print(f"WARN: Following data missing ID: {data_dict}")
+                continue
+
+            # Fetch profile picture for this user
+            profile_media = crud.get_user_profile_picture_media(cursor, current_following_id)
+            data_dict['image_url'] = profile_media.get('url') if profile_media else None
+
+            # Parse location string to dict
+            loc_obj_from_db = data_dict.get('current_location') # This might be a Point object or string
+            data_dict['current_location'] = parse_point_string(str(loc_obj_from_db)) if loc_obj_from_db else None
+
+            # Ensure all fields for UserBase are present or have defaults
+            # UserBase requires 'name', 'username', 'email', 'gender'.
+            # Others are optional or derived.
+            data_dict.setdefault('name', 'Unknown Name')
+            data_dict.setdefault('username', f'user{current_following_id}')
+            data_dict.setdefault('email', f"default_following_{current_following_id}@example.com")
+            data_dict.setdefault('gender', 'Others')
+            data_dict.setdefault('college', None)
+            data_dict.setdefault('interest', None) # For UserBase 'interest' text field
+            # image_path is not in UserBase schema, but image_url is.
+
+            try:
+                # This is where Pydantic validation happens
+                processed_following.append(schemas.UserBase(**data_dict))
+            except Exception as pyd_err:
+                print(f"Pydantic validation error for /following list, user ID {current_following_id}: {pyd_err}")
+                print(f"Data that failed validation: {data_dict}")
+                # Optionally skip this user or re-raise depending on strictness
+
+        print(f"Router get_following_route: Processed {len(processed_following)} users to return. Processed Data: {processed_following}") # Detailed log
+        return processed_following
+    except Exception as e:
+        print(f"Error GET /users/{user_id}/following: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Error fetching following list")
+    finally:
+        if conn: conn.close()
+
+@router.get("/me/communities", response_model=List[schemas.CommunityDisplay])
+async def get_my_joined_communities(current_user_id: int = Depends(auth.get_current_user)):
+    conn = None
+    try:
+        conn = get_db_connection(); cursor = conn.cursor()
+        # This gets IDs and basic info from graph
+        communities_basic_info = crud.get_user_joined_communities_graph(cursor, current_user_id, limit=500, offset=0)
+        augmented_list = []
+        for comm_basic in communities_basic_info:
+            if not isinstance(comm_basic, dict) or 'id' not in comm_basic: continue
+            comm_id = comm_basic['id']
+            try:
+                # Fetch full details (includes counts) and logo for each
+                comm_details = crud.get_community_details_db(cursor, comm_id)
+                logo_media = crud.get_community_logo_media(cursor, comm_id)
+
+                if comm_details:
+                    response_data = dict(comm_details)
+                    loc = response_data.get('primary_location'); response_data['primary_location'] = str(loc) if loc else None
+                    response_data['logo_url'] = logo_media.get('url') if logo_media else None
+                    response_data['is_member_by_viewer'] = True # User is member
+                    response_data.setdefault('member_count', 0); response_data.setdefault('online_count', 0)
+                    augmented_list.append(schemas.CommunityDisplay(**response_data))
+                else:
+                    print(f"Warning: Community details not found for ID {comm_id} in /me/communities.")
+            except Exception as detail_err:
+                print(f"WARNING: Failed processing community {comm_id} in /me/communities: {detail_err}")
+        return augmented_list
+    except psycopg2.Error as db_err:
+        print(f"DB Error GET /me/communities for user {current_user_id}: {db_err}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Database error fetching joined communities")
+    except Exception as e:
+        print(f"Error GET /me/communities for user {current_user_id}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to fetch joined communities")
+    finally:
+        if conn: conn.close()
+
+@router.get("/me/events", response_model=List[schemas.EventDisplay])
+async def get_my_joined_events(current_user_id: int = Depends(auth.get_current_user)):
+    conn = None
+    try:
+        conn = get_db_connection(); cursor = conn.cursor()
+        events_basic_info = crud.get_user_participated_events_graph(cursor, current_user_id, limit=500, offset=0)
+        events_list = []
+        for event_basic in events_basic_info:
+            if not isinstance(event_basic, dict) or 'id' not in event_basic: continue
+            event_id = event_basic['id']
+            try:
+                event_details = crud.get_event_details_db(cursor, event_id) # Includes participant_count
+                if event_details:
+                    response_data = dict(event_details)
+                    response_data['is_participating_by_viewer'] = True # User is participant
+                    response_data.setdefault('participant_count', 0)
+                    # get_event_details_db stores object name in 'image_url', convert it
+                    response_data['image_url'] = utils.get_minio_url(response_data.get('image_url'))
+                    events_list.append(schemas.EventDisplay(**response_data))
+                else:
+                    print(f"Warning: Event details not found for ID {event_id} in /me/events.")
+            except Exception as detail_err:
+                print(f"WARNING: Failed processing event {event_id} in /me/events: {detail_err}")
+        return events_list
+    except psycopg2.Error as db_err:
+        print(f"DB Error GET /me/events for user {current_user_id}: {db_err}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Database error fetching joined events")
+    except Exception as e:
+        print(f"Error GET /me/events for user {current_user_id}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to fetch joined events")
+    finally:
+        if conn: conn.close()
+
+@router.get("/me/stats", response_model=schemas.UserStats)
+async def get_user_stats(current_user_id: int = Depends(get_current_user)):
+    conn = None
+    try:
+        conn = get_db_connection(); cursor = conn.cursor()
+        communities_joined = 0; events_attended = 0; posts_created = 0
+        try: communities_joined = crud.get_user_joined_communities_count(cursor, current_user_id)
+        except Exception as e: print(f"Warning: Failed getting joined communities count for stats: {e}")
+        try: events_attended = crud.get_user_participated_events_count(cursor, current_user_id)
+        except Exception as e: print(f"Warning: Failed getting participated events count for stats: {e}")
+        try:
+            cursor.execute("SELECT COUNT(*) as count FROM public.posts WHERE user_id = %s;", (current_user_id,))
+            posts_created_result = cursor.fetchone()
+            posts_created = posts_created_result['count'] if posts_created_result else 0
+        except Exception as e: print(f"Warning: Failed getting posts count for stats: {e}")
+
+        stats_data = {
+            "communities_joined": communities_joined,
+            "events_attended": events_attended,
+            "posts_created": posts_created
+        }
+        return schemas.UserStats(**stats_data)
+    except Exception as e:
+        print(f"Error GET /me/stats: {e}"); traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to fetch user statistics") from e
+    finally:
+        if conn: conn.close()

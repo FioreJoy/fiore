@@ -4,13 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 
-// --- Updated Service Imports ---
-import '../../../../services/api/settings_service.dart'; // Use specific SettingsService
+import '../../../../services/api/settings_service.dart';
 import '../../../../services/auth_provider.dart';
-
-// --- Theme and Constants ---
 import '../../../../theme/theme_constants.dart';
-import '../../../../widgets/custom_button.dart'; // Assuming path is correct
+import '../../../../widgets/custom_button.dart';
 
 class NotificationSettingsPage extends StatefulWidget {
   const NotificationSettingsPage({Key? key}) : super(key: key);
@@ -22,15 +19,22 @@ class NotificationSettingsPage extends StatefulWidget {
 class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   bool _isLoading = true;
   String? _error;
-  // Store settings locally, initialize with defaults or fetched values
+
+  // Keys must match the Pydantic schema (NotificationSettings) and backend DB columns
   Map<String, bool> _currentSettings = {
-    'new_post_in_community': true, // Default value
-    'new_reply_to_post': true,     // Default value
-    'new_event_in_community': true,// Default value
-    'event_reminder': true,        // Default value
-    'direct_message': false,       // Default value
-    // Add more keys as defined by your backend schema
+    'new_post_in_community': true,
+    'new_reply_to_post': true,
+    'new_event_in_community': true,
+    'event_reminder': true,
+    'direct_message': false, // As per schema default
+    'notify_event_update': true, // New setting from backend plan
+    // Add other settings as they are defined in your backend User model's notify_* columns
+    // 'notify_post_vote': true,
+    // 'notify_user_mention': true,
   };
+
+  // For debouncing API calls
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -38,18 +42,21 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     _loadSettings();
   }
 
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
   Future<void> _loadSettings() async {
     if (!mounted) return;
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
 
     final settingsService = Provider.of<SettingsService>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     if (authProvider.token == null) {
-      setState(() { _isLoading = false; _error = "Not authenticated."; });
+      if (mounted) setState(() { _isLoading = false; _error = "Not authenticated."; });
       return;
     }
 
@@ -57,21 +64,11 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
       final fetchedSettingsMap = await settingsService.getNotificationSettings(authProvider.token!);
       if (mounted) {
         setState(() {
-          // Update local state, ensuring type safety
-          _currentSettings = Map<String, bool>.fromEntries(
-              fetchedSettingsMap.entries.map((entry) {
-                // Ensure values are booleans, provide default if type is wrong or key missing
-                final value = entry.value;
-                return MapEntry(entry.key, value is bool ? value : (_currentSettings[entry.key] ?? false));
-              })
-          );
-          // Add any keys missing from response but present in defaults
-          _currentSettings.keys.forEach((key) {
-            if (!fetchedSettingsMap.containsKey(key)) {
-              _currentSettings[key] = _currentSettings[key] ?? false; // Keep default if missing
-            }
-          });
-
+          // Update local state with fetched values, falling back to current defaults if a key is missing
+          _currentSettings = {
+            for (var key in _currentSettings.keys)
+              key: fetchedSettingsMap[key] is bool ? fetchedSettingsMap[key] : _currentSettings[key]!,
+          };
           _isLoading = false;
         });
       }
@@ -86,154 +83,157 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     }
   }
 
-  // Debounce mechanism to avoid rapid API calls when toggling switches
-  Timer? _debounce;
-
   Future<void> _updateSetting(String key, bool value) async {
     if (!mounted) return;
+    setState(() { _currentSettings[key] = value; _error = null; });
 
-    // Update local state immediately for responsive UI
-    setState(() {
-      _currentSettings[key] = value;
-      _error = null; // Clear previous errors on new action
-    });
-
-    // Debounce the API call
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 750), () async { // Wait 750ms after last change
+    _debounce = Timer(const Duration(milliseconds: 800), () async {
       final settingsService = Provider.of<SettingsService>(context, listen: false);
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
       if (authProvider.token == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Authentication error.'), backgroundColor: Colors.red));
-        // Optionally revert local state here if needed
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Authentication error.')));
+        // Optionally revert state: _loadSettings();
         return;
       }
 
       try {
-        // Send the *entire* settings map to the backend PUT endpoint
+        // Send the entire currentSettings map for update
         await settingsService.updateNotificationSettings(
           token: authProvider.token!,
           settings: _currentSettings,
         );
         if (mounted) {
-          print("Notification settings updated successfully.");
-          // Optional: Show a temporary success indicator
+          print("Notification settings updated for key: $key, value: $value");
+          // Optional: subtle success feedback
           // ScaffoldMessenger.of(context).showSnackBar(
-          //    const SnackBar(content: Text('Settings saved.'), duration: Duration(seconds: 1)),
+          //   const SnackBar(content: Text('Preference saved.'), duration: Duration(seconds: 1)),
           // );
         }
       } catch (e) {
-        print("NotificationSettingsPage: Error updating settings: $e");
+        print("NotificationSettingsPage: Error updating setting '$key': $e");
         if (mounted) {
-          // Show error and potentially revert the specific toggle that failed?
-          // Reverting might be confusing, showing a general error is safer.
           ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Failed to save setting: ${e.toString().replaceFirst('Exception: ', '')}'), backgroundColor: Colors.red)
+            SnackBar(content: Text('Failed to save setting: ${e.toString().replaceFirst("Exception: ", "")}'), backgroundColor: ThemeConstants.errorColor)
           );
-          // Revert the toggle optimistically? Or reload all settings?
-          // Reloading might be best to ensure consistency after an error.
-          // _loadSettings(); // Uncomment to force reload on error
-          // OR revert the specific key:
-          // setState(() => _currentSettings[key] = !value);
+          // Revert this specific toggle on API error to reflect actual server state
+          // Or call _loadSettings() to resync everything.
+          // For simplicity, we'll let the UI stay as is and user can retry or refresh.
+          // setState(() => _currentSettings[key] = !value); // Revert UI
         }
       }
     });
   }
 
-  @override
-  void dispose() {
-    _debounce?.cancel(); // Cancel timer if page is disposed
-    super.dispose();
-  }
-
-
-  // Helper to build SwitchListTile items
-  Widget _buildSwitchItem(String key, String title, String subtitle) {
-    // Use a default value if the key is somehow missing after loading
-    final bool currentValue = _currentSettings[key] ?? false;
-
+  Widget _buildSwitchItem(String key, String title, String subtitle, IconData icon) {
+    final bool currentValue = _currentSettings[key] ?? false; // Default to false if key somehow missing
     return SwitchListTile(
       title: Text(title),
       subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
       value: currentValue,
-      onChanged: (bool newValue) {
-        _updateSetting(key, newValue); // Update state and trigger debounced API call
-      },
+      onChanged: (bool newValue) => _updateSetting(key, newValue),
       activeColor: Theme.of(context).colorScheme.primary,
-      secondary: Icon(_getIconForKey(key)), // Get relevant icon
+      secondary: Icon(icon, color: Theme.of(context).colorScheme.primary.withOpacity(0.7)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: ThemeConstants.mediumPadding, vertical: 6.0),
     );
-  }
-
-  // Helper to get an icon based on the setting key (customize as needed)
-  IconData _getIconForKey(String key) {
-    switch (key) {
-      case 'new_post_in_community': return Icons.article_outlined;
-      case 'new_reply_to_post': return Icons.reply_outlined;
-      case 'new_event_in_community': return Icons.event_outlined;
-      case 'event_reminder': return Icons.alarm;
-      case 'direct_message': return Icons.message_outlined;
-      default: return Icons.notifications_active_outlined;
-    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Notification Settings'),
-      ),
+      appBar: AppBar(title: const Text('Notification Settings')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-          ? _buildErrorView()
-          : ListView(
-        children: [
-          // Dynamically create list tiles based on keys in _currentSettings
-          // Or define them explicitly if the keys are fixed
-          _buildSwitchItem(
-            'new_post_in_community',
-            'New Posts in Communities',
-            'Get notified when someone posts in a community you follow.',
-          ),
-          _buildSwitchItem(
-            'new_reply_to_post',
-            'Replies to Your Posts/Comments',
-            'Get notified when someone replies to you.',
-          ),
-          _buildSwitchItem(
-            'new_event_in_community',
-            'New Events in Communities',
-            'Get notified about new events in communities you follow.',
-          ),
-          _buildSwitchItem(
-            'event_reminder',
-            'Event Reminders',
-            'Get reminders for events you have joined.',
-          ),
-          _buildSwitchItem(
-            'direct_message',
-            'Direct Messages',
-            'Get notified when you receive a direct message (if applicable).',
-          ),
-
-          // Add more settings based on your backend schema...
-          // Example:
-          // const Divider(),
-          // _buildSwitchItem(
-          //  'marketing_emails',
-          //  'Promotions & Updates',
-          //  'Receive occasional updates and offers via email.',
-          // ),
-        ],
-      ),
+          ? _buildErrorView(isDark)
+          : RefreshIndicator( // Allow pull-to-refresh
+              onRefresh: _loadSettings,
+              child: ListView(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(ThemeConstants.mediumPadding).copyWith(bottom: ThemeConstants.smallPadding),
+                    child: Text(
+                      "Manage what you get notified about.",
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade700
+                      ),
+                    ),
+                  ),
+                  _buildSwitchItem(
+                    'new_post_in_community',
+                    'New Posts in Communities',
+                    'When someone posts in communities you follow.',
+                    Icons.article_outlined,
+                  ),
+                  _buildSwitchItem(
+                    'new_reply_to_post',
+                    'Replies to You',
+                    'When someone replies to your posts or comments.',
+                    Icons.reply_outlined,
+                  ),
+                  _buildSwitchItem(
+                    'new_event_in_community',
+                    'New Events in Communities',
+                    'When new events are created in communities you follow.',
+                    Icons.event_note_outlined,
+                  ),
+                  _buildSwitchItem(
+                    'event_reminder',
+                    'Event Reminders',
+                    'Reminders for events you have joined.',
+                    Icons.alarm_on_outlined,
+                  ),
+                   _buildSwitchItem( // New setting
+                    'notify_event_update', // Key matches DB column & Pydantic schema
+                    'Event Updates',
+                    'When details of an event you joined are changed.',
+                    Icons.edit_calendar_outlined,
+                  ),
+                  _buildSwitchItem(
+                    'direct_message',
+                    'Direct Messages',
+                    'When you receive a new direct message (if feature exists).',
+                    Icons.message_outlined,
+                  ),
+                  // Add more settings here as they become available
+                  // Example:
+                  // const Divider(indent: 16, endIndent: 16),
+                  // _buildSwitchItem(
+                  //   'notify_post_vote', // Needs backend column and enum mapping
+                  //   'Votes on Your Posts',
+                  //   'When someone upvotes or downvotes your post.',
+                  //   Icons.thumb_up_alt_outlined,
+                  // ),
+                ],
+              ),
+            ),
     );
   }
 
-  Widget _buildErrorView() {
-    return Center( child: Padding( padding: const EdgeInsets.all(16.0), child: Column( mainAxisSize: MainAxisSize.min, children: [
-      const Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 48), const SizedBox(height: 16),
-      Text(_error ?? 'Failed to load settings.', textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)), const SizedBox(height: 24),
-      CustomButton( text: 'Retry', icon: Icons.refresh, onPressed: _loadSettings, type: ButtonType.secondary,),],),),);
+  Widget _buildErrorView(bool isDark) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(ThemeConstants.largePadding),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 48),
+            const SizedBox(height: ThemeConstants.mediumPadding),
+            Text('Failed to Load Settings', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: ThemeConstants.smallPadding),
+            Text(_error ?? "An unknown error occurred.", textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600)),
+            const SizedBox(height: ThemeConstants.largePadding),
+            CustomButton(
+              text: 'Retry',
+              icon: Icons.refresh,
+              onPressed: _loadSettings,
+              type: ButtonType.secondary,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

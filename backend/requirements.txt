@@ -1,5 +1,7 @@
+requests
 uvicorn
 fastapi
+strawberry-graphql[fastapi]
 psycopg2-binary
 SQLAlchemy
 python-dotenv
@@ -12,3 +14,7 @@ PyJWT
 python-multipart
 websockets
 minio
+aiodataloader
+pytest
+pytest-asyncio
+pytest-ordering

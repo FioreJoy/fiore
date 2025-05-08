@@ -2,85 +2,57 @@
 
 import '../api_client.dart';
 import '../api_endpoints.dart';
-// Import ReplyDisplay model if created
 
-/// Service responsible for reply-related API calls.
+/// Service responsible for reply-related API calls (excluding favorites).
 class ReplyService {
   final ApiClient _apiClient;
 
   ReplyService(this._apiClient);
 
-  /// Fetches replies for a specific post.
-  /// Requires API Key. User token might be optional for public viewing.
+  // --- getRepliesForPost (no changes needed from previous version) ---
   Future<List<dynamic>> getRepliesForPost(int postId, {String? token}) async {
     try {
       final response = await _apiClient.get(
-        ApiEndpoints.repliesForPost(postId),
-        token: token, // Pass token if provided/needed
+        ApiEndpoints.repliesForPost(postId), token: token,
       );
-      return response as List<dynamic>; // Expects List<ReplyDisplay>
+      return response as List<dynamic>;
     } catch (e) {
       print("ReplyService: Failed to fetch replies for post $postId - $e");
       rethrow;
     }
   }
 
-  /// Creates a new reply to a post. Requires user authentication.
+  // --- createReply (no changes needed from previous version) ---
   Future<Map<String, dynamic>> createReply({
     required String token,
     required int postId,
     required String content,
-    int? parentReplyId, // Optional ID of the reply being replied to
+    int? parentReplyId,
   }) async {
     try {
-      final body = {
-        'post_id': postId,
-        'content': content,
-      };
-      // Add parent_reply_id to the body only if it's provided
-      if (parentReplyId != null) {
-        body['parent_reply_id'] = parentReplyId;
-      }
-
+      final body = {'post_id': postId, 'content': content,};
+      if (parentReplyId != null) { body['parent_reply_id'] = parentReplyId; }
       final response = await _apiClient.post(
-        ApiEndpoints.repliesBase,
-        token: token, // Auth token required
-        body: body,
+        ApiEndpoints.repliesBase, token: token, body: body,
       );
-      return response as Map<String, dynamic>; // Expects created ReplyDisplay
+      return response as Map<String, dynamic>;
     } catch (e) {
       print("ReplyService: Failed to create reply for post $postId - $e");
       rethrow;
     }
   }
 
-  /// Deletes a reply. Requires user authentication (author).
-  Future<void> deleteReply({
-    required String token,
-    required int replyId,
-  }) async {
+  // --- deleteReply (no changes needed from previous version) ---
+  Future<void> deleteReply({ required String token, required int replyId, }) async {
     try {
-      await _apiClient.delete(
-        ApiEndpoints.replyDetail(replyId), // Use endpoint for specific reply ID
-        token: token,
-      );
-      // Expects 204 No Content
+      await _apiClient.delete( ApiEndpoints.replyDetail(replyId), token: token,);
     } catch (e) {
       print("ReplyService: Failed to delete reply $replyId - $e");
       rethrow;
     }
   }
 
-  // --- Add Reply Favorite/Unfavorite methods if backend supports them ---
-  // Example:
-  // Future<void> favoriteReply(int replyId, String token) async {
-  //   try {
-  //     await _apiClient.post(ApiEndpoints.replyFavorite(replyId), token: token);
-  //   } catch (e) { rethrow; }
-  // }
-  // Future<void> unfavoriteReply(int replyId, String token) async {
-  //   try {
-  //     await _apiClient.delete(ApiEndpoints.replyFavorite(replyId), token: token);
-  //   } catch (e) { rethrow; }
-  // }
+// --- Favorite methods REMOVED - Assumed handled by FavoriteService ---
+// // Future<void> favoriteReply(...) async { ... }
+// // Future<void> unfavoriteReply(...) async { ... }
 }

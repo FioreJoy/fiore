@@ -1,27 +1,30 @@
+// frontend/lib/screens/profile/profile_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
-import 'package:intl/intl.dart'; // For date formatting
-import 'package:flutter/services.dart'; // For clipboard
+import 'package:intl/intl.dart';
 
-// --- Updated Service Imports ---
-import '../../services/api/auth_service.dart'; // Use AuthService for profile actions
-import '../../services/auth_provider.dart'; // To get token and user state
+// --- Service Imports ---
+import '../../services/api/user_service.dart';
+import '../../services/api/auth_service.dart';
+import '../../services/auth_provider.dart';
 
 // --- Widget Imports ---
-import '../../widgets/custom_card.dart'; // Assuming used for layout?
-import '../../widgets/custom_button.dart'; // For retry button
+import '../../widgets/custom_card.dart';
+import '../../widgets/custom_button.dart';
 
 // --- Theme and Constants ---
 import '../../theme/theme_constants.dart';
-import '../../app_constants.dart'; // For default avatar
+import '../../app_constants.dart';
 
 // --- Navigation Imports ---
-import '../settings/settings_home_screen.dart'; // Updated path
+import '../settings/settings_home_screen.dart';
+import '../settings/settings_feature/account/edit_profile.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  const ProfileScreen({ Key? key }) : super(key: key);
 
   @override
   _ProfileScreenState createState() => _ProfileScreenState();
@@ -29,564 +32,264 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> with AutomaticKeepAliveClientMixin {
   @override
-  bool get wantKeepAlive => true; // Keep state when switching main tabs
+  bool get wantKeepAlive => true;
 
-  bool _isLoading = false;
-  Map<String, dynamic>? _userData; // Store fetched user data
-  String? _error; // Store error message
-  
-  int _communitiesJoined = 0;
-  int _eventsAttended = 0;
-  int _postsCreated = 0;
+  bool _isLoadingProfile = false;
+  bool _isLoadingStats = false;
+  Map<String, dynamic>? _userData;
+  Map<String, dynamic>? _userStats;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initialLoad(); // Call the initial loading logic
+      _loadProfileAndStats();
     });
   }
 
-  Future<void> _initialLoad() async {
+  Future<void> _loadProfileAndStats() async {
+    if (_isLoadingProfile || _isLoadingStats || !mounted) return;
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    if (authProvider.isAuthenticated && _userData == null) {
-      await _loadUserData();
-    } else if (authProvider.isAuthenticated) {
-      await _loadUserStats();
-    }
-  }
-
-  Future<void> _loadUserData() async {
-    if (_isLoading) return;
-
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-    if (authProvider.token == null) {
-      if (mounted) {
-        setState(() {
-          _error = "Not authenticated.";
-          _isLoading = false;
-        });
-      }
+    if (!authProvider.isAuthenticated || authProvider.token == null) {
+      if (mounted) setState(() { _userData=null; _userStats=null; _error="Please log in"; _isLoadingProfile=false; _isLoadingStats=false; });
       return;
     }
-
+    setState(() { _isLoadingProfile=true; _isLoadingStats=true; _error=null; });
     try {
-      final userData = await authService.getCurrentUserProfile(authProvider.token!);
-      if (mounted) {
-        setState(() {
-          _userData = userData;
-          _isLoading = false;
-        });
-        await _loadUserStats();
-      }
+      final results = await Future.wait([
+        _fetchProfileData(authProvider.token!),
+        _fetchStatsData(authProvider.token!),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _userData = results[0]; _userStats = results[1] ?? {}; // Ensure stats is map even if null
+        _isLoadingProfile=false; _isLoadingStats=false;
+        if (_userData == null) _error = "Failed to load profile data.";
+        if (results[1] == null) print("Warning: Failed to load user stats.");
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = "Failed to load profile data: $e";
-          _isLoading = false;
-        });
-      }
+      print("Error loading profile/stats: $e");
+      if (mounted) setState(() { _error="Failed to load data: ${e.toString().replaceFirst("Exception: ", "")}"; _isLoadingProfile=false; _isLoadingStats=false; });
     }
   }
 
-  Future<void> _loadUserStats() async {
+  Future<Map<String, dynamic>?> _fetchProfileData(String token) async {
     final authService = Provider.of<AuthService>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-    if (authProvider.token == null) {
-      print("Cannot load stats: Not authenticated.");
-      return;
-    }
-
-    try {
-      final stats = await authService.getUserStats(authProvider.token!);
-      if (mounted) {
-        setState(() {
-          _communitiesJoined = stats['communities_joined'] ?? 0;
-          _eventsAttended = stats['events_attended'] ?? 0;
-          _postsCreated = stats['posts_created'] ?? 0;
-        });
-      }
-    } catch (e) {
-      print("Error loading user stats: $e");
-    }
+    try { return await authService.getCurrentUserProfile(token); }
+    catch (e) { print("Error fetching profile data: $e"); return null; }
   }
 
-  // Define the missing methods
-  String formatDateTime(String dateTime) {
-    final date = DateTime.parse(dateTime);
-    return DateFormat('MMM dd, yyyy').format(date);
-  }
-void _navigateToSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const SettingsHomeScreen()), // Use renamed screen
-    ).then((_) {
-      // Refresh data when returning from settings in case profile was updated
-      print("ProfileScreen: Returning from settings, reloading data...");
-      _loadUserData(); // Trigger reload
-    });
-  }
-  void _editProfile() {
-    // Implement the edit profile functionality
+  Future<Map<String, dynamic>?> _fetchStatsData(String token) async {
+    final userService = Provider.of<UserService>(context, listen: false);
+    try { return await userService.getMyStats(token); }
+    catch (e) { print("Error fetching stats data: $e"); return null; }
   }
 
-  void _shareProfile() {
-    // Implement the share profile functionality
+  void _navigateToSettings() {
+    Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsHomeScreen()),)
+        .then((_) => _loadProfileAndStats());
   }
 
-  String formatLocation(dynamic locationData) {
+  void _navigateToEditProfile() async {
+    final result = await Navigator.push<bool>(context, MaterialPageRoute(builder: (context) => const EditProfileScreen()),);
+    if (result == true && mounted) { _loadProfileAndStats(); }
+  }
+
+  String _formatDateTime(String? dateTimeString) {
+    if (dateTimeString == null) return 'N/A';
+    try { return DateFormat('MMM d, yyyy').format(DateTime.parse(dateTimeString).toLocal()); }
+    catch (e) { return 'Invalid Date'; }
+  }
+
+  String _formatLocation(dynamic locationData, String? address) {
+    if (address != null && address.isNotEmpty) return address;
     if (locationData is Map) {
-      final lon = locationData['longitude'];
-      final lat = locationData['latitude'];
-      if (lon is num && lat is num) return '(${lon.toStringAsFixed(4)}, ${lat.toStringAsFixed(4)})';
-    } else if (locationData is String && locationData.isNotEmpty) return locationData;
-    return '(0,0)';
+      final lon = locationData['longitude']; final lat = locationData['latitude'];
+      if (lon is num && lat is num && (lon != 0 || lat != 0)) { return '(${lon.toStringAsFixed(3)}, ${lat.toStringAsFixed(3)})'; }
+    } else if (locationData is String && locationData.isNotEmpty && locationData != '(0,0)') { return locationData; }
+    return 'Not set';
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-
     final authProvider = Provider.of<AuthProvider>(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
     if (!authProvider.isAuthenticated && _userData != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() { _userData = null; _error = null; });
+        if (mounted) setState(() { _userData=null; _userStats=null; _error="Please log in."; _isLoadingProfile=false; _isLoadingStats=false; });
       });
-    } else if (authProvider.isAuthenticated && _userData == null && !_isLoading && _error == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _loadUserData();
-      });
+    } else if (authProvider.isAuthenticated && _userData == null && !_isLoadingProfile && _error == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _loadProfileAndStats(); });
     }
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Profile'),
-        actions: [
-          if (authProvider.isAuthenticated)
-            IconButton(icon: const Icon(Icons.settings_outlined), tooltip: 'Settings', onPressed: _navigateToSettings),
-        ],
-        elevation: 1,
+        actions: [ if (authProvider.isAuthenticated) IconButton(icon: const Icon(Icons.settings_outlined), tooltip: 'Settings', onPressed: _navigateToSettings)],
+        elevation: 0,
+        backgroundColor: isDark ? ThemeConstants.backgroundDarker : Colors.grey.shade50,
       ),
       body: RefreshIndicator(
-        onRefresh: _loadUserData,
+        onRefresh: _loadProfileAndStats,
         child: _buildBody(authProvider, isDark),
       ),
     );
   }
 
+  // **** MOVE HELPER METHODS INSIDE THE STATE CLASS ****
+
   Widget _buildBody(AuthProvider authProvider, bool isDark) {
-    if (_isLoading && _userData == null) {
+    if ((_isLoadingProfile || _isLoadingStats) && _userData == null && _userStats == null) {
       return _buildLoadingShimmer(isDark);
-    } else if (!authProvider.isAuthenticated) {
-      return _buildNotLoggedInView(isDark);
-    } else if (_error != null) {
-      return _buildErrorView(_error!, isDark);
-    } else if (_userData != null) {
-      return _buildProfileView(isDark);
-    } else {
-      return const Center(child: Text("Loading profile..."));
     }
+    if (!authProvider.isAuthenticated) {
+      return _buildNotLoggedInView(isDark);
+    }
+    if (_error != null) {
+      return _buildErrorView(_error!, isDark);
+    }
+    if (_userData != null) {
+      return _buildProfileView(isDark);
+    }
+    return const Center(child: CircularProgressIndicator());
   }
 
   Widget _buildProfileView(bool isDark) {
-    final String name = _userData!['name'] ?? 'N/A';
-    final String username = _userData!['username'] ?? 'N/A';
-    final String email = _userData!['email'] ?? 'N/A';
-    final String gender = _userData!['gender'] ?? 'N/A';
-    final String college = _userData!['college'] ?? 'N/A';
-    final String? imageUrl = Provider.of<AuthProvider>(context, listen: false).userImageUrl ?? _userData!['image_url'];
-    final List<String> interests = List<String>.from(_userData!['interests'] ?? []);
-    final String joinedDate = formatDateTime(_userData!['created_at']);
-    final String lastSeen = formatDateTime(_userData!['last_seen']);
-    final location = _userData!['current_location'];
+    final String name = _userData?['name'] ?? 'User';
+    final String username = _userData?['username'] ?? 'username';
+    // final String email = _userData?['email'] ?? 'No email'; // Hide email for privacy?
+    final String gender = _userData?['gender'] ?? 'Not specified';
+    final String college = _userData?['college'] ?? 'Not specified';
+    final String? imageUrl = context.read<AuthProvider>().userImageUrl ?? _userData?['image_url'];
+    final List<String> interests = List<String>.from(_userData?['interests'] ?? []);
+    final String joinedDate = _formatDateTime(_userData?['created_at']);
+    final String lastSeen = _formatDateTime(_userData?['last_seen']);
+    final String displayLocation = _formatLocation(_userData?['current_location'], _userData?['current_location_address']);
 
-    final int joinedCommunities = _communitiesJoined;
-    final int joinedEvents = _eventsAttended;
-    final int posts = _postsCreated;
-    final int followers = _userData!['followers_count'] as int? ?? 0;
+    final int followersCount = _userData?['followers_count'] ?? 0;
+    final int followingCount = _userData?['following_count'] ?? 0;
+    final int communitiesJoined = _userStats?['communities_joined'] ?? 0;
+    final int eventsAttended = _userStats?['events_attended'] ?? 0;
+    final int postsCreated = _userStats?['posts_created'] ?? 0;
 
-    final Color headerStartColor = isDark
-        ? ThemeConstants.accentColor.withOpacity(0.7)
-        : ThemeConstants.accentColor.withOpacity(0.1);
-    final Color headerEndColor = isDark
-        ? ThemeConstants.accentColor.withOpacity(0.3)
-        : ThemeConstants.accentColor.withOpacity(0.05);
+    final Color headerStartColor = isDark ? ThemeConstants.accentColor.withOpacity(0.1) : ThemeConstants.primaryColor.withOpacity(0.05);
+    final Color headerEndColor = isDark ? Colors.black.withOpacity(0.0) : Colors.grey.shade50;
 
     return ListView(
       padding: EdgeInsets.zero,
       children: [
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [headerStartColor, headerEndColor],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(30),
-              bottomRight: Radius.circular(30),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, 5),
+        // --- Header Section ---
+        Container( /* ... Header Container ... */
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            decoration: BoxDecoration( gradient: LinearGradient(colors: [headerStartColor, headerEndColor], begin: Alignment.topCenter, end: Alignment.bottomCenter)),
+            child: Column(children: [ Row(children: [
+              Container( /* ... Avatar Container ... */
+                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Theme.of(context).cardColor, width: 3), boxShadow: ThemeConstants.softShadow()),
+                child: CircleAvatar(radius: 45, backgroundColor: Colors.grey.shade300, backgroundImage: imageUrl != null && imageUrl.isNotEmpty ? CachedNetworkImageProvider(imageUrl) : const NetworkImage(AppConstants.defaultAvatar) as ImageProvider),
               ),
-            ],
-          ),
-          padding: const EdgeInsets.fromLTRB(ThemeConstants.mediumPadding,
-                                            ThemeConstants.mediumPadding,
-                                            ThemeConstants.mediumPadding,
-                                            ThemeConstants.largePadding),
-          child: Column(
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white,
-                        width: 3,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 10,
-                        ),
-                      ],
-                    ),
-                    child: CircleAvatar(
-                      radius: 45,
-                      backgroundColor: Colors.grey.shade300,
-                      backgroundImage: imageUrl != null && imageUrl.isNotEmpty
-                          ? CachedNetworkImageProvider(imageUrl)
-                          : const NetworkImage(AppConstants.defaultAvatar) as ImageProvider,
-                    ),
-                  ),
-                  const SizedBox(width: ThemeConstants.mediumPadding),
-
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white : Colors.black87,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '@$username',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: isDark ? Colors.white70 : Colors.black54,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Joined: $joinedDate',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isDark ? Colors.white60 : Colors.black45,
-                          ),
-                        ),
-                        Text(
-                          'Last Seen: $lastSeen',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isDark ? Colors.white60 : Colors.black45,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-
-              Padding(
-                padding: const EdgeInsets.only(top: ThemeConstants.mediumPadding),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: _editProfile,
-                      icon: const Icon(Icons.edit, size: 18),
-                      label: const Text('Edit Profile'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isDark ? Colors.white : ThemeConstants.accentColor,
-                        foregroundColor: isDark ? ThemeConstants.accentColor : Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                    ),
-
-                    OutlinedButton.icon(
-                      onPressed: _shareProfile,
-                      icon: const Icon(Icons.share, size: 18),
-                      label: const Text('Share Profile'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: isDark ? Colors.white : ThemeConstants.accentColor,
-                        side: BorderSide(
-                          color: isDark ? Colors.white : ThemeConstants.accentColor,
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+              const SizedBox(width: 16),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 4), Text("@$username", style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey.shade600)),
+                const SizedBox(height: 6), Text('Joined: $joinedDate', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey.shade500)),
+              ])),
+            ]), const SizedBox(height: 20), Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+              Expanded(child: OutlinedButton.icon(icon: const Icon(Icons.edit_outlined, size: 18), label: const Text('Edit Profile'), onPressed: _navigateToEditProfile, style: OutlinedButton.styleFrom(foregroundColor: isDark ? ThemeConstants.accentColor : ThemeConstants.primaryColor, side: BorderSide(color: isDark ? ThemeConstants.accentColor.withOpacity(0.5) : ThemeConstants.primaryColor.withOpacity(0.5)), padding: const EdgeInsets.symmetric(vertical: 10), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))))),
+              const SizedBox(width: 16),
+              Expanded(child: OutlinedButton.icon(icon: const Icon(Icons.share_outlined, size: 18), label: const Text('Share'), onPressed: () {}, style: OutlinedButton.styleFrom(foregroundColor: isDark ? Colors.white70 : Colors.black54, side: BorderSide(color: isDark ? Colors.grey.shade700 : Colors.grey.shade300), padding: const EdgeInsets.symmetric(vertical: 10), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))))),
+            ])])
         ),
-
-        Padding(
-          padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSectionTitle('Stats', isDark),
-              const SizedBox(height: 8),
-
-              Row(
-                children: [
-                  _buildStatCard(
-                    context,
-                    icon: Icons.people,
-                    value: joinedCommunities.toString(),
-                    label: 'Communities',
-                    isDark: isDark,
-                  ),
-                  _buildStatCard(
-                    context,
-                    icon: Icons.event,
-                    value: joinedEvents.toString(),
-                    label: 'Events',
-                    isDark: isDark,
-                  ),
-                  _buildStatCard(
-                    context,
-                    icon: Icons.forum,
-                    value: posts.toString(),
-                    label: 'Posts',
-                    isDark: isDark,
-                  ),
-                  _buildStatCard(
-                    context,
-                    icon: Icons.person_add,
-                    value: followers.toString(),
-                    label: 'Followers',
-                    isDark: isDark,
-                  ),
-                ],
-              ),
-            ],
-          ),
+        // --- Stats Section ---
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 16.0), // Adjusted padding
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+            _buildStatItem(context, value: followersCount.toString(), label: 'Followers', isDark: isDark),
+            _buildStatItem(context, value: followingCount.toString(), label: 'Following', isDark: isDark),
+            _buildStatItem(context, value: postsCreated.toString(), label: 'Posts', isDark: isDark),
+          ]),
         ),
-
-        const Divider(),
-
-        Padding(
-          padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSectionTitle('About Me', isDark),
-              _buildDetailItem(Icons.email_outlined, 'Email', email, isDark),
-              _buildDetailItem(Icons.wc_outlined, 'Gender', gender, isDark),
-              _buildDetailItem(Icons.school_outlined, 'College', college, isDark),
-              _buildDetailItem(Icons.location_on_outlined, 'Location', formatLocation(location), isDark),
-            ],
-          ),
-        ),
-
-        const Divider(),
-
-        Padding(
-          padding: const EdgeInsets.all(ThemeConstants.mediumPadding),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSectionTitle('Interests', isDark),
-              const SizedBox(height: 10),
-              interests.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.only(left: 16.0, top: 8.0),
-                    child: Text(
-                      'No interests added yet.',
-                      style: TextStyle(
-                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  )
-                : Wrap(
-                    spacing: 10.0,
-                    runSpacing: 8.0,
-                    children: interests.map((interest) => Chip(
-                      avatar: Icon(
-                        Icons.local_offer,
-                        size: 16,
-                        color: ThemeConstants.accentColor,
-                      ),
-                      label: Text(interest),
-                      backgroundColor: isDark
-                          ? ThemeConstants.accentColor.withOpacity(0.2)
-                          : ThemeConstants.accentColor.withOpacity(0.1),
-                      labelStyle: TextStyle(
-                        color: isDark ? Colors.white : ThemeConstants.accentColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: BorderSide(
-                          color: ThemeConstants.accentColor.withOpacity(0.4),
-                          width: 1,
-                        ),
-                      ),
-                    )).toList(),
-                  ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: ThemeConstants.largePadding),
+        const Divider(height: 1),
+        // --- About Section ---
+        Padding(padding: const EdgeInsets.all(16.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _buildSectionTitle('About', isDark),
+          _buildDetailItem(Icons.wc_outlined, 'Gender', gender, isDark),
+          _buildDetailItem(Icons.school_outlined, 'College', college, isDark),
+          _buildDetailItem(Icons.location_on_outlined, 'Location', displayLocation, isDark),
+        ])),
+        // --- Interests Section ---
+        if (interests.isNotEmpty) ...[ const Divider(height: 1), Padding(padding: const EdgeInsets.all(16.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _buildSectionTitle('Interests', isDark), const SizedBox(height: 8),
+          Wrap(spacing: 8.0, runSpacing: 8.0, children: interests.map((interest) => Chip(label: Text(interest), labelStyle: TextStyle(fontSize: 13, color: isDark ? ThemeConstants.primaryColor : ThemeConstants.accentColor), backgroundColor: isDark ? ThemeConstants.accentColor.withOpacity(0.8) : ThemeConstants.accentColor.withOpacity(0.1), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), side: BorderSide.none)).toList()),
+        ]))],
+        // --- Activity Section ---
+        const Divider(height: 1), Padding(padding: const EdgeInsets.all(16.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _buildSectionTitle('Activity', isDark),
+          _buildDetailItem(Icons.group_work_outlined, 'Communities Joined', communitiesJoined.toString(), isDark),
+          _buildDetailItem(Icons.event_available_outlined, 'Events Attended', eventsAttended.toString(), isDark),
+        ])),
+        const SizedBox(height: 30),
       ],
     );
   }
 
-  Widget _buildStatCard(BuildContext context, {
-    required IconData icon,
-    required String value,
-    required String label,
-    required bool isDark,
-  }) {
-    return Expanded(
-      child: Card(
-        elevation: 2,
-        shadowColor: Colors.black26,
-        color: isDark ? Colors.grey.shade800 : Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 8.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                color: ThemeConstants.accentColor,
-                size: 22,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : Colors.black87,
-                ),
-              ),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  // --- Helper Widgets (Now INSIDE the State class) ---
+  Widget _buildStatItem(BuildContext context, {required String value, required String label, required bool isDark}) {
+    return Column( mainAxisSize: MainAxisSize.min, children: [
+      Text(value, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+      const SizedBox(height: 2), Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey.shade500)),
+    ]);
   }
 
   Widget _buildSectionTitle(String title, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: isDark ? ThemeConstants.accentColor : ThemeConstants.primaryColor,
-        ),
-      ),
-    );
+    return Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87));
   }
 
   Widget _buildDetailItem(IconData icon, String label, String value, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? ThemeConstants.accentColor.withOpacity(0.2)
-                  : ThemeConstants.accentColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              icon,
-              size: 20,
-              color: isDark ? ThemeConstants.accentColor : ThemeConstants.accentColor,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
-                  ),
-                ),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    return Padding(padding: const EdgeInsets.symmetric(vertical: 8.0), child: Row(children: [
+      Icon(icon, size: 20, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+      const SizedBox(width: 16),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(value.isNotEmpty ? value : 'Not specified', style: Theme.of(context).textTheme.bodyMedium),
+        Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey.shade500)),
+      ])),
+    ]));
   }
 
-  Widget _buildLoadingShimmer(bool isDark) { /* Keep original */ final baseColor = isDark ? Colors.grey.shade800 : Colors.grey.shade300; final highlightColor = isDark ? Colors.grey.shade700 : Colors.grey.shade100; return Shimmer.fromColors( baseColor: baseColor, highlightColor: highlightColor, child: ListView( padding: const EdgeInsets.all(ThemeConstants.mediumPadding), children: [ Row( children: [ const CircleAvatar(radius: 45), const SizedBox(width: ThemeConstants.mediumPadding), Expanded( child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Container(width: 150, height: 20, color: Colors.white), const SizedBox(height: 8), Container(width: 100, height: 16, color: Colors.white), const SizedBox(height: 8), Container(width: 120, height: 14, color: Colors.white),],),),],), const SizedBox(height: ThemeConstants.largePadding), const Divider(), const SizedBox(height: ThemeConstants.mediumPadding), Container(width: double.infinity, height: 20, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)), Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), Container(width: double.infinity, height: 16, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), const SizedBox(height: ThemeConstants.mediumPadding), Container(width: double.infinity, height: 20, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)), Wrap( spacing: 8.0, runSpacing: 4.0, children: List.generate(5, (_) => Chip(label: Container(width: 60, height: 14, color: Colors.white))),),],),); }
-  Widget _buildNotLoggedInView(bool isDark) { /* Keep original */ return Center( child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [ Icon(Icons.person_off_outlined, size: 80, color: isDark ? Colors.grey.shade700 : Colors.grey.shade400), const SizedBox(height: 20), Text('Please log in to view your profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade500 : Colors.grey.shade700)), const SizedBox(height: 8), Text('Manage your communities, posts, and settings', style: TextStyle(fontSize: 14, color: isDark ? Colors.grey.shade600 : Colors.grey.shade600)), const SizedBox(height: 24), ElevatedButton( onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false), style: ElevatedButton.styleFrom(backgroundColor: ThemeConstants.accentColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)), child: const Text('Log In'),),],),); }
-  Widget _buildErrorView(String message, bool isDark) { /* Keep original */ return Center( child: Padding( padding: const EdgeInsets.all(16.0), child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [ Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 60), const SizedBox(height: 16), Text(message, textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: isDark ? Colors.grey.shade300 : Colors.grey.shade700)), const SizedBox(height: 24), CustomButton( text: 'Retry', icon: Icons.refresh, onPressed: _loadUserData, type: ButtonType.secondary,),],),),); }
+  Widget _buildLoadingShimmer(bool isDark) {
+    final base = isDark?Colors.grey[800]!:Colors.grey[300]!; final high = isDark?Colors.grey[700]!:Colors.grey[100]!;
+    return Shimmer.fromColors(baseColor: base, highlightColor: high, child: ListView(padding: EdgeInsets.zero, children: [
+      Container(height: 180, color: Colors.white), // Simulate header area
+      Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+        Row(children: List.generate(3, (_) => Expanded(child: Container(height: 70, margin: const EdgeInsets.symmetric(horizontal: 4), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)))))), // Simulate stats cards
+        const SizedBox(height: 24), Container(height: 20, width: 100, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)), // Simulate section header
+        Container(height: 16, width: double.infinity, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)), // Simulate detail line
+        Container(height: 16, width: double.infinity, color: Colors.white, margin: const EdgeInsets.only(bottom: 8)),
+        Container(height: 16, width: double.infinity, color: Colors.white, margin: const EdgeInsets.only(bottom: 16)),
+        Container(height: 20, width: 100, color: Colors.white, margin: const EdgeInsets.only(bottom: 12)), // Simulate section header
+        Container(height: 50, width: double.infinity, color: Colors.white, margin: const EdgeInsets.only(bottom: 16)), // Simulate interests/activity
+      ]))
+    ]));
+  }
+
+  Widget _buildNotLoggedInView(bool isDark) {
+    return Center(child: Padding(padding: const EdgeInsets.all(20.0), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(Icons.person_off_outlined, size: 80, color: isDark ? Colors.grey.shade700 : Colors.grey.shade400),
+      const SizedBox(height: 20), Text('Please log in to view your profile', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: isDark ? Colors.grey.shade500 : Colors.grey.shade700)),
+      const SizedBox(height: 8), Text('Manage your profile, activity, and settings.', style: TextStyle(fontSize: 14, color: isDark ? Colors.grey.shade600 : Colors.grey.shade600)),
+      const SizedBox(height: 24), ElevatedButton(onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false), style: ElevatedButton.styleFrom(backgroundColor: ThemeConstants.accentColor, foregroundColor: ThemeConstants.primaryColor, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)), child: const Text('Log In'))
+    ])));
+  }
+
+  Widget _buildErrorView(String message, bool isDark) {
+    return Center( child: Padding( padding: const EdgeInsets.all(16.0), child: Column( mainAxisSize: MainAxisSize.min, children: [
+      const Icon(Icons.error_outline, color: ThemeConstants.errorColor, size: 48), const SizedBox(height: 16),
+      Text(message, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)), const SizedBox(height: 24),
+      CustomButton( text: 'Retry', icon: Icons.refresh, onPressed: _loadProfileAndStats, type: ButtonType.secondary,), // Use combined load function
+    ],),),);
+  }
+
+// **** Closing brace for _ProfileScreenState ****
 }
