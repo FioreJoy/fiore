@@ -31,109 +31,104 @@ import 'theme/light_theme.dart';
 import 'theme/dark_theme.dart';
 
 // --- App Constants ---
-import 'app_constants.dart';
+import 'app_constants.dart'; // For AppConstants.appName
 
 void main() async {
+  // Ensure Flutter binding is initialized for async operations before runApp
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize providers that need async initialization BEFORE runApp
+  // AuthProvider handles its own async _tryAutoLogin in its constructor.
+  // ThemeProvider handles its own async _loadTheme in its constructor.
   final authProvider = AuthProvider();
-  await authProvider.loadToken();
-
   final themeProvider = ThemeProvider();
+
+  // Wait for initial loading to complete to avoid flicker or race conditions
+  // A better approach might be a splash screen that waits for these futures.
+  // For now, a simple await if these providers expose a "ready" future.
+  // Since AuthProvider loads in constructor and isLoading handles UI, this is okay.
 
   runApp(
     MultiProvider(
       providers: [
-        Provider<ApiClient>(create: (_) => ApiClient()), // Removed dispose
-        Provider<WebSocketService>(create: (_) => WebSocketService()), // Removed dispose
-        Provider<LocationService>(create: (_) => LocationService()),
-
-        ChangeNotifierProvider.value(value: authProvider),
-        ChangeNotifierProvider.value(value: themeProvider),
-
-        ProxyProvider<ApiClient, AuthService>(update: (_, apiClient, __) => AuthService(apiClient)),
-        ProxyProvider<ApiClient, UserService>(update: (_, apiClient, __) => UserService(apiClient)),
-        ProxyProvider<ApiClient, CommunityService>(update: (_, apiClient, __) => CommunityService(apiClient)),
-        ProxyProvider<ApiClient, EventService>(update: (_, apiClient, __) => EventService(apiClient)),
-        ProxyProvider<ApiClient, PostService>(update: (_, apiClient, __) => PostService(apiClient)),
-        ProxyProvider<ApiClient, ReplyService>(update: (_, apiClient, __) => ReplyService(apiClient)),
-        ProxyProvider<ApiClient, VoteService>(update: (_, apiClient, __) => VoteService(apiClient)),
-        ProxyProvider<ApiClient, ChatService>(update: (_, apiClient, __) => ChatService(apiClient)),
-        ProxyProvider<ApiClient, SettingsService>(update: (_, apiClient, __) => SettingsService(apiClient)),
-        ProxyProvider<ApiClient, BlockService>(update: (_, apiClient, __) => BlockService(apiClient)),
-        ProxyProvider<ApiClient, FavoriteService>(update: (_, apiClient, __) => FavoriteService(apiClient)),
-
-        ProxyProvider<ApiClient, NotificationService>(
-          create: (context) {
-            print("--- ProxyProvider: CREATE NotificationService ---");
-            final apiClient = context.read<ApiClient>();
-            if (apiClient == null) {
-              print("  ERROR creating NotificationService: ApiClient is NULL!");
-              throw StateError("ApiClient was null during NotificationService creation.");
-            }
-            final ns = NotificationService(apiClient);
-            print("  NotificationService instance CREATED: ${ns.runtimeType}");
-            return ns;
-          },
-          update: (context, apiClient, previous) {
-            print("--- ProxyProvider: UPDATE NotificationService ---");
-            if (apiClient == null) {
-              print("  ERROR updating NotificationService: ApiClient is NULL!");
-              throw StateError("ApiClient was null during NotificationService update.");
-            }
-            if (previous == null) {
-              print("  previous NotificationService is null, creating new.");
-              return NotificationService(apiClient);
-            }
-            print("  Re-using/creating NotificationService with (potentially new) ApiClient.");
-            return NotificationService(apiClient);
-          },
+        // --- Foundational Services (Singletons, no UI state change) ---
+        // ApiClient is provided once and used by other API services.
+        Provider<ApiClient>(
+          create: (_) => ApiClient(),
+          dispose: (_, apiClient) => apiClient.dispose(), // Ensure client is closed
+        ),
+        // WebSocketService: Manages its own lifecycle, provided as a singleton.
+        Provider<WebSocketService>(
+          create: (_) => WebSocketService(),
+          dispose: (_, wsService) => wsService.dispose(),
+        ),
+        // LocationService: For Nominatim/Photon, no internal state tied to ApiClient.
+        Provider<LocationService>(
+          create: (_) => LocationService(),
         ),
 
-        ChangeNotifierProxyProvider<AuthProvider, NotificationProvider>(
+        // --- State Management Providers (ChangeNotifier) ---
+        // AuthProvider manages authentication state and notifies UI.
+        ChangeNotifierProvider<AuthProvider>.value(value: authProvider),
+        // ThemeProvider manages theme state and notifies UI.
+        ChangeNotifierProvider<ThemeProvider>.value(value: themeProvider),
+
+        // --- API Service Providers (Depend on ApiClient, stateless themselves) ---
+        // Use ProxyProvider to inject ApiClient into these services.
+        ProxyProvider<ApiClient, AuthService>(
+          update: (_, apiClient, __) => AuthService(apiClient),
+        ),
+        ProxyProvider<ApiClient, UserService>(
+          update: (_, apiClient, __) => UserService(apiClient),
+        ),
+        ProxyProvider<ApiClient, CommunityService>(
+          update: (_, apiClient, __) => CommunityService(apiClient),
+        ),
+        ProxyProvider<ApiClient, EventService>(
+          update: (_, apiClient, __) => EventService(apiClient),
+        ),
+        ProxyProvider<ApiClient, PostService>(
+          update: (_, apiClient, __) => PostService(apiClient),
+        ),
+        ProxyProvider<ApiClient, ReplyService>(
+          update: (_, apiClient, __) => ReplyService(apiClient),
+        ),
+        ProxyProvider<ApiClient, VoteService>(
+          update: (_, apiClient, __) => VoteService(apiClient),
+        ),
+        ProxyProvider<ApiClient, FavoriteService>(
+          update: (_, apiClient, __) => FavoriteService(apiClient),
+        ),
+        ProxyProvider<ApiClient, ChatService>(
+          update: (_, apiClient, __) => ChatService(apiClient),
+        ),
+        ProxyProvider<ApiClient, SettingsService>(
+          update: (_, apiClient, __) => SettingsService(apiClient),
+        ),
+        ProxyProvider<ApiClient, BlockService>(
+          update: (_, apiClient, __) => BlockService(apiClient),
+        ),
+        ProxyProvider<ApiClient, NotificationService>(
+          update: (_, apiClient, __) => NotificationService(apiClient),
+        ),
+
+        // --- Complex State Providers (Depend on other services/providers) ---
+        // NotificationProvider depends on NotificationService and AuthProvider.
+        ChangeNotifierProxyProvider2<NotificationService, AuthProvider, NotificationProvider>(
           create: (context) {
-            print("--- ChangeNotifierProxyProvider: CREATE NotificationProvider ---");
-            NotificationService? notificationService;
-            AuthProvider? authProviderInstance;
-            try {
-              notificationService = context.read<NotificationService>();
-              print("  NotificationService read successfully: ${notificationService.runtimeType}");
-            } catch (e, s) {
-              print("  ERROR reading NotificationService in create: $e");
-              print(s);
-              throw StateError("Failed to read NotificationService during NotificationProvider create: $e");
-            }
-
-            try {
-              authProviderInstance = context.read<AuthProvider>();
-              print("  AuthProvider read successfully: ${authProviderInstance.runtimeType}");
-            } catch (e, s) {
-              print("  ERROR reading AuthProvider in create: $e");
-              print(s);
-              throw StateError("Failed to read AuthProvider during NotificationProvider create: $e");
-            }
-
-            print("  Dependencies read. Creating NotificationProvider instance...");
-            final np = NotificationProvider(notificationService, authProviderInstance);
-            print("  NotificationProvider instance CREATED: ${np.runtimeType}");
-            return np;
+            final notificationService = context.read<NotificationService>();
+            final authProviderForNotif = context.read<AuthProvider>();
+            print("Main: Creating NotificationProvider with NotificationService: ${notificationService.runtimeType}, AuthProvider: ${authProviderForNotif.runtimeType}");
+            return NotificationProvider(notificationService, authProviderForNotif);
           },
-          update: (context, auth, previousProvider) {
-            print("--- ChangeNotifierProxyProvider: UPDATE NotificationProvider ---");
-            print("  AuthProvider changed. New auth state: ${auth.isAuthenticated}");
-            NotificationService? notificationService;
-            try {
-              notificationService = context.read<NotificationService>();
-              print("  NotificationService read successfully in update: ${notificationService.runtimeType}");
-            } catch (e, s) {
-              print("  ERROR reading NotificationService in update: $e");
-              print(s);
-              throw StateError("Failed to read NotificationService during NotificationProvider update: $e");
-            }
-
-            print("  Creating new NotificationProvider instance with updated auth.");
-            return NotificationProvider(notificationService, auth);
+          update: (context, notificationService, authProviderForNotif, previousNotificationProvider) {
+            print("Main: Updating NotificationProvider. Auth isAuthenticated: ${authProviderForNotif.isAuthenticated}");
+            // Re-create NotificationProvider if dependencies change,
+            // or update existing one if it supports it.
+            // Here, we create a new one to ensure fresh state with new dependencies.
+            return NotificationProvider(notificationService, authProviderForNotif);
           },
+          // dispose: (_, provider) => provider.dispose(), // Add if NotificationProvider has a dispose method
         ),
       ],
       child: const MyApp(),
@@ -146,15 +141,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    print("--- MyApp BUILD ---");
+    // Watch providers to rebuild MyApp when their state changes.
     final authProvider = context.watch<AuthProvider>();
     final themeProvider = context.watch<ThemeProvider>();
 
-    print("  AuthProvider isLoading: ${authProvider.isLoading}, isAuthenticated: ${authProvider.isAuthenticated}");
-    print("  ThemeProvider isLoading: ${themeProvider.isLoading}, themeMode: ${themeProvider.themeMode}");
+    print("MyApp build: Auth isLoading: ${authProvider.isLoading}, Auth isAuthenticated: ${authProvider.isAuthenticated}, Theme isLoading: ${themeProvider.isLoading}");
 
+    // Show a loading screen while initial auth and theme are loading.
     if (authProvider.isLoading || themeProvider.isLoading) {
-      print("  MyApp: Showing loading indicator.");
       return const MaterialApp(
         debugShowCheckedModeBanner: false,
         home: Scaffold(
@@ -163,7 +157,6 @@ class MyApp extends StatelessWidget {
       );
     }
 
-    print("  MyApp: Showing main content (Login or MainNavigationScreen).");
     return MaterialApp(
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
@@ -174,8 +167,10 @@ class MyApp extends StatelessWidget {
           ? const MainNavigationScreen()
           : const LoginScreen(),
       routes: {
+        // Define named routes for cleaner navigation if needed
         '/login': (context) => const LoginScreen(),
         '/main': (context) => const MainNavigationScreen(),
+        // Add other routes here
       },
     );
   }

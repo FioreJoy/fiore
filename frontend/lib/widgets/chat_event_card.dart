@@ -6,39 +6,41 @@ import 'package:intl/intl.dart'; // For date formatting
 
 class ChatEventCard extends StatelessWidget {
   final EventModel event;
-  final bool isJoined;
-  final bool isSelected; // Added previously
+  final bool isJoined; // This is now based on event.isParticipatingByViewer
+  final bool isSelected;
   final VoidCallback? onTap;
-  final VoidCallback? onJoin;
+  final VoidCallback? onJoin; // This might be deprecated if join handled differently
   final bool showJoinButton;
-  final Widget? trailingWidget; // <-- ADD THIS FIELD
+  final Widget? trailingWidget;
 
   const ChatEventCard({
     Key? key,
     required this.event,
-    required this.isJoined,
-    this.isSelected = false, // Default to false
+    required this.isJoined, // Keep for UI consistency, but source it from event.isParticipatingByViewer
+    this.isSelected = false,
     this.onTap,
     this.onJoin,
     this.showJoinButton = true,
-    this.trailingWidget, // <-- ADD TO CONSTRUCTOR
+    this.trailingWidget,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    // Example formatting (adjust as needed)
-    final formattedDate = DateFormat('MMM d, ').format(event.dateTime);
-    final formattedTime = DateFormat('h:mm a').format(event.dateTime);
+    // final isDark = theme.brightness == Brightness.dark; // Not directly used, but kept for context
+
+    // Use getters from EventModel for formatted date/time
+    final formattedDate = event.formattedDate;
+    final formattedTime = event.formattedTime;
+    final bool effectiveIsJoined = event.isParticipatingByViewer ?? isJoined; // Prioritize from model
 
     return Card(
-      elevation: isSelected ? 4 : 1, // Highlight if selected
-      margin: EdgeInsets.zero, // Margin handled by parent usually
+      elevation: isSelected ? 4 : 1,
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius / 2),
         side: BorderSide(
-          color: isSelected ? theme.primaryColor : Colors.transparent, // Border if selected
+          color: isSelected ? theme.primaryColor : Colors.transparent,
           width: 1.5,
         ),
       ),
@@ -47,25 +49,23 @@ class ChatEventCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(ThemeConstants.cardBorderRadius / 2),
         child: Padding(
           padding: const EdgeInsets.all(10.0),
-          child: Row( // Use Row for layout
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Optional: Event Image or Icon
-              if (event.imageUrl != null)
+              if (event.imageUrl != null && event.imageUrl!.isNotEmpty) // Use imageUrl directly
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8.0),
-                  child: Image.network(
+                  child: Image.network( // Assuming imageUrl is a full URL from pre-signed
                     event.imageUrl!,
                     width: 50, height: 50, fit: BoxFit.cover,
                     errorBuilder: (ctx, err, st) => const Icon(Icons.event, size: 40, color: Colors.grey),
                   ),
                 )
               else
-                Icon(Icons.event_note, size: 40, color: theme.primaryColor.withOpacity(0.7)),
+                Icon(Icons.event_note_outlined, size: 40, color: theme.primaryColor.withOpacity(0.7)),
 
               const SizedBox(width: 12),
 
-              // Event Info Column
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -78,17 +78,18 @@ class ChatEventCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${formattedDate}at $formattedTime',
+                      '$formattedDate at $formattedTime', // Use model's formatted getters
                       style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
                     ),
                     Text(
-                      '${event.participants.length} / ${event.maxParticipants} joined', // Show participant count
+                      // Use event.participantCount from the model
+                      '${event.participantCount} / ${event.maxParticipants} joined',
                       style: theme.textTheme.bodySmall?.copyWith(color: event.isFull ? Colors.orange.shade700 : Colors.grey.shade600),
                     ),
-                    if (event.location.isNotEmpty) ...[
+                    if (event.locationAddress.isNotEmpty) ...[ // Use locationAddress
                       const SizedBox(height: 2),
                       Text(
-                        event.location,
+                        event.locationAddress, // Use locationAddress
                         style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -98,7 +99,6 @@ class ChatEventCard extends StatelessWidget {
                 ),
               ),
 
-              // Actions Column (Join Button / Trailing Widget)
               Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -108,19 +108,16 @@ class ChatEventCard extends StatelessWidget {
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         textStyle: const TextStyle(fontSize: 12),
-                        backgroundColor: isJoined ? Colors.grey : theme.primaryColor, // Style based on join status
+                        backgroundColor: effectiveIsJoined ? Colors.grey : theme.primaryColor,
                         foregroundColor: Colors.white,
-                        minimumSize: const Size(60, 30), // Ensure minimum size
+                        minimumSize: const Size(60, 30),
                       ),
-                      child: Text(isJoined ? 'Leave' : 'Join'),
+                      child: Text(effectiveIsJoined ? 'Leave' : (event.isFull ? 'Full' : 'Join')),
                     ),
-
-                  // --- ADD TRAILING WIDGET HERE ---
                   if (trailingWidget != null) ...[
-                    if(showJoinButton) const SizedBox(height: 4), // Add space if join button is also shown
+                    if(showJoinButton && onJoin != null) const SizedBox(height: 4),
                     trailingWidget!,
                   ]
-                  // -------------------------------
                 ],
               ),
             ],

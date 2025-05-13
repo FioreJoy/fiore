@@ -1,5 +1,9 @@
 // frontend/lib/services/api/reply_service.dart
 
+import 'dart:io'; // For File type
+import 'package:http/http.dart' as http; // For MultipartFile
+import 'package:http_parser/http_parser.dart'; // For MediaType
+
 import '../api_client.dart';
 import '../api_endpoints.dart';
 
@@ -9,7 +13,6 @@ class ReplyService {
 
   ReplyService(this._apiClient);
 
-  // --- getRepliesForPost (no changes needed from previous version) ---
   Future<List<dynamic>> getRepliesForPost(int postId, {String? token}) async {
     try {
       final response = await _apiClient.get(
@@ -22,18 +25,49 @@ class ReplyService {
     }
   }
 
-  // --- createReply (no changes needed from previous version) ---
+  /// Creates a new reply, optionally with multiple media files.
   Future<Map<String, dynamic>> createReply({
     required String token,
     required int postId,
     required String content,
     int? parentReplyId,
+    List<File>? images, // Changed from single File to List<File>
   }) async {
     try {
-      final body = {'post_id': postId, 'content': content,};
-      if (parentReplyId != null) { body['parent_reply_id'] = parentReplyId; }
-      final response = await _apiClient.post(
-        ApiEndpoints.repliesBase, token: token, body: body,
+      // Backend expects Form data for text fields and files
+      final fields = {
+        'post_id': postId.toString(), // Ensure IDs are strings for form fields
+        'content': content,
+      };
+      if (parentReplyId != null) {
+        fields['parent_reply_id'] = parentReplyId.toString();
+      }
+
+      List<http.MultipartFile>? filesToUpload;
+      if (images != null && images.isNotEmpty) {
+        filesToUpload = [];
+        for (var imageFile in images) {
+          String? mimeType;
+          final extension = imageFile.path.split('.').last.toLowerCase();
+          if (extension == 'jpg' || extension == 'jpeg') mimeType = 'image/jpeg';
+          else if (extension == 'png') mimeType = 'image/png';
+          else if (extension == 'gif') mimeType = 'image/gif';
+
+          filesToUpload.add(await http.MultipartFile.fromPath(
+            'files', // Backend expects a list under the key 'files'
+            imageFile.path,
+            contentType: mimeType != null ? MediaType.parse(mimeType) : null,
+          ));
+        }
+      }
+
+      // Use multipartRequest from ApiClient
+      final response = await _apiClient.multipartRequest(
+        'POST', // Method
+        ApiEndpoints.repliesBase, // Endpoint
+        token: token,
+        fields: fields,
+        files: filesToUpload,
       );
       return response as Map<String, dynamic>;
     } catch (e) {
@@ -42,7 +76,6 @@ class ReplyService {
     }
   }
 
-  // --- deleteReply (no changes needed from previous version) ---
   Future<void> deleteReply({ required String token, required int replyId, }) async {
     try {
       await _apiClient.delete( ApiEndpoints.replyDetail(replyId), token: token,);
@@ -51,8 +84,4 @@ class ReplyService {
       rethrow;
     }
   }
-
-// --- Favorite methods REMOVED - Assumed handled by FavoriteService ---
-// // Future<void> favoriteReply(...) async { ... }
-// // Future<void> unfavoriteReply(...) async { ... }
 }

@@ -1,5 +1,6 @@
+// frontend/lib/widgets/custom_button.dart
 import 'package:flutter/material.dart';
-import '../theme/theme_constants.dart';
+import '../theme/theme_constants.dart'; // Ensure this path is correct
 
 enum ButtonType {
   primary,
@@ -16,6 +17,11 @@ class CustomButton extends StatelessWidget {
   final bool isLoading;
   final bool isFullWidth;
   final EdgeInsets? padding;
+  final Color? backgroundColor; // <-- ADDED
+  final Color? foregroundColor; // <-- ADDED
+  final Color? borderColor;     // <-- ADDED (useful for outline type)
+  final double? height;          // <-- ADDED (optional height)
+  final double? fontSize;        // <-- ADDED (optional font size)
 
   const CustomButton({
     Key? key,
@@ -26,6 +32,11 @@ class CustomButton extends StatelessWidget {
     this.isLoading = false,
     this.isFullWidth = false,
     this.padding,
+    this.backgroundColor, // <-- ADDED
+    this.foregroundColor, // <-- ADDED
+    this.borderColor,     // <-- ADDED
+    this.height,          // <-- ADDED
+    this.fontSize,        // <-- ADDED
   }) : super(key: key);
 
   @override
@@ -33,88 +44,88 @@ class CustomButton extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // Get colors based on button type
-    Color backgroundColor;
-    Color textColor;
-    Color borderColor;
+    // Determine default colors based on button type if custom ones are not provided
+    Color effectiveBackgroundColor;
+    Color effectiveForegroundColor;
+    Color effectiveBorderColor;
 
     switch (type) {
       case ButtonType.primary:
-        backgroundColor = theme.colorScheme.primary;
-        textColor = Colors.white;
-        borderColor = Colors.transparent;
+        effectiveBackgroundColor = backgroundColor ?? theme.colorScheme.primary;
+        effectiveForegroundColor = foregroundColor ?? (ThemeData.estimateBrightnessForColor(effectiveBackgroundColor) == Brightness.dark ? Colors.white : Colors.black);
+        effectiveBorderColor = borderColor ?? Colors.transparent;
         break;
       case ButtonType.secondary:
-        backgroundColor = theme.colorScheme.secondary;
-        textColor = Colors.white;
-        borderColor = Colors.transparent;
+        effectiveBackgroundColor = backgroundColor ?? theme.colorScheme.secondary;
+        effectiveForegroundColor = foregroundColor ?? (ThemeData.estimateBrightnessForColor(effectiveBackgroundColor) == Brightness.dark ? Colors.white : Colors.black);
+        effectiveBorderColor = borderColor ?? Colors.transparent;
         break;
       case ButtonType.outline:
-        backgroundColor = Colors.transparent;
-        textColor = isDark ? Colors.white : theme.colorScheme.primary;
-        borderColor = isDark ? Colors.white : theme.colorScheme.primary;
+        effectiveBackgroundColor = backgroundColor ?? Colors.transparent;
+        effectiveForegroundColor = foregroundColor ?? (isDark ? ThemeConstants.accentColor : theme.colorScheme.primary);
+        effectiveBorderColor = borderColor ?? (isDark ? ThemeConstants.accentColor.withOpacity(0.7) : theme.colorScheme.primary);
         break;
       case ButtonType.text:
-        backgroundColor = Colors.transparent;
-        textColor = isDark ? Colors.white : theme.colorScheme.primary;
-        borderColor = Colors.transparent;
+        effectiveBackgroundColor = backgroundColor ?? Colors.transparent;
+        effectiveForegroundColor = foregroundColor ?? (isDark ? ThemeConstants.accentColor : theme.colorScheme.primary);
+        effectiveBorderColor = borderColor ?? Colors.transparent;
         break;
     }
 
-    // Button content with optional icon and loader
     Widget buttonContent = Row(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         if (isLoading)
           SizedBox(
-            width: 20,
-            height: 20,
+            width: (fontSize ?? 16) * 1.25, // Scale loader with font size
+            height: (fontSize ?? 16) * 1.25,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(textColor),
+              valueColor: AlwaysStoppedAnimation<Color>(effectiveForegroundColor),
             ),
           )
         else if (icon != null)
-          Icon(icon, size: 20, color: textColor),
+          Icon(icon, size: (fontSize ?? 16) * 1.1, color: effectiveForegroundColor), // Scale icon
         if ((icon != null || isLoading) && text.isNotEmpty)
           const SizedBox(width: 8),
         if (text.isNotEmpty)
           Text(
             text,
             style: TextStyle(
-              fontSize: 16,
+              fontSize: fontSize ?? 16,
               fontWeight: FontWeight.bold,
-              color: textColor,
+              color: effectiveForegroundColor,
             ),
           ),
       ],
     );
 
-    // Base button with styling
+    final buttonStyle = ElevatedButton.styleFrom(
+      backgroundColor: effectiveBackgroundColor,
+      foregroundColor: effectiveForegroundColor,
+      disabledBackgroundColor: effectiveBackgroundColor.withOpacity(0.5),
+      disabledForegroundColor: effectiveForegroundColor.withOpacity(0.5),
+      side: (type == ButtonType.outline || (borderColor != null && borderColor != Colors.transparent))
+          ? BorderSide(color: effectiveBorderColor, width: 1.5)
+          : null,
+      padding: padding ?? const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ThemeConstants.buttonBorderRadius),
+      ),
+      elevation: type == ButtonType.text || type == ButtonType.outline ? 0 : 2,
+      shadowColor: type == ButtonType.text || type == ButtonType.outline
+          ? Colors.transparent
+          : Colors.black.withOpacity(0.15),
+      minimumSize: height != null ? Size(0, height!) : null, // Apply height if provided
+    );
+
     final button = ElevatedButton(
       onPressed: isLoading ? null : onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: backgroundColor,
-        foregroundColor: textColor,
-        disabledBackgroundColor: backgroundColor.withOpacity(0.6),
-        disabledForegroundColor: textColor.withOpacity(0.6),
-        side: type == ButtonType.outline
-            ? BorderSide(color: borderColor, width: 1.5)
-            : null,
-        padding: padding ?? EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        elevation: type == ButtonType.text || type == ButtonType.outline ? 0 : 2,
-        shadowColor: type == ButtonType.text || type == ButtonType.outline
-            ? Colors.transparent
-            : Colors.black.withOpacity(0.2),
-      ),
+      style: buttonStyle,
       child: buttonContent,
     );
 
-    // Optionally wrap in a container for full width
     return isFullWidth
         ? SizedBox(width: double.infinity, child: button)
         : button;

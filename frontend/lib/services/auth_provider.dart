@@ -1,125 +1,156 @@
 // frontend/lib/services/auth_provider.dart
 
-import 'dart:async'; // For StreamController
-import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AuthProvider with ChangeNotifier {
   String? _token;
   String? _userId;
   String? _userImageUrl;
-  bool _isTryingAutoLogin = true;
+  bool _isLoading = true; // True initially, set to false after auto-login attempt
 
   final _storage = const FlutterSecureStorage();
-  static const _tokenKey = 'authToken';
-  static const _userIdKey = 'userId';
-  static const _imageUrlKey = 'userImageUrl';
+  static const _tokenKey = 'auth_token';
+  static const _userIdKey = 'user_id';
+  static const _imageUrlKey = 'user_image_url';
 
-  // --- Stream for auth state changes ---
-  // Broadcasting this provider instance itself when auth state changes.
   final StreamController<AuthProvider> _userStateController = StreamController<AuthProvider>.broadcast();
-  Stream<AuthProvider> get userStream => _userStateController.stream;
-  // --- End Stream ---
-
+  Stream<AuthProvider> get userStateStream => _userStateController.stream;
 
   AuthProvider() {
+    print("AuthProvider: Initializing...");
+    // _tryAutoLogin is async, constructor completes. isLoading=true handles UI.
     _tryAutoLogin();
   }
 
   @override
   void dispose() {
-    _userStateController.close(); // Close the stream controller
+    print("AuthProvider: Disposing.");
+    _userStateController.close();
     super.dispose();
-    print("AuthProvider disposed.");
   }
 
-  // --- Getters ---
-  bool get isAuthenticated => _token != null;
+  bool get isAuthenticated => _token != null && _userId != null;
   String? get token => _token;
   String? get userId => _userId;
   String? get userImageUrl => _userImageUrl;
-  bool get isTryingAutoLogin => _isTryingAutoLogin; // Keep for initial loading UI
-  bool get isLoading => _isTryingAutoLogin; // For compatibility if some UI uses isLoading
-
-  Future<void> loadToken() async => await _tryAutoLogin(); // For compatibility
-
-  // --- Actions ---
-
-  Future<void> loginSuccess(String token, String userId, String? imageUrl) async {
-    _token = token;
-    _userId = userId;
-    _userImageUrl = imageUrl;
-
-    await _storage.write(key: _tokenKey, value: token);
-    await _storage.write(key: _userIdKey, value: userId);
-    if (imageUrl != null && imageUrl.isNotEmpty) {
-      await _storage.write(key: _imageUrlKey, value: imageUrl);
-    } else {
-      await _storage.delete(key: _imageUrlKey);
-    }
-
-    _isTryingAutoLogin = false; // No longer trying auto login
-    print("AuthProvider: Login Success Persisted - User: $userId, Image: $imageUrl");
-    notifyListeners();
-    if (!_userStateController.isClosed) _userStateController.add(this); // Notify stream listeners
-  }
+  bool get isLoading => _isLoading;
 
   Future<void> _tryAutoLogin() async {
-    // Ensure isTryingAutoLogin is true at the start of this specific operation
-    if (!_isTryingAutoLogin) { // Guard against multiple calls if already resolved
-      _isTryingAutoLogin = true;
-      notifyListeners(); // Notify if state is explicitly changed
-    }
+    print("AuthProvider: Attempting auto-login...");
+    // Keep _isLoading = true until this method completes.
+    // Only notify if there's an actual change in auth state or after loading finishes.
+    String? tempToken, tempUserId, tempImageUrl;
+    bool initialAuthStatus = isAuthenticated; // Auth status before trying
 
-    final storedToken = await _storage.read(key: _tokenKey);
-    final storedUserId = await _storage.read(key: _userIdKey);
-    final storedImageUrl = await _storage.read(key: _imageUrlKey);
+    try {
+      tempToken = await _storage.read(key: _tokenKey);
+      tempUserId = await _storage.read(key: _userIdKey);
+      tempImageUrl = await _storage.read(key: _imageUrlKey);
 
-    if (storedToken != null && storedUserId != null) {
-      _token = storedToken;
-      _userId = storedUserId;
-      _userImageUrl = storedImageUrl;
-      print("AuthProvider: Auto-login successful for User: $storedUserId");
-    } else {
-      print("AuthProvider: No credentials found for auto-login.");
+      if (tempToken != null && tempToken.isNotEmpty &&
+          tempUserId != null && tempUserId.isNotEmpty) {
+        _token = tempToken;
+        _userId = tempUserId;
+        _userImageUrl = tempImageUrl;
+        print("AuthProvider: Auto-login successful for User ID: $_userId");
+      } else {
+        _token = null;
+        _userId = null;
+        _userImageUrl = null;
+        print("AuthProvider: No valid credentials for auto-login.");
+      }
+    } catch (e) {
+      print("AuthProvider: Error during auto-login storage read: $e");
       _token = null;
       _userId = null;
       _userImageUrl = null;
+    } finally {
+      // This block executes regardless of try/catch outcome.
+      // Set isLoading to false and notify listeners of this change and any auth state change.
+      if (_isLoading || initialAuthStatus != isAuthenticated) {
+        _isLoading = false;
+        notifyListeners(); // Notifies about isLoading change and potential auth state change
+        if (!_userStateController.isClosed) _userStateController.add(this);
+        print("AuthProvider: Auto-login attempt finished. isLoading: false, isAuthenticated: $isAuthenticated");
+      } else {
+        // If isLoading was already false (e.g., multiple calls) and auth state didn't change, no need to notify.
+        _isLoading = false; // Ensure it's false
+      }
     }
-    _isTryingAutoLogin = false;
-    notifyListeners();
-    if (!_userStateController.isClosed) _userStateController.add(this); // Notify stream listeners
+  }
+
+  Future<void> loginSuccess(String token, String userId, String? imageUrl) async {
+    bool stateChanged = (_token != token || _userId != userId || _userImageUrl != imageUrl || _isLoading);
+
+    _token = token;
+    _userId = userId;
+    _userImageUrl = imageUrl;
+    _isLoading = false;
+
+    try {
+      await _storage.write(key: _tokenKey, value: token);
+      await _storage.write(key: _userIdKey, value: userId);
+      if (imageUrl != null && imageUrl.isNotEmpty) {
+        await _storage.write(key: _imageUrlKey, value: imageUrl);
+      } else {
+        await _storage.delete(key: _imageUrlKey);
+      }
+      print("AuthProvider: Login Success - User: $userId, Token & Image URL persisted.");
+    } catch (e) {
+      print("AuthProvider: Error persisting login data: $e");
+    }
+
+    if (stateChanged) {
+      notifyListeners();
+      if (!_userStateController.isClosed) _userStateController.add(this);
+    }
   }
 
   Future<void> logout() async {
+    bool stateChanged = (_token != null || _userId != null || _userImageUrl != null || _isLoading);
+
     _token = null;
     _userId = null;
     _userImageUrl = null;
-    await _storage.delete(key: _tokenKey);
-    await _storage.delete(key: _userIdKey);
-    await _storage.delete(key: _imageUrlKey);
-    print("AuthProvider: User logged out.");
+    _isLoading = false;
 
-    if (_isTryingAutoLogin) { // Ensure this flag is reset if logout happens during auto-login attempt
-      _isTryingAutoLogin = false;
+    try {
+      await _storage.delete(key: _tokenKey);
+      await _storage.delete(key: _userIdKey);
+      await _storage.delete(key: _imageUrlKey);
+      print("AuthProvider: User logged out, credentials cleared.");
+    } catch (e) {
+      print("AuthProvider: Error clearing stored credentials during logout: $e");
     }
-    notifyListeners();
-    if (!_userStateController.isClosed) _userStateController.add(this); // Notify stream listeners
+    if(stateChanged){
+      notifyListeners();
+      if (!_userStateController.isClosed) _userStateController.add(this);
+    }
   }
 
   Future<void> updateUserImageUrl(String? newImageUrl) async {
-    if (_userImageUrl != newImageUrl) {
-      _userImageUrl = newImageUrl;
+    if (_userImageUrl == newImageUrl && !_isLoading) return; // No change needed and not loading
+
+    bool wasLoading = _isLoading;
+    _userImageUrl = newImageUrl;
+    _isLoading = false; // Assume image update means primary loading is done
+
+    try {
       if (newImageUrl != null && newImageUrl.isNotEmpty) {
         await _storage.write(key: _imageUrlKey, value: newImageUrl);
       } else {
         await _storage.delete(key: _imageUrlKey);
       }
-      print("AuthProvider: Updated user image URL to $newImageUrl");
+      print("AuthProvider: Updated user image URL to '$newImageUrl' and persisted.");
+    } catch (e) {
+      print("AuthProvider: Error persisting updated image URL: $e");
+    }
+    // Notify if image changed or if it resolved an initial loading state
+    if (_userImageUrl != newImageUrl || wasLoading) {
       notifyListeners();
-      // No need to notify _userStateController here as only image URL changed, not auth state.
-      // However, if some parts of UI react to userImageUrl via userStream, then add it.
-      // For now, assuming image URL change doesn't alter fundamental auth state.
+      if (!_userStateController.isClosed) _userStateController.add(this);
     }
   }
 }
