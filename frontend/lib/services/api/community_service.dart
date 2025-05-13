@@ -12,15 +12,12 @@ class CommunityService {
 
   CommunityService(this._apiClient);
 
-  /// Fetches a list of all communities, including counts.
-  /// Auth token optional (needed for viewer join status if implemented).
   Future<List<dynamic>> getCommunities({String? token}) async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.communitiesBase,
         token: token,
       );
-      // Backend now returns List<CommunityDisplay> with counts included
       return response as List<dynamic>;
     } catch (e) {
       print("CommunityService: Failed to fetch communities - $e");
@@ -28,15 +25,12 @@ class CommunityService {
     }
   }
 
-  /// Fetches a list of trending communities, including counts.
-  /// Auth token optional.
   Future<List<dynamic>> getTrendingCommunities({String? token}) async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.communitiesTrending,
         token: token,
       );
-      // Backend now returns List<CommunityDisplay> with counts included
       return response as List<dynamic>;
     } catch (e) {
       print("CommunityService: Failed to fetch trending communities - $e");
@@ -44,15 +38,12 @@ class CommunityService {
     }
   }
 
-  /// Fetches details for a specific community, including counts.
-  /// Auth token optional (needed for viewer join status).
   Future<Map<String, dynamic>> getCommunityDetails(int communityId, {String? token}) async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.communityDetail(communityId),
         token: token,
       );
-      // Backend now returns CommunityDisplay with counts included
       return response as Map<String, dynamic>;
     } catch (e) {
       print("CommunityService: Failed to fetch community details for ID $communityId - $e");
@@ -60,13 +51,12 @@ class CommunityService {
     }
   }
 
-  /// Creates a new community. Requires auth token.
   Future<Map<String, dynamic>> createCommunity({
     required String token,
     required String name,
     String? description,
-    required String primaryLocation, // e.g., "(lon,lat)"
-    String? interest, // Made optional to match backend router
+    required String primaryLocation,
+    String? interest,
     File? logo,
   }) async {
     try {
@@ -74,7 +64,6 @@ class CommunityService {
         'name': name,
         'primary_location': primaryLocation,
       };
-      // Only include optional fields if they have a value
       if (description != null && description.isNotEmpty) fields['description'] = description;
       if (interest != null && interest.isNotEmpty) fields['interest'] = interest;
 
@@ -84,7 +73,6 @@ class CommunityService {
       final response = await _apiClient.multipartRequest(
         'POST', ApiEndpoints.communitiesBase, token: token, fields: fields, files: files,
       );
-      // Expects created CommunityDisplay with counts
       return response as Map<String, dynamic>;
     } catch (e) {
       print("CommunityService: Failed to create community '$name' - $e");
@@ -92,20 +80,17 @@ class CommunityService {
     }
   }
 
-  /// Updates community details (excluding logo). Requires auth token (creator).
   Future<Map<String, dynamic>> updateCommunityDetails({
     required String token,
     required int communityId,
-    required Map<String, String> fieldsToUpdate, // Pass only changed fields
+    required Map<String, String> fieldsToUpdate,
   }) async {
     try {
-      // Use PUT with JSON body for text updates
       final response = await _apiClient.put(
-        ApiEndpoints.communityBaseId(communityId), // Endpoint for specific community PUT/DELETE
+        ApiEndpoints.communityBaseId(communityId),
         token: token,
         body: fieldsToUpdate,
       );
-      // Expects updated CommunityDisplay with counts
       return response as Map<String, dynamic>;
     } catch (e) {
       print("CommunityService: Failed to update details for community $communityId - $e");
@@ -113,23 +98,20 @@ class CommunityService {
     }
   }
 
-  /// Updates community logo. Requires auth token (creator).
   Future<Map<String, dynamic>> updateCommunityLogo({
     required String token,
     required int communityId,
     required File logo,
   }) async {
     try {
-      // Use POST to the dedicated logo endpoint
       final files = [await http.MultipartFile.fromPath('logo', logo.path)];
       final response = await _apiClient.multipartRequest(
         'POST',
         ApiEndpoints.communityUpdateLogo(communityId),
         token: token,
-        fields: {}, // No extra fields needed
+        fields: {},
         files: files,
       );
-      // Expects updated CommunityDisplay with counts
       return response as Map<String, dynamic>;
     } catch (e) {
       print("CommunityService: Failed to update logo for community $communityId - $e");
@@ -137,14 +119,11 @@ class CommunityService {
     }
   }
 
-
-  /// Joins the current user to a specific community. Requires auth token.
   Future<Map<String, dynamic>> joinCommunity(int communityId, String token) async {
     try {
       final response = await _apiClient.post(
         ApiEndpoints.communityJoin(communityId), token: token,
       );
-      // Expects response like {'message':..., 'success':..., 'new_counts':{...}}
       return response as Map<String, dynamic>;
     } catch (e) {
       print("CommunityService: Failed to join community $communityId - $e");
@@ -152,13 +131,11 @@ class CommunityService {
     }
   }
 
-  /// Makes the current user leave a specific community. Requires auth token.
   Future<Map<String, dynamic>> leaveCommunity(int communityId, String token) async {
     try {
       final response = await _apiClient.delete(
         ApiEndpoints.communityLeave(communityId), token: token,
       );
-      // Expects response like {'message':..., 'success':..., 'new_counts':{...}}
       return response as Map<String, dynamic>;
     } catch (e) {
       print("CommunityService: Failed to leave community $communityId - $e");
@@ -166,22 +143,17 @@ class CommunityService {
     }
   }
 
-  /// Deletes a community (requires ownership). Requires auth token.
   Future<void> deleteCommunity(int communityId, String token) async {
     try {
       await _apiClient.delete(
-        ApiEndpoints.communityBaseId(communityId), token: token, // Use base ID endpoint
+        ApiEndpoints.communityBaseId(communityId), token: token,
       );
-      // Expects 204 No Content
     } catch (e) {
       print("CommunityService: Failed to delete community $communityId - $e");
       rethrow;
     }
   }
 
-  // --- Community Post Linking ---
-
-  /// Adds an existing post to a community. Requires auth token.
   Future<Map<String, dynamic>> addPostToCommunity({
     required int communityId, required int postId, required String token,
   }) async {
@@ -189,14 +161,13 @@ class CommunityService {
       final response = await _apiClient.post(
         ApiEndpoints.communityPostLink(communityId, postId), token: token,
       );
-      return response as Map<String, dynamic>; // Expects {'message': ..., 'success': ...}
+      return response as Map<String, dynamic>;
     } catch (e) {
       print("CommunityService: Failed to add post $postId to community $communityId - $e");
       rethrow;
     }
   }
 
-  /// Removes a post from a community. Requires auth token.
   Future<Map<String, dynamic>> removePostFromCommunity({
     required int communityId, required int postId, required String token,
   }) async {
@@ -204,13 +175,38 @@ class CommunityService {
       final response = await _apiClient.delete(
         ApiEndpoints.communityPostLink(communityId, postId), token: token,
       );
-      return response as Map<String, dynamic>; // Expects {'message': ..., 'success': ...}
+      return response as Map<String, dynamic>;
     } catch (e) {
       print("CommunityService: Failed to remove post $postId from community $communityId - $e");
       rethrow;
     }
   }
 
-// Note: Listing/Creating events FOR a community uses EventService but calls
-// community-scoped endpoints like ApiEndpoints.communityListEvents(id)
+  // --- NEW METHOD to get community members ---
+  /// Fetches the list of members for a specific community.
+  /// Auth token is optional but might be needed if the endpoint is protected
+  /// or if viewer-specific information (like follow status of members) is returned.
+  Future<List<dynamic>> getCommunityMembers(int communityId, {String? token, int limit = 50, int offset = 0}) async {
+    try {
+      // Assuming an endpoint like /communities/{id}/members
+      // Update ApiEndpoints.dart if this new endpoint is added
+      final String endpoint = '${ApiEndpoints.communityBaseId(communityId)}/members';
+      final queryParams = {
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      };
+
+      final response = await _apiClient.get(
+        endpoint,
+        token: token,
+        queryParams: queryParams,
+      );
+      // Expects a List of user-like objects (e.g., matching UserBase or a simpler MemberInfo schema)
+      return response as List<dynamic>? ?? []; // Handle null response defensively
+    } catch (e) {
+      print("CommunityService: Failed to fetch members for community $communityId - $e");
+      rethrow;
+    }
+  }
+// --- END NEW METHOD ---
 }

@@ -81,6 +81,9 @@ class ApiEndpoints {
   // --- WebSocket ---
   static String websocketRoomPath(String type, int id) => '/ws/$type/$id';
 
+
+  static const String feedFollowing = '/feed/following';
+
   // --- GraphQL ---
   static const String graphql = '/graphql';
 }

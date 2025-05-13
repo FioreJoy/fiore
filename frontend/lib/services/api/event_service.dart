@@ -1,26 +1,22 @@
 // frontend/lib/services/api/event_service.dart
 
-import 'dart:io';
-import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart'; // Usually not needed in service layer
+import 'dart:io'; // For File type
+import 'package:http/http.dart' as http; // For MultipartFile
+import 'package:http_parser/http_parser.dart'; // For MediaType
 
 import '../api_client.dart';
 import '../api_endpoints.dart';
 
-/// Service responsible for event-related API calls.
 class EventService {
   final ApiClient _apiClient;
 
   EventService(this._apiClient);
 
-  /// Fetches details for a specific event, including participant count.
-  /// Auth token optional (needed for viewer participation status).
   Future<Map<String, dynamic>> getEventDetails(int eventId, {String? token}) async {
     try {
       final response = await _apiClient.get(
         ApiEndpoints.eventDetail(eventId), token: token,
       );
-      // Backend returns EventDisplay with participant_count included
       return response as Map<String, dynamic>;
     } catch (e) {
       print("EventService: Failed to fetch event details for ID $eventId - $e");
@@ -28,50 +24,93 @@ class EventService {
     }
   }
 
-  /// Fetches events for a specific community, including participant counts.
-  /// Auth token optional.
-  Future<List<dynamic>> getCommunityEvents(int communityId, {String? token}) async {
+  Future<List<dynamic>> getCommunityEvents(int communityId, {String? token, int? limit, int? offset}) async {
     try {
+      // Backend /communities/{community_id}/events does NOT currently take limit/offset
+      // So we ignore them here. If backend is updated, this can be changed.
+      final queryParams = <String, String>{};
+      // if (limit != null) queryParams['limit'] = limit.toString();
+      // if (offset != null) queryParams['offset'] = offset.toString();
+
       final response = await _apiClient.get(
-        ApiEndpoints.communityListEvents(communityId), token: token, // Use correct endpoint
+        ApiEndpoints.communityListEvents(communityId),
+        token: token,
+        queryParams: queryParams.isNotEmpty ? queryParams : null,
       );
-      // Backend returns List<EventDisplay> with participant_count included
-      return response as List<dynamic>;
+      return response as List<dynamic>? ?? [];
     } catch (e) {
       print("EventService: Failed to fetch events for community ID $communityId - $e");
       rethrow;
     }
   }
 
-  /// Creates a new event within a specific community. Requires auth token.
+  Future<List<dynamic>> getNearbyEvents({
+    required String? token,
+    required double latitude,
+    required double longitude,
+    required double radiusKm,
+    int limit = 20, // Backend for /location/events/nearby is assumed to support these
+    int offset = 0,
+  }) async {
+    try {
+      final queryParams = {
+        'latitude': latitude.toString(),
+        'longitude': longitude.toString(),
+        'radius_km': radiusKm.toString(),
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      };
+      final response = await _apiClient.get(
+        ApiEndpoints.nearbyEvents,
+        token: token,
+        queryParams: queryParams,
+      );
+      return response as List<dynamic>? ?? [];
+    } catch (e) {
+      print("EventService: Failed to fetch nearby events (Lat: $latitude, Lon: $longitude, Rad: $radiusKm) - $e");
+      rethrow;
+    }
+  }
+
+  // No general getAllEvents as backend doesn't provide it.
+  // Callers should use getNearbyEvents or getCommunityEvents.
+
   Future<Map<String, dynamic>> createCommunityEvent({
     required String token,
     required int communityId,
     required String title,
     String? description,
-    required String location,
-    required DateTime eventTimestamp, // Pass DateTime object
+    required String locationAddress,
+    required DateTime eventTimestamp,
     required int maxParticipants,
     File? image,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       final fields = {
         'title': title,
-        'location': location,
-        // Format DateTime to ISO8601 UTC string for backend form data
+        'location': locationAddress,
         'event_timestamp': eventTimestamp.toUtc().toIso8601String(),
         'max_participants': maxParticipants.toString(),
       };
       if (description != null && description.isNotEmpty) fields['description'] = description;
+      if (latitude != null) fields['latitude'] = latitude.toString();
+      if (longitude != null) fields['longitude'] = longitude.toString();
 
-      List<http.MultipartFile>? files;
-      if (image != null) { files = [await http.MultipartFile.fromPath('image', image.path)]; }
+      List<http.MultipartFile>? filesToUpload;
+      if (image != null) {
+        String? mimeType;
+        final extension = image.path.split('.').last.toLowerCase();
+        if (extension == 'jpg' || extension == 'jpeg') mimeType = 'image/jpeg';
+        else if (extension == 'png') mimeType = 'image/png';
+        filesToUpload = [await http.MultipartFile.fromPath('image', image.path, contentType: mimeType != null ? MediaType.parse(mimeType) : null)];
+      }
 
       final response = await _apiClient.multipartRequest(
-        'POST', ApiEndpoints.communityCreateEvent(communityId), // Use correct endpoint
-        token: token, fields: fields, files: files,
+        'POST', ApiEndpoints.communityCreateEvent(communityId),
+        token: token, fields: fields, files: filesToUpload,
       );
-      // Expects created EventDisplay with counts
       return response as Map<String, dynamic>;
     } catch (e) {
       print("EventService: Failed to create event in community $communityId - $e");
@@ -79,31 +118,36 @@ class EventService {
     }
   }
 
-  /// Updates an existing event. Requires auth token (creator).
   Future<Map<String, dynamic>> updateEvent({
     required String token,
     required int eventId,
-    // Pass only fields provided by user
-    String? title, String? description, String? location,
+    String? title, String? description, String? locationAddress,
     DateTime? eventTimestamp, int? maxParticipants,
-    File? image, // Optional new image
+    File? image, double? latitude, double? longitude,
   }) async {
     try {
       final fields = <String, String>{};
-      // Add fields only if they are not null
       if (title != null) fields['title'] = title;
-      if (description != null) fields['description'] = description; // Allow clearing
-      if (location != null) fields['location'] = location;
+      if (description != null) fields['description'] = description;
+      if (locationAddress != null) fields['location_address'] = locationAddress;
       if (eventTimestamp != null) fields['event_timestamp'] = eventTimestamp.toUtc().toIso8601String();
       if (maxParticipants != null) fields['max_participants'] = maxParticipants.toString();
+      if (latitude != null) fields['latitude'] = latitude.toString();
+      if (longitude != null) fields['longitude'] = longitude.toString();
 
-      List<http.MultipartFile>? files;
-      if (image != null) { files = [await http.MultipartFile.fromPath('image', image.path)]; }
+      List<http.MultipartFile>? filesToUpload;
+      if (image != null) {
+        String? mimeType;
+        final extension = image.path.split('.').last.toLowerCase();
+        if (extension == 'jpg' || extension == 'jpeg') mimeType = 'image/jpeg';
+        else if (extension == 'png') mimeType = 'image/png';
+        filesToUpload = [await http.MultipartFile.fromPath('image', image.path, contentType: mimeType != null ? MediaType.parse(mimeType) : null)];
+      }
 
-      final response = await _apiClient.multipartRequest( // Use multipart PUT
-        'PUT', ApiEndpoints.eventDetail(eventId), token: token, fields: fields, files: files,
+      final response = await _apiClient.multipartRequest(
+        'PUT', ApiEndpoints.eventDetail(eventId),
+        token: token, fields: fields, files: filesToUpload,
       );
-      // Expects updated EventDisplay with counts
       return response as Map<String, dynamic>;
     } catch (e) {
       print("EventService: Failed to update event $eventId - $e");
@@ -111,42 +155,32 @@ class EventService {
     }
   }
 
-  /// Deletes an event. Requires auth token (creator).
   Future<void> deleteEvent({ required String token, required int eventId, }) async {
     try {
       await _apiClient.delete( ApiEndpoints.eventDetail(eventId), token: token, );
-      // Expects 204 No Content
     } catch (e) {
       print("EventService: Failed to delete event $eventId - $e");
       rethrow;
     }
   }
 
-  // --- Event Participation ---
-
-  /// Joins the current user to a specific event. Requires auth token.
   Future<Map<String, dynamic>> joinEvent(int eventId, String token) async {
     try {
       final response = await _apiClient.post(
         ApiEndpoints.eventJoin(eventId), token: token,
       );
-      // Expects response like {'message':..., 'success':..., 'new_participant_count':...}
       return response as Map<String, dynamic>;
     } catch (e) {
       print("EventService: Failed to join event $eventId - $e");
-      // Check for specific error messages if backend sends them (e.g., event full)
-      // Example: if (e.toString().contains("Event is full")) ...
       rethrow;
     }
   }
 
-  /// Makes the current user leave a specific event. Requires auth token.
   Future<Map<String, dynamic>> leaveEvent(int eventId, String token) async {
     try {
       final response = await _apiClient.delete(
         ApiEndpoints.eventLeave(eventId), token: token,
       );
-      // Expects response like {'message':..., 'success':..., 'new_participant_count':...}
       return response as Map<String, dynamic>;
     } catch (e) {
       print("EventService: Failed to leave event $eventId - $e");
