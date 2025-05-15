@@ -1,0 +1,35 @@
+# Python virtual environment
+.venv
+venv
+*/venv/
+*/.venv/
+bin/
+include/
+lib/
+pyvenv.cfg
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest cache
+.pytest_cache/
+
+# IDE and OS specific
+.vscode/
+.idea/
+.DS_Store
+*.log
+
+# Git
+.git
+.gitignore
+
+# Local environment files (should be passed as env vars in Docker)
+.env
+local.env
+
+# Other build artifacts or local files
+*.bak
+*.tmp

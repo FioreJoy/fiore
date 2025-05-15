@@ -1,0 +1,93 @@
+services:
+  postgres_age:
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    container_name: fiore_postgres_age
+    environment:
+      POSTGRES_USER: ${DB_USER:-fioreuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fiorepassword}
+      POSTGRES_DB: ${DB_NAME:-fiore}
+    volumes:
+      - postgres_age_data:/var/lib/postgresql/data
+      - ../backend/sql/00_init_age_graph.sql:/docker-entrypoint-initdb.d/00_init_age_graph.sql
+      - ../backend/sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ../backend/sql/password_hashing.sql:/docker-entrypoint-initdb.d/02_initial_passwords.sql
+    ports:
+      - "${DB_PORT_HOST:-5434}:${DB_PORT_CONTAINER:-5432}"
+    networks:
+      - fiore_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-fioreuser} -d $${POSTGRES_DB:-fiore}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    container_name: fiore_minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-fioreminiouser}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-fioreminiopassword}
+      MINIO_PROMETHEUS_AUTH_TYPE: "public"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - fiore_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fiore_backend
+    environment:
+      DB_USER: ${DB_USER:-fioreuser}
+      DB_PASSWORD: ${DB_PASSWORD:-fiorepassword}
+      DB_NAME: ${DB_NAME:-fiore}
+      DB_HOST: postgres_age
+      DB_PORT: ${DB_PORT_CONTAINER:-5432}
+      JWT_SECRET: ${JWT_SECRET:-your_very_secret_key_for_jwt_fiore}
+      MINIO_ENDPOINT: minio:${MINIO_INTERNAL_API_PORT:-9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-fioreminiouser}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-fioreminiopassword}
+      MINIO_BUCKET: ${MINIO_BUCKET:-fiore}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      API_KEY: ${API_KEY:-your_strong_backend_api_key_fiore}
+      PORT: "1163"
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "1163:1163"
+    depends_on:
+      postgres_age:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ../backend/utils:/opt/app/utils
+      - ../backend/tests:/opt/app/tests
+      - ../backend/sql:/opt/app/sql
+    networks:
+      - fiore_network
+    restart: unless-stopped
+
+volumes:
+  postgres_age_data:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  fiore_network:
+    driver: bridge

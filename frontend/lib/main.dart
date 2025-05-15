@@ -1,4 +1,3 @@
-// frontend/lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -27,54 +26,34 @@ import 'services/notification_provider.dart';
 
 // --- Theme Imports ---
 import 'services/theme_provider.dart';
-import 'theme/light_theme.dart';
-import 'theme/dark_theme.dart';
+import 'theme/app_palettes.dart';    // Import AppPalette definitions
+import 'theme/theme_builder.dart'; // Import the theme builder function
 
 // --- App Constants ---
-import 'app_constants.dart'; // For AppConstants.appName
+import 'app_constants.dart';
 
 void main() async {
-  // Ensure Flutter binding is initialized for async operations before runApp
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize providers that need async initialization BEFORE runApp
-  // AuthProvider handles its own async _tryAutoLogin in its constructor.
-  // ThemeProvider handles its own async _loadTheme in its constructor.
   final authProvider = AuthProvider();
   final themeProvider = ThemeProvider();
-
-  // Wait for initial loading to complete to avoid flicker or race conditions
-  // A better approach might be a splash screen that waits for these futures.
-  // For now, a simple await if these providers expose a "ready" future.
-  // Since AuthProvider loads in constructor and isLoading handles UI, this is okay.
 
   runApp(
     MultiProvider(
       providers: [
-        // --- Foundational Services (Singletons, no UI state change) ---
-        // ApiClient is provided once and used by other API services.
         Provider<ApiClient>(
           create: (_) => ApiClient(),
-          dispose: (_, apiClient) => apiClient.dispose(), // Ensure client is closed
+          dispose: (_, apiClient) => apiClient.dispose(),
         ),
-        // WebSocketService: Manages its own lifecycle, provided as a singleton.
         Provider<WebSocketService>(
           create: (_) => WebSocketService(),
           dispose: (_, wsService) => wsService.dispose(),
         ),
-        // LocationService: For Nominatim/Photon, no internal state tied to ApiClient.
         Provider<LocationService>(
           create: (_) => LocationService(),
         ),
-
-        // --- State Management Providers (ChangeNotifier) ---
-        // AuthProvider manages authentication state and notifies UI.
         ChangeNotifierProvider<AuthProvider>.value(value: authProvider),
-        // ThemeProvider manages theme state and notifies UI.
         ChangeNotifierProvider<ThemeProvider>.value(value: themeProvider),
-
-        // --- API Service Providers (Depend on ApiClient, stateless themselves) ---
-        // Use ProxyProvider to inject ApiClient into these services.
         ProxyProvider<ApiClient, AuthService>(
           update: (_, apiClient, __) => AuthService(apiClient),
         ),
@@ -111,43 +90,30 @@ void main() async {
         ProxyProvider<ApiClient, NotificationService>(
           update: (_, apiClient, __) => NotificationService(apiClient),
         ),
-
-        // --- Complex State Providers (Depend on other services/providers) ---
-        // NotificationProvider depends on NotificationService and AuthProvider.
         ChangeNotifierProxyProvider2<NotificationService, AuthProvider, NotificationProvider>(
           create: (context) {
             final notificationService = context.read<NotificationService>();
             final authProviderForNotif = context.read<AuthProvider>();
-            print("Main: Creating NotificationProvider with NotificationService: ${notificationService.runtimeType}, AuthProvider: ${authProviderForNotif.runtimeType}");
             return NotificationProvider(notificationService, authProviderForNotif);
           },
           update: (context, notificationService, authProviderForNotif, previousNotificationProvider) {
-            print("Main: Updating NotificationProvider. Auth isAuthenticated: ${authProviderForNotif.isAuthenticated}");
-            // Re-create NotificationProvider if dependencies change,
-            // or update existing one if it supports it.
-            // Here, we create a new one to ensure fresh state with new dependencies.
             return NotificationProvider(notificationService, authProviderForNotif);
           },
-          // dispose: (_, provider) => provider.dispose(), // Add if NotificationProvider has a dispose method
         ),
       ],
-      child: const MyApp(),
+      child: const FioreApp(),
     ),
   );
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class FioreApp extends StatelessWidget {
+  const FioreApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Watch providers to rebuild MyApp when their state changes.
     final authProvider = context.watch<AuthProvider>();
     final themeProvider = context.watch<ThemeProvider>();
 
-    print("MyApp build: Auth isLoading: ${authProvider.isLoading}, Auth isAuthenticated: ${authProvider.isAuthenticated}, Theme isLoading: ${themeProvider.isLoading}");
-
-    // Show a loading screen while initial auth and theme are loading.
     if (authProvider.isLoading || themeProvider.isLoading) {
       return const MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -157,20 +123,43 @@ class MyApp extends StatelessWidget {
       );
     }
 
+    ThemeData themeToApply;
+    ThemeData darkThemeToApply;
+
+    // If a specific named theme is selected, ThemeProvider.currentTheme already holds the correct ThemeData
+    // and ThemeProvider.themeMode reflects its brightness.
+    if (themeProvider.currentThemeName != fioreLightPalette.name &&
+        themeProvider.currentThemeName != fioreDarkPalette.name &&
+        themeProvider.themeMode != ThemeMode.system) {
+      // A custom palette is active
+      themeToApply = themeProvider.currentTheme; // This IS the custom theme
+      // For MaterialApp, if currentTheme is dark, it should go to darkTheme slot.
+      // If currentTheme is light, it goes to theme slot.
+      // This logic is a bit redundant if themeMode is correctly set by ThemeProvider.
+      if (themeProvider.currentTheme.brightness == Brightness.dark) {
+        darkThemeToApply = themeProvider.currentTheme;
+        themeToApply = buildThemeFromPalette(fioreLightPalette); // Default light
+      } else {
+        darkThemeToApply = buildThemeFromPalette(fioreDarkPalette); // Default dark
+      }
+    } else {
+      // Using system, or explicit Fiore Light/Dark via simple toggle
+      themeToApply = buildThemeFromPalette(fioreLightPalette);
+      darkThemeToApply = buildThemeFromPalette(fioreDarkPalette);
+    }
+
     return MaterialApp(
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
       themeMode: themeProvider.themeMode,
-      theme: lightTheme,
-      darkTheme: darkTheme,
+      theme: themeToApply,
+      darkTheme: darkThemeToApply,
       home: authProvider.isAuthenticated
           ? const MainNavigationScreen()
           : const LoginScreen(),
       routes: {
-        // Define named routes for cleaner navigation if needed
         '/login': (context) => const LoginScreen(),
         '/main': (context) => const MainNavigationScreen(),
-        // Add other routes here
       },
     );
   }
