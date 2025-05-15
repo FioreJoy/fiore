@@ -13,10 +13,12 @@ services:
     volumes:
       - postgres_age_data:/var/lib/postgresql/data
       - ../backend/sql/00_init_age_graph.sql:/docker-entrypoint-initdb.d/00_init_age_graph.sql
+      #- ../backend/sql/00_install_postgis.sql:/docker-entrypoint-initdb.d/00_install_postgis.sql
       - ../backend/sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ../backend/sql/02_create_hoppscotch_db.sql:/docker-entrypoint-initdb.d/02_create_hoppscotch_db.sql
       #- ../backend/sql/password_hashing.sql:/docker-entrypoint-initdb.d/02_initial_passwords.sql
     ports:
-      - "${DB_PORT_HOST:-5434}:${DB_PORT_CONTAINER:-5432}"
+      - "${DB_PORT_HOST:-5454}:${DB_PORT_CONTAINER:-5432}"
     networks:
       - fiore_network
     restart: unless-stopped
@@ -96,6 +98,7 @@ services:
       GRAPH_DB_USER: ${DB_USER:-fioreuser}
       GRAPH_DB_PASSWORD: ${DB_PASSWORD:-fiorepassword}
       GRAPH_DB_NAME: ${DB_NAME:-fiore}
+      DEFAULT_GRAPH_NAME: fiore
     depends_on:
       postgres_age:
         condition: service_healthy
@@ -103,26 +106,54 @@ services:
       - fiore_network
     restart: unless-stopped
 
-  hoppscotch:
-    image: hoppscotch/hoppscotch
-    container_name: fiore_hoppscotch
+  postgres_hoppscotch: # New service for Hoppscotch's dedicated DB
+    image: postgres:16 # Or your preferred plain PostgreSQL version
+    container_name: fiore_postgres_hoppscotch
     environment:
-      JWT_SECRET: ${JWT_SECRET:-your_very_secret_key_for_jwt_fiore}
-      VITE_ALLOWED_AUTH_PROVIDERS: ${VITE_ALLOWED_AUTH_PROVIDERS:-github,google}
-      WHITELISTED_ORIGINS: ${WHITELISTED_ORIGINS:-http://localhost:3000,https://diivvansh.com}
-      DATABASE_URL: "postgresql://fioreuser:fioresecurepassword@postgres_age:5432/hoppscotch"
-      SESSION_SECRET: supersecret123
-      SSO_PROVIDERS: ${SSO_PROVIDERS:-}
-    ports:
-      - "3002:3000"
+      POSTGRES_USER: ${DB_USER_HOPPSCOTCH:-hoppscotchuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD_HOPPSCOTCH:-hoppscotchpass}
+      POSTGRES_DB: ${DB_NAME_HOPPSCOTCH:-hoppscotch}
     volumes:
-      - ./hoppscotch/workspace.json:/app/pwa/public/environment.json:ro
+      - postgres_hoppscotch_data:/var/lib/postgresql/data
+    ports:
+      - "5435:5432" # Expose on a different host port, e.g., 5435
     networks:
       - fiore_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-hoppscotchuser} -d $${POSTGRES_DB:-hoppscotch}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  hoppscotch:
+      image: hoppscotch/hoppscotch
+      container_name: fiore_hoppscotch
+      env_file:
+        - ./.env # Assuming docker/.env
+      environment:
+        JWT_SECRET: ${JWT_SECRET}
+        DATABASE_URL: "postgresql://${DB_USER_HOPPSCOTCH:-hoppscotchuser}:${DB_PASSWORD_HOPPSCOTCH:-hoppscotchpass}@postgres_hoppscotch:5432/${DB_NAME_HOPPSCOTCH:-hoppscotch}?schema=public" # <--- POINTS TO NEW DB
+        SESSION_SECRET: ${SESSION_SECRET}
+        # VITE_ALLOWED_AUTH_PROVIDERS and SSO_PROVIDERS from your hoppscotch .env file
+      ports:
+        - "3002:3000"
+        - "3170:3170"
+        - "3100:3100"
+      command: >
+        sh -c "echo '>>> Waiting for Hoppscotch DB...' && sleep 5 && echo '>>> Running Prisma Migrations for Hoppscotch...' && pnpx prisma migrate deploy && echo '>>> Starting Hoppscotch App...' && node /usr/src/app/aio_run.mjs"
+      volumes:
+        - ./hoppscotch/workspace.json:/app/pwa/public/environment.json:ro
+      networks:
+        - fiore_network
+      restart: unless-stopped
+      depends_on:
+        postgres_hoppscotch: # Depends on the new DB service
+          condition: service_healthy
 volumes:
-  postgres_age_data:
+  postgres_age_data: # For your main app
+    driver: local
+  postgres_hoppscotch_data: # For Hoppscotch
     driver: local
   minio_data:
     driver: local
