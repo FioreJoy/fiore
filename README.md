@@ -4,6 +4,7 @@ Fiore is an open-source, event-based social media platform for spontaneous inter
 
 Fiore evolved into a graph-powered engine for discovery and connection, built with FastAPI, PostgreSQL + Apache AGE, and object storage using MinIO. It supports REST, GraphQL, and WebSocket APIs and offers personalized, real-time recommendations.
 
+Currently LIVE: https://fiorejoy.com
 ---
 
 ## 🚀 Features
@@ -46,7 +47,7 @@ Communities can form around frequent event types. Profiles grow with participati
 
 ## 🌐 API Overview
 
-📜 Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+📜 Swagger UI: [http://localhost:8000/docs](https://fastapi.fiorejoy.com/docs)
 
 ---
 
