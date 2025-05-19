@@ -1,91 +1,187 @@
-🌸 Fiore
-Fiore is a dynamic social platform designed to help you organize and discover on-the-go events with people nearby. Built with a robust FastAPI backend and a sleek Flutter frontend, Fiore aims to bring communities together effortlessly.
+# 🌸 Fiore — Spontaneous Event-Based Social Networking
 
-🔗 Live Demo: fiorejoy.com
+Fiore is an open-source, event-based social media platform for spontaneous interest-based meetups. It's like a digital common room — students and communities can raise or join last-minute trips, rides, jam sessions, games, movie nights, or any group activity with open spots.
 
-🚀 Tech Stack
-Frontend: Flutter
+Fiore evolved into a graph-powered engine for discovery and connection, built with FastAPI, PostgreSQL + Apache AGE, and object storage using MinIO. It supports REST, GraphQL, and WebSocket APIs and offers personalized, real-time recommendations.
 
-Backend: FastAPI
+---
 
-Database: PostgreSQL
+## 🚀 Features
 
-🛠️ Getting Started
-1. Clone the Repository
+- FastAPI backend with modular architecture
+- REST, GraphQL, and WebSocket APIs
+- Real-time event-based communication with WebSockets
+- Graph-driven user, event, and community recommendations using Apache AGE
+- PostgreSQL for structured data
+- MinIO for image and file storage (S3-compatible)
+- JWT and API key authentication
+- Pytest-based testing suite
+- Docker-ready deployment (`docker` branch)
 
-git clone https://github.com/FioreJoy/fiore.git
-cd fiore
-2. Backend Setup
-Navigate to the backend directory and set up the Python environment:
+---
 
+## 🧠 App Concept
 
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-Configure the Database
-Ensure PostgreSQL is installed and running. Then, create the database and user:
+Imagine you're a student wanting to go for a late-night coffee run, but you're looking for company. Or you're heading for a trip and have 2 empty seats. Or you're starting a pick-up game on campus. Fiore lets you **raise events on-the-fly**, and others can discover and **join them instantly** based on shared interests and time windows.
 
+Communities can form around frequent event types. Profiles grow with participation. The social graph evolves. And everything runs in real time.
 
-sudo -u postgres psql
-Inside the PostgreSQL shell:
+---
 
-sql
-Copy
-Edit
-CREATE DATABASE fiore;
-CREATE USER fiore_user WITH ENCRYPTED PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE fiore TO fiore_user;
-ALTER ROLE fiore_user SUPERUSER;
-\q
-Create a .env file in the backend/ directory with the following content:
+## 🧱 Tech Stack
 
-env
-Copy
-Edit
-DB_USER=fiore_user
-DB_PASSWORD=your_password
+| Purpose        | Tech                       |
+|----------------|----------------------------|
+| Language       | Python 3.11                |
+| Backend        | FastAPI                    |
+| ORM            | SQLAlchemy                 |
+| GraphQL        | Strawberry                 |
+| Realtime       | WebSocket                  |
+| Database       | PostgreSQL + Apache AGE    |
+| Object Storage | MinIO                      |
+| Auth           | JWT, API Keys              |
+| Testing        | Pytest                     |
+
+---
+
+## 🌐 API Overview
+
+📜 Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
+
+## ⚙️ Environment Configuration
+
+Create a `.env` file in the root directory with the following variables:
+
+```env
+DB_USER=fiore
+DB_PASSWORD=strong_paa
 DB_NAME=fiore
 DB_HOST=localhost
 DB_PORT=5432
 
-JWT_SECRET=your_secret_key
-Apply the database schema:
+JWT_SECRET=secret
 
+MINIO_ENDPOINT=http://localhost:9000
+MINIO_ACCESS_KEY=key
+MINIO_SECRET_KEY=secret
+MINIO_BUCKET=fiore
+MINIO_USE_SSL=False
 
+API_KEY=random
+
+TEST_USER_PASSWORD=user1
+TEST_IMAGE_PATH_ABS=/path/to/image
+```
+
+---
+
+## 🧠 Setting Up Apache AGE on PostgreSQL
+
+1. **Install PostgreSQL** (version 13+ recommended):
+
+```bash
+sudo apt install postgresql postgresql-contrib
+```
+
+2. **Install Apache AGE**:
+Follow the official guide: https://github.com/apache/age
+
+3. **Enable AGE in your database**:
+
+```sql
+CREATE EXTENSION age;
+LOAD 'age';
+SET search_path = ag_catalog, "$user", public;
+```
+
+4. **Create a graph** (you can name it `fiore_graph`):
+
+```sql
+SELECT create_graph('fiore_graph');
+```
+
+5. **Run the schema**:
+
+```bash
 psql -U fiore_user -d fiore -f schema.sql
-Start the FastAPI server:
+```
 
+---
 
-uvicorn main:app --reload
-Access the API documentation at http://127.0.0.1:8000/docs.
+## 🖼️ MinIO Image Storage Setup (via Go)
 
-3. Frontend Setup
-Navigate to the frontend directory and set up Flutter:
+Image uploads are handled via MinIO, which is an S3-compatible object store.
 
+Here’s a basic setup snippet using the Go SDK:
 
-cd ../frontend
-flutter pub get
-Run the Flutter web application:
+```go
+package main
 
+import (
+  "context"
+  "github.com/minio/minio-go/v7"
+  "github.com/minio/minio-go/v7/pkg/credentials"
+  "log"
+)
 
-flutter run -d web-server --web-port 9339
-Visit http://127.0.0.1:9339 to view the app in your browser.
+func main() {
+  endpoint := "localhost:9000"
+  accessKeyID := "key"
+  secretAccessKey := "secret"
+  useSSL := false
 
-✅ Testing the Setup
-API Documentation: http://127.0.0.1:8000/docs
+  minioClient, err := minio.New(endpoint, &minio.Options{
+    Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+    Secure: useSSL,
+  })
+  if err != nil {
+    log.Fatalln(err)
+  }
 
-Frontend Application: http://127.0.0.1:9339
+  bucketName := "fiore"
+  location := "us-east-1"
 
-🤝 Contributing
-We welcome contributions! If you'd like to improve Fiore, please fork the repository and submit a pull request.
+  err = minioClient.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: location})
+  if err != nil {
+    exists, errBucketExists := minioClient.BucketExists(context.Background(), bucketName)
+    if errBucketExists == nil && exists {
+      log.Printf("Bucket %s already exists\n", bucketName)
+    } else {
+      log.Fatalln(err)
+    }
+  } else {
+    log.Printf("Successfully created bucket %s\n", bucketName)
+  }
+}
+```
 
-🌟 Future Enhancements
-Docker support for streamlined deployment
+This bucket will store all user-uploaded media files like avatars and banners.
 
-Enhanced user authentication mechanisms
+---
 
-Mobile application integration
+## 🐳 Docker Deployment
 
-📄 License
-This project is licensed under the MIT License.
+To spin up the complete stack including API, PostgreSQL, AGE, and MinIO:
+
+```bash
+git checkout origin/docker
+docker-compose up -d --build
+```
+
+This command launches everything in a self-contained environment using the preconfigured Dockerfiles and Compose file.
+
+---
+
+## 🧪 Running Tests
+
+```bash
+pytest tests
+```
+
+---
+
+## 📜 License
+
+Fiore is open-source under the MIT License.
