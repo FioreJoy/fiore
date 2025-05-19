@@ -1,120 +1,91 @@
-# **Connections** 🚀  
-*A social platform powered by FastAPI & Flutter*  
+🌸 Fiore
+Fiore is a dynamic social platform designed to help you organize and discover on-the-go events with people nearby. Built with a robust FastAPI backend and a sleek Flutter frontend, Fiore aims to bring communities together effortlessly.
 
-## **Project Overview**  
-Connections is a modern social platform built using **FastAPI** for the backend and **Flutter** for the frontend. This guide will help you set up the project in a **GitHub Codespace** or your local machine.  
+🔗 Live Demo: fiorejoy.com
 
-![image](https://github.com/user-attachments/assets/f01113aa-41c3-4748-80de-5755cf380c2a)
+🚀 Tech Stack
+Frontend: Flutter
 
----
+Backend: FastAPI
 
-## **Tech Stack**  
-- **Backend**: FastAPI + PostgreSQL  
-- **Frontend**: Flutter  
-- **Database**: PostgreSQL  
+Database: PostgreSQL
 
----
+🛠️ Getting Started
+1. Clone the Repository
 
-## **Setup Instructions**  
+git clone https://github.com/FioreJoy/fiore.git
+cd fiore
+2. Backend Setup
+Navigate to the backend directory and set up the Python environment:
 
-### **1️⃣ Clone the Repository**  
-```sh
-git clone https://github.com/your-username/connections.git
-cd connections
-```
 
----
-
-## **Backend Setup**  
-
-### **2️⃣ Install Dependencies**  
-Inside the `backend` folder, install the required Python dependencies:  
-```sh
 cd backend
-python -m venv .
-source ./bin/activate  # On Windows use: venv\Scripts\activate
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
-```
+Configure the Database
+Ensure PostgreSQL is installed and running. Then, create the database and user:
 
-### **3️⃣ Setup PostgreSQL**  
 
-#### **🔹 Create Database & User**
-```sh
 sudo -u postgres psql
-```
-Then, inside PostgreSQL:  
-```sql
-CREATE DATABASE connections;
-CREATE USER connections WITH ENCRYPTED PASSWORD 'change_me';
-GRANT ALL PRIVILEGES ON DATABASE connections TO connections;
-ALTER ROLE connections SUPERUSER;
-```
-Exit with `\q`.
+Inside the PostgreSQL shell:
 
-#### **🔹 Create a `.env` File**  
-Inside `backend/`, create a `.env` file:  
-```ini
+sql
+Copy
+Edit
+CREATE DATABASE fiore;
+CREATE USER fiore_user WITH ENCRYPTED PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE fiore TO fiore_user;
+ALTER ROLE fiore_user SUPERUSER;
+\q
+Create a .env file in the backend/ directory with the following content:
 
-DB_USER=connections
-DB_PASSWORD=change_me
-DB_NAME=connections
+env
+Copy
+Edit
+DB_USER=fiore_user
+DB_PASSWORD=your_password
+DB_NAME=fiore
 DB_HOST=localhost
 DB_PORT=5432
 
-JWT_SECRET=your_secret_key_here
-```
+JWT_SECRET=your_secret_key
+Apply the database schema:
 
-#### **🔹 Run SQL Scripts**  
-Apply the schema:  
-```sh
-psql -U connections -d test -f create_tables_and_keys.sql
-psql -U connections -d test -f insert_mock_data.sql
-psql -U connections -d test -f update_schema_for_frontend.sql
-```
 
-### **4️⃣ Start FastAPI Backend**  
-```sh
+psql -U fiore_user -d fiore -f schema.sql
+Start the FastAPI server:
+
+
 uvicorn main:app --reload
-```
-Your FastAPI backend will now be running at: **http://127.0.0.1:8000**
+Access the API documentation at http://127.0.0.1:8000/docs.
 
----
+3. Frontend Setup
+Navigate to the frontend directory and set up Flutter:
 
-## **Frontend Setup**  
 
-### **5️⃣ Initialize Flutter**  
-Navigate to `frontend/` and reinitialize Flutter:  
-```sh
 cd ../frontend
-flutter create .
 flutter pub get
-```
+Run the Flutter web application:
 
-### **6️⃣ Run Flutter Web App**  
-```sh
+
 flutter run -d web-server --web-port 9339
-```
-Your Flutter frontend should now be accessible in the browser at: **http://127.0.0.1:9339**
+Visit http://127.0.0.1:9339 to view the app in your browser.
 
----
+✅ Testing the Setup
+API Documentation: http://127.0.0.1:8000/docs
 
-## **🎯 Testing the Setup**  
+Frontend Application: http://127.0.0.1:9339
 
-- Open **http://127.0.0.1:8000/docs** to check FastAPI's auto-generated API documentation.  
-- Use the frontend at **http://localhost:9339** (or the provided URL from `flutter run`).  
+🤝 Contributing
+We welcome contributions! If you'd like to improve Fiore, please fork the repository and submit a pull request.
 
-![image](https://github.com/user-attachments/assets/0ca75457-c891-40dc-a4d2-767c355f2c7e)
+🌟 Future Enhancements
+Docker support for streamlined deployment
 
----
+Enhanced user authentication mechanisms
 
-## **🤝 Contributing**  
-Want to improve Connections? Feel free to fork the repo and submit a pull request!  
+Mobile application integration
 
----
-
-## **🚀 Future Enhancements**  
-- Docker support for easy deployment  
-- User authentication improvements  
-- Mobile app integration  
-
----
+📄 License
+This project is licensed under the MIT License.
