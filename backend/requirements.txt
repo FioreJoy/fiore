@@ -1,5 +1,6 @@
 requests
 uvicorn
+gunicorn
 fastapi
 strawberry-graphql[fastapi]
 psycopg2-binary
@@ -18,3 +19,5 @@ aiodataloader
 pytest
 pytest-asyncio
 pytest-ordering
+faker
+tqdm

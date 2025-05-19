@@ -1,7 +1,7 @@
 import bcrypt
 
 # The new password you want to set
-new_password = "eskge"
+new_password = "x"
 
 # Generate salt
 salt = bcrypt.gensalt(rounds=10)

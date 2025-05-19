@@ -1,6 +1,6 @@
 // frontend/lib/widgets/custom_button.dart
 import 'package:flutter/material.dart';
-import '../theme/theme_constants.dart'; // Ensure this path is correct
+import '../theme/theme_constants.dart'; 
 
 enum ButtonType {
   primary,
@@ -11,32 +11,33 @@ enum ButtonType {
 
 class CustomButton extends StatelessWidget {
   final String text;
-  final VoidCallback onPressed;
+  // MODIFIED: Made onPressed nullable
+  final VoidCallback? onPressed; 
   final ButtonType type;
   final IconData? icon;
   final bool isLoading;
   final bool isFullWidth;
   final EdgeInsets? padding;
-  final Color? backgroundColor; // <-- ADDED
-  final Color? foregroundColor; // <-- ADDED
-  final Color? borderColor;     // <-- ADDED (useful for outline type)
-  final double? height;          // <-- ADDED (optional height)
-  final double? fontSize;        // <-- ADDED (optional font size)
+  final Color? backgroundColor; 
+  final Color? foregroundColor; 
+  final Color? borderColor;     
+  final double? height;          
+  final double? fontSize;        
 
   const CustomButton({
     Key? key,
     required this.text,
-    required this.onPressed,
+    required this.onPressed, // Still required, but can be null
     this.type = ButtonType.primary,
     this.icon,
     this.isLoading = false,
     this.isFullWidth = false,
     this.padding,
-    this.backgroundColor, // <-- ADDED
-    this.foregroundColor, // <-- ADDED
-    this.borderColor,     // <-- ADDED
-    this.height,          // <-- ADDED
-    this.fontSize,        // <-- ADDED
+    this.backgroundColor, 
+    this.foregroundColor, 
+    this.borderColor,     
+    this.height,          
+    this.fontSize,        
   }) : super(key: key);
 
   @override
@@ -44,7 +45,6 @@ class CustomButton extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // Determine default colors based on button type if custom ones are not provided
     Color effectiveBackgroundColor;
     Color effectiveForegroundColor;
     Color effectiveBorderColor;
@@ -78,7 +78,7 @@ class CustomButton extends StatelessWidget {
       children: [
         if (isLoading)
           SizedBox(
-            width: (fontSize ?? 16) * 1.25, // Scale loader with font size
+            width: (fontSize ?? 16) * 1.25, 
             height: (fontSize ?? 16) * 1.25,
             child: CircularProgressIndicator(
               strokeWidth: 2,
@@ -86,7 +86,7 @@ class CustomButton extends StatelessWidget {
             ),
           )
         else if (icon != null)
-          Icon(icon, size: (fontSize ?? 16) * 1.1, color: effectiveForegroundColor), // Scale icon
+          Icon(icon, size: (fontSize ?? 16) * 1.1, color: effectiveForegroundColor), 
         if ((icon != null || isLoading) && text.isNotEmpty)
           const SizedBox(width: 8),
         if (text.isNotEmpty)
@@ -104,8 +104,9 @@ class CustomButton extends StatelessWidget {
     final buttonStyle = ElevatedButton.styleFrom(
       backgroundColor: effectiveBackgroundColor,
       foregroundColor: effectiveForegroundColor,
+      // MODIFIED: Use effectiveForegroundColor for disabled state as well, but with opacity
       disabledBackgroundColor: effectiveBackgroundColor.withOpacity(0.5),
-      disabledForegroundColor: effectiveForegroundColor.withOpacity(0.5),
+      disabledForegroundColor: effectiveForegroundColor.withOpacity(0.7),
       side: (type == ButtonType.outline || (borderColor != null && borderColor != Colors.transparent))
           ? BorderSide(color: effectiveBorderColor, width: 1.5)
           : null,
@@ -117,11 +118,13 @@ class CustomButton extends StatelessWidget {
       shadowColor: type == ButtonType.text || type == ButtonType.outline
           ? Colors.transparent
           : Colors.black.withOpacity(0.15),
-      minimumSize: height != null ? Size(0, height!) : null, // Apply height if provided
+      minimumSize: height != null ? Size(0, height!) : null, 
     );
 
     final button = ElevatedButton(
-      onPressed: isLoading ? null : onPressed,
+      // MODIFIED: Pass onPressed directly, which can be null.
+      // ElevatedButton's onPressed handles null by disabling the button.
+      onPressed: isLoading ? null : onPressed, 
       style: buttonStyle,
       child: buttonContent,
     );
