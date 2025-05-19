@@ -22,8 +22,7 @@ END
 $$;
 
 -- Optional: You could also create the 'fiore' SQL schema here if it's purely for AGE
--- CREATE SCHEMA IF NOT EXISTS fiore; 
--- COMMENT ON SCHEMA fiore IS 'Schema for Apache AGE graph data backing tables';
-CREATE DATABASE hoppscotch;
+CREATE SCHEMA IF NOT EXISTS fiore;
+COMMENT ON SCHEMA fiore IS 'Schema for Apache AGE graph data backing tables';
 
 \echo 'Graph "fiore" creation/check complete.'

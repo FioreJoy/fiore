@@ -1,9 +1,4 @@
---
--- PostgreSQL database dump
---
 
--- Dumped from database version 15.12 (Ubuntu 15.12-1.pgdg24.04+1)
--- Dumped by pg_dump version 15.12 (Ubuntu 15.12-1.pgdg24.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -16,76 +11,25 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
---
--- Name: ag_catalog; Type: SCHEMA; Schema: -; Owner: -
---
-
--- CREATE SCHEMA ag_catalog;
-
-
---
--- Name: fiore; Type: SCHEMA; Schema: -; Owner: -
---
-
--- CREATE SCHEMA fiore;
-
-
---
--- Name: age; Type: EXTENSION; Schema: -; Owner: -
---
+--CREATE SCHEMA ag_catalog;
 
 CREATE EXTENSION IF NOT EXISTS age WITH SCHEMA ag_catalog;
 
-
---
--- Name: EXTENSION age; Type: COMMENT; Schema: -; Owner: -
---
-
 COMMENT ON EXTENSION age IS 'AGE database extension';
-
-
---
--- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
---
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
-
---
--- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
---
-
 COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
-
-
---
--- Name: postgis; Type: EXTENSION; Schema: -; Owner: -
---
 
 CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
 
-
---
--- Name: EXTENSION postgis; Type: COMMENT; Schema: -; Owner: -
---
-
 COMMENT ON EXTENSION postgis IS 'PostGIS geometry and geography spatial types and functions';
-
-
---
--- Name: device_platform; Type: TYPE; Schema: public; Owner: -
---
 
 CREATE TYPE public.device_platform AS ENUM (
     'ios',
     'android',
     'web'
 );
-
-
---
--- Name: notification_entity_type; Type: TYPE; Schema: public; Owner: -
---
 
 CREATE TYPE public.notification_entity_type AS ENUM (
     'user',
@@ -94,11 +38,6 @@ CREATE TYPE public.notification_entity_type AS ENUM (
     'community',
     'event'
 );
-
-
---
--- Name: notification_type; Type: TYPE; Schema: public; Owner: -
---
 
 CREATE TYPE public.notification_type AS ENUM (
     'new_follower',
@@ -117,36 +56,12 @@ CREATE TYPE public.notification_type AS ENUM (
     'new_community_event'
 );
 
-
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
-
---
--- Name: _ag_label_edge; Type: TABLE; Schema: fiore; Owner: -
---
-
---CREATE TABLE fiore._ag_label_edge (
---    id ag_catalog.graphid NOT NULL,
---    start_id ag_catalog.graphid NOT NULL,
---    end_id ag_catalog.graphid NOT NULL,
---    properties ag_catalog.agtype DEFAULT ag_catalog.agtype_build_map() NOT NULL
---);
-
-
---
--- Name: CREATED; Type: TABLE; Schema: fiore; Owner: -
---
-
 CREATE TABLE fiore."CREATED" (
 )
 INHERITS (fiore._ag_label_edge);
-
-
---
--- Name: CREATED_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
-
 CREATE SEQUENCE fiore."CREATED_id_seq"
     START WITH 1
     INCREMENT BY 1
@@ -154,36 +69,11 @@ CREATE SEQUENCE fiore."CREATED_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: CREATED_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."CREATED_id_seq" OWNED BY fiore."CREATED".id;
-
-
---
--- Name: _ag_label_vertex; Type: TABLE; Schema: fiore; Owner: -
---
-
---CREATE TABLE fiore._ag_label_vertex (
---    id ag_catalog.graphid NOT NULL,
---    properties ag_catalog.agtype DEFAULT ag_catalog.agtype_build_map() NOT NULL
---);
-
-
---
--- Name: Community; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."Community" (
 )
 INHERITS (fiore._ag_label_vertex);
-
-
---
--- Name: Community_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."Community_id_seq"
     START WITH 1
@@ -192,26 +82,11 @@ CREATE SEQUENCE fiore."Community_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: Community_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."Community_id_seq" OWNED BY fiore."Community".id;
-
-
---
--- Name: Event; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."Event" (
 )
 INHERITS (fiore._ag_label_vertex);
-
-
---
--- Name: Event_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."Event_id_seq"
     START WITH 1
@@ -220,26 +95,11 @@ CREATE SEQUENCE fiore."Event_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: Event_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."Event_id_seq" OWNED BY fiore."Event".id;
-
-
---
--- Name: FAVORITED; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."FAVORITED" (
 )
 INHERITS (fiore._ag_label_edge);
-
-
---
--- Name: FAVORITED_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."FAVORITED_id_seq"
     START WITH 1
@@ -248,26 +108,11 @@ CREATE SEQUENCE fiore."FAVORITED_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: FAVORITED_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."FAVORITED_id_seq" OWNED BY fiore."FAVORITED".id;
-
-
---
--- Name: FOLLOWS; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."FOLLOWS" (
 )
 INHERITS (fiore._ag_label_edge);
-
-
---
--- Name: FOLLOWS_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."FOLLOWS_id_seq"
     START WITH 1
@@ -276,26 +121,11 @@ CREATE SEQUENCE fiore."FOLLOWS_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: FOLLOWS_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."FOLLOWS_id_seq" OWNED BY fiore."FOLLOWS".id;
-
-
---
--- Name: HAS_POST; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."HAS_POST" (
 )
 INHERITS (fiore._ag_label_edge);
-
-
---
--- Name: HAS_POST_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."HAS_POST_id_seq"
     START WITH 1
@@ -304,26 +134,11 @@ CREATE SEQUENCE fiore."HAS_POST_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: HAS_POST_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."HAS_POST_id_seq" OWNED BY fiore."HAS_POST".id;
-
-
---
--- Name: MEMBER_OF; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."MEMBER_OF" (
 )
 INHERITS (fiore._ag_label_edge);
-
-
---
--- Name: MEMBER_OF_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."MEMBER_OF_id_seq"
     START WITH 1
@@ -332,26 +147,11 @@ CREATE SEQUENCE fiore."MEMBER_OF_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: MEMBER_OF_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."MEMBER_OF_id_seq" OWNED BY fiore."MEMBER_OF".id;
-
-
---
--- Name: PARTICIPATED_IN; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."PARTICIPATED_IN" (
 )
 INHERITS (fiore._ag_label_edge);
-
-
---
--- Name: PARTICIPATED_IN_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."PARTICIPATED_IN_id_seq"
     START WITH 1
@@ -360,26 +160,11 @@ CREATE SEQUENCE fiore."PARTICIPATED_IN_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: PARTICIPATED_IN_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."PARTICIPATED_IN_id_seq" OWNED BY fiore."PARTICIPATED_IN".id;
-
-
---
--- Name: Post; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."Post" (
 )
 INHERITS (fiore._ag_label_vertex);
-
-
---
--- Name: Post_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."Post_id_seq"
     START WITH 1
@@ -388,26 +173,11 @@ CREATE SEQUENCE fiore."Post_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: Post_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."Post_id_seq" OWNED BY fiore."Post".id;
-
-
---
--- Name: REPLIED_TO; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."REPLIED_TO" (
 )
 INHERITS (fiore._ag_label_edge);
-
-
---
--- Name: REPLIED_TO_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."REPLIED_TO_id_seq"
     START WITH 1
@@ -416,26 +186,11 @@ CREATE SEQUENCE fiore."REPLIED_TO_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: REPLIED_TO_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."REPLIED_TO_id_seq" OWNED BY fiore."REPLIED_TO".id;
-
-
---
--- Name: Reply; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."Reply" (
 )
 INHERITS (fiore._ag_label_vertex);
-
-
---
--- Name: Reply_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."Reply_id_seq"
     START WITH 1
@@ -444,26 +199,11 @@ CREATE SEQUENCE fiore."Reply_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: Reply_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."Reply_id_seq" OWNED BY fiore."Reply".id;
-
-
---
--- Name: User; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."User" (
 )
 INHERITS (fiore._ag_label_vertex);
-
-
---
--- Name: User_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."User_id_seq"
     START WITH 1
@@ -472,26 +212,11 @@ CREATE SEQUENCE fiore."User_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: User_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."User_id_seq" OWNED BY fiore."User".id;
-
-
---
--- Name: VOTED; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."VOTED" (
 )
 INHERITS (fiore._ag_label_edge);
-
-
---
--- Name: VOTED_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."VOTED_id_seq"
     START WITH 1
@@ -500,26 +225,11 @@ CREATE SEQUENCE fiore."VOTED_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: VOTED_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."VOTED_id_seq" OWNED BY fiore."VOTED".id;
-
-
---
--- Name: WROTE; Type: TABLE; Schema: fiore; Owner: -
---
 
 CREATE TABLE fiore."WROTE" (
 )
 INHERITS (fiore._ag_label_edge);
-
-
---
--- Name: WROTE_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
 
 CREATE SEQUENCE fiore."WROTE_id_seq"
     START WITH 1
@@ -528,79 +238,12 @@ CREATE SEQUENCE fiore."WROTE_id_seq"
     MAXVALUE 281474976710655
     CACHE 1;
 
-
---
--- Name: WROTE_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
 ALTER SEQUENCE fiore."WROTE_id_seq" OWNED BY fiore."WROTE".id;
-
-
---
--- Name: _ag_label_edge_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
-
---CREATE SEQUENCE fiore._ag_label_edge_id_seq
---    START WITH 1
---    INCREMENT BY 1
---    NO MINVALUE
---    MAXVALUE 281474976710655
---    CACHE 1;
-
-
---
--- Name: _ag_label_edge_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
---ALTER SEQUENCE fiore._ag_label_edge_id_seq OWNED BY fiore._ag_label_edge.id;
-
-
---
--- Name: _ag_label_vertex_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
-
---CREATE SEQUENCE fiore._ag_label_vertex_id_seq
---    START WITH 1
---    INCREMENT BY 1
---    NO MINVALUE
---    MAXVALUE 281474976710655
---    CACHE 1;
-
-
---
--- Name: _ag_label_vertex_id_seq; Type: SEQUENCE OWNED BY; Schema: fiore; Owner: -
---
-
---ALTER SEQUENCE fiore._ag_label_vertex_id_seq OWNED BY fiore._ag_label_vertex.id;
-
-
---
--- Name: _label_id_seq; Type: SEQUENCE; Schema: fiore; Owner: -
---
-
---CREATE SEQUENCE fiore._label_id_seq
---    AS integer
---    START WITH 1
---    INCREMENT BY 1
---    NO MINVALUE
---    MAXVALUE 65535
---    CACHE 1
---    CYCLE;
-
-
---
--- Name: chat_message_media; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.chat_message_media (
     message_id integer NOT NULL,
     media_id integer NOT NULL
 );
-
-
---
--- Name: chat_messages; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.chat_messages (
     id integer NOT NULL,
@@ -612,11 +255,6 @@ CREATE TABLE public.chat_messages (
     CONSTRAINT chat_messages_check CHECK ((((community_id IS NOT NULL) AND (event_id IS NULL)) OR ((community_id IS NULL) AND (event_id IS NOT NULL))))
 );
 
-
---
--- Name: chat_messages_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.chat_messages_id_seq
     AS integer
     START WITH 1
@@ -625,17 +263,7 @@ CREATE SEQUENCE public.chat_messages_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: chat_messages_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.chat_messages_id_seq OWNED BY public.chat_messages.id;
-
-
---
--- Name: communities; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.communities (
     id integer NOT NULL,
@@ -649,24 +277,9 @@ CREATE TABLE public.communities (
     CONSTRAINT check_interest CHECK ((interest = ANY (ARRAY['Gaming'::text, 'Tech'::text, 'Science'::text, 'Music'::text, 'Sports'::text, 'College Event'::text, 'Activities'::text, 'Social'::text, 'Other'::text])))
 );
 
-
---
--- Name: COLUMN communities.location; Type: COMMENT; Schema: public; Owner: -
---
-
 COMMENT ON COLUMN public.communities.location IS 'Community''s primary geographic location (SRID 4326). Replaces old primary_location point.';
 
-
---
--- Name: COLUMN communities.location_address; Type: COMMENT; Schema: public; Owner: -
---
-
 COMMENT ON COLUMN public.communities.location_address IS 'Community''s primary human-readable address.';
-
-
---
--- Name: communities_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.communities_id_seq
     AS integer
@@ -676,17 +289,7 @@ CREATE SEQUENCE public.communities_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: communities_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.communities_id_seq OWNED BY public.communities.id;
-
-
---
--- Name: community_logo; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.community_logo (
     community_id integer NOT NULL,
@@ -694,22 +297,12 @@ CREATE TABLE public.community_logo (
     set_at timestamp with time zone DEFAULT now()
 );
 
-
---
--- Name: community_members; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.community_members (
     id integer NOT NULL,
     user_id integer NOT NULL,
     community_id integer NOT NULL,
     joined_at timestamp with time zone DEFAULT now()
 );
-
-
---
--- Name: community_members_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.community_members_id_seq
     AS integer
@@ -719,17 +312,7 @@ CREATE SEQUENCE public.community_members_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: community_members_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.community_members_id_seq OWNED BY public.community_members.id;
-
-
---
--- Name: community_posts; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.community_posts (
     id integer NOT NULL,
@@ -737,11 +320,6 @@ CREATE TABLE public.community_posts (
     post_id integer NOT NULL,
     added_at timestamp with time zone DEFAULT now()
 );
-
-
---
--- Name: community_posts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.community_posts_id_seq
     AS integer
@@ -751,17 +329,7 @@ CREATE SEQUENCE public.community_posts_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: community_posts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.community_posts_id_seq OWNED BY public.community_posts.id;
-
-
---
--- Name: event_participants; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.event_participants (
     id integer NOT NULL,
@@ -769,11 +337,6 @@ CREATE TABLE public.event_participants (
     user_id integer NOT NULL,
     joined_at timestamp with time zone DEFAULT now()
 );
-
-
---
--- Name: event_participants_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.event_participants_id_seq
     AS integer
@@ -783,17 +346,7 @@ CREATE SEQUENCE public.event_participants_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: event_participants_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.event_participants_id_seq OWNED BY public.event_participants.id;
-
-
---
--- Name: events; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.events (
     id integer NOT NULL,
@@ -809,24 +362,9 @@ CREATE TABLE public.events (
     location_coords public.geography(Point,4326)
 );
 
-
---
--- Name: COLUMN events.location; Type: COMMENT; Schema: public; Owner: -
---
-
 COMMENT ON COLUMN public.events.location IS 'Event''s human-readable address string.';
 
-
---
--- Name: COLUMN events.location_coords; Type: COMMENT; Schema: public; Owner: -
---
-
 COMMENT ON COLUMN public.events.location_coords IS 'Event''s geographic coordinates (SRID 4326).';
-
-
---
--- Name: events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.events_id_seq
     AS integer
@@ -836,17 +374,7 @@ CREATE SEQUENCE public.events_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.events_id_seq OWNED BY public.events.id;
-
-
---
--- Name: media_items; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.media_items (
     id integer NOT NULL,
@@ -861,11 +389,6 @@ CREATE TABLE public.media_items (
     duration_seconds double precision
 );
 
-
---
--- Name: media_items_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.media_items_id_seq
     AS integer
     START WITH 1
@@ -874,17 +397,7 @@ CREATE SEQUENCE public.media_items_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: media_items_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.media_items_id_seq OWNED BY public.media_items.id;
-
-
---
--- Name: notifications; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.notifications (
     id bigint NOT NULL,
@@ -898,11 +411,6 @@ CREATE TABLE public.notifications (
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-
---
--- Name: notifications_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.notifications_id_seq
     START WITH 1
     INCREMENT BY 1
@@ -910,17 +418,7 @@ CREATE SEQUENCE public.notifications_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: notifications_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.notifications_id_seq OWNED BY public.notifications.id;
-
-
---
--- Name: post_favorites; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.post_favorites (
     id integer NOT NULL,
@@ -928,11 +426,6 @@ CREATE TABLE public.post_favorites (
     post_id integer NOT NULL,
     favorited_at timestamp with time zone DEFAULT now()
 );
-
-
---
--- Name: post_favorites_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.post_favorites_id_seq
     AS integer
@@ -942,28 +435,13 @@ CREATE SEQUENCE public.post_favorites_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: post_favorites_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.post_favorites_id_seq OWNED BY public.post_favorites.id;
-
-
---
--- Name: post_media; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.post_media (
     post_id integer NOT NULL,
     media_id integer NOT NULL,
     display_order smallint DEFAULT 0
 );
-
-
---
--- Name: posts; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.posts (
     id integer NOT NULL,
@@ -973,11 +451,6 @@ CREATE TABLE public.posts (
     title character varying(255) NOT NULL
 );
 
-
---
--- Name: posts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.posts_id_seq
     AS integer
     START WITH 1
@@ -986,17 +459,7 @@ CREATE SEQUENCE public.posts_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: posts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.posts_id_seq OWNED BY public.posts.id;
-
-
---
--- Name: replies; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.replies (
     id integer NOT NULL,
@@ -1007,11 +470,6 @@ CREATE TABLE public.replies (
     created_at timestamp with time zone DEFAULT now()
 );
 
-
---
--- Name: replies_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.replies_id_seq
     AS integer
     START WITH 1
@@ -1020,17 +478,7 @@ CREATE SEQUENCE public.replies_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: replies_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.replies_id_seq OWNED BY public.replies.id;
-
-
---
--- Name: reply_favorites; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.reply_favorites (
     id integer NOT NULL,
@@ -1038,11 +486,6 @@ CREATE TABLE public.reply_favorites (
     reply_id integer NOT NULL,
     favorited_at timestamp with time zone DEFAULT now()
 );
-
-
---
--- Name: reply_favorites_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.reply_favorites_id_seq
     AS integer
@@ -1052,17 +495,7 @@ CREATE SEQUENCE public.reply_favorites_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: reply_favorites_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.reply_favorites_id_seq OWNED BY public.reply_favorites.id;
-
-
---
--- Name: reply_media; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.reply_media (
     reply_id integer NOT NULL,
@@ -1070,22 +503,12 @@ CREATE TABLE public.reply_media (
     display_order smallint DEFAULT 0
 );
 
-
---
--- Name: user_blocks; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.user_blocks (
     blocker_id integer NOT NULL,
     blocked_id integer NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     CONSTRAINT check_blocker_not_blocked CHECK ((blocker_id <> blocked_id))
 );
-
-
---
--- Name: user_device_tokens; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.user_device_tokens (
     id integer NOT NULL,
@@ -1096,11 +519,6 @@ CREATE TABLE public.user_device_tokens (
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-
---
--- Name: user_device_tokens_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.user_device_tokens_id_seq
     AS integer
     START WITH 1
@@ -1109,17 +527,7 @@ CREATE SEQUENCE public.user_device_tokens_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: user_device_tokens_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.user_device_tokens_id_seq OWNED BY public.user_device_tokens.id;
-
-
---
--- Name: user_followers; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.user_followers (
     follower_id integer NOT NULL,
@@ -1127,21 +535,11 @@ CREATE TABLE public.user_followers (
     created_at timestamp without time zone DEFAULT now()
 );
 
-
---
--- Name: user_profile_picture; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.user_profile_picture (
     user_id integer NOT NULL,
     media_id integer NOT NULL,
     set_at timestamp with time zone DEFAULT now()
 );
-
-
---
--- Name: users; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.users (
     id integer NOT NULL,
@@ -1169,31 +567,11 @@ CREATE TABLE public.users (
     CONSTRAINT gender_check CHECK ((gender = ANY (ARRAY['Male'::text, 'Female'::text, 'Others'::text])))
 );
 
-
---
--- Name: COLUMN users.location; Type: COMMENT; Schema: public; Owner: -
---
-
 COMMENT ON COLUMN public.users.location IS 'User''s current geographic location (SRID 4326). Replaces old current_location point.';
-
-
---
--- Name: COLUMN users.location_last_updated; Type: COMMENT; Schema: public; Owner: -
---
 
 COMMENT ON COLUMN public.users.location_last_updated IS 'Timestamp of when the location was last updated.';
 
-
---
--- Name: COLUMN users.location_address; Type: COMMENT; Schema: public; Owner: -
---
-
 COMMENT ON COLUMN public.users.location_address IS 'User''s current human-readable address.';
-
-
---
--- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
 
 CREATE SEQUENCE public.users_id_seq
     AS integer
@@ -1203,17 +581,7 @@ CREATE SEQUENCE public.users_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
-
-
---
--- Name: votes; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.votes (
     id integer NOT NULL,
@@ -1225,11 +593,6 @@ CREATE TABLE public.votes (
     CONSTRAINT check_vote_target CHECK ((((post_id IS NOT NULL) AND (reply_id IS NULL)) OR ((post_id IS NULL) AND (reply_id IS NOT NULL))))
 );
 
-
---
--- Name: votes_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
 CREATE SEQUENCE public.votes_id_seq
     AS integer
     START WITH 1
@@ -1238,365 +601,97 @@ CREATE SEQUENCE public.votes_id_seq
     NO MAXVALUE
     CACHE 1;
 
-
---
--- Name: votes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
 ALTER SEQUENCE public.votes_id_seq OWNED BY public.votes.id;
-
-
---
--- Name: CREATED id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."CREATED" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'CREATED'::name))::integer, nextval('fiore."CREATED_id_seq"'::regclass));
 
-
---
--- Name: CREATED properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."CREATED" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: Community id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."Community" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'Community'::name))::integer, nextval('fiore."Community_id_seq"'::regclass));
 
-
---
--- Name: Community properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."Community" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: Event id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."Event" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'Event'::name))::integer, nextval('fiore."Event_id_seq"'::regclass));
 
-
---
--- Name: Event properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."Event" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: FAVORITED id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."FAVORITED" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'FAVORITED'::name))::integer, nextval('fiore."FAVORITED_id_seq"'::regclass));
 
-
---
--- Name: FAVORITED properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."FAVORITED" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: FOLLOWS id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."FOLLOWS" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'FOLLOWS'::name))::integer, nextval('fiore."FOLLOWS_id_seq"'::regclass));
 
-
---
--- Name: FOLLOWS properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."FOLLOWS" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: HAS_POST id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."HAS_POST" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'HAS_POST'::name))::integer, nextval('fiore."HAS_POST_id_seq"'::regclass));
 
-
---
--- Name: HAS_POST properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."HAS_POST" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: MEMBER_OF id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."MEMBER_OF" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'MEMBER_OF'::name))::integer, nextval('fiore."MEMBER_OF_id_seq"'::regclass));
 
-
---
--- Name: MEMBER_OF properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."MEMBER_OF" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: PARTICIPATED_IN id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."PARTICIPATED_IN" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'PARTICIPATED_IN'::name))::integer, nextval('fiore."PARTICIPATED_IN_id_seq"'::regclass));
 
-
---
--- Name: PARTICIPATED_IN properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."PARTICIPATED_IN" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: Post id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."Post" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'Post'::name))::integer, nextval('fiore."Post_id_seq"'::regclass));
 
-
---
--- Name: Post properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."Post" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: REPLIED_TO id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."REPLIED_TO" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'REPLIED_TO'::name))::integer, nextval('fiore."REPLIED_TO_id_seq"'::regclass));
 
-
---
--- Name: REPLIED_TO properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."REPLIED_TO" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: Reply id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."Reply" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'Reply'::name))::integer, nextval('fiore."Reply_id_seq"'::regclass));
 
-
---
--- Name: Reply properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."Reply" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: User id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."User" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'User'::name))::integer, nextval('fiore."User_id_seq"'::regclass));
 
-
---
--- Name: User properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."User" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: VOTED id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."VOTED" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'VOTED'::name))::integer, nextval('fiore."VOTED_id_seq"'::regclass));
 
-
---
--- Name: VOTED properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."VOTED" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: WROTE id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore."WROTE" ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, 'WROTE'::name))::integer, nextval('fiore."WROTE_id_seq"'::regclass));
 
-
---
--- Name: WROTE properties; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore."WROTE" ALTER COLUMN properties SET DEFAULT ag_catalog.agtype_build_map();
-
-
---
--- Name: _ag_label_edge id; Type: DEFAULT; Schema: fiore; Owner: -
---
 
 ALTER TABLE ONLY fiore._ag_label_edge ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, '_ag_label_edge'::name))::integer, nextval('fiore._ag_label_edge_id_seq'::regclass));
 
-
---
--- Name: _ag_label_vertex id; Type: DEFAULT; Schema: fiore; Owner: -
---
-
 ALTER TABLE ONLY fiore._ag_label_vertex ALTER COLUMN id SET DEFAULT ag_catalog._graphid((ag_catalog._label_id('fiore'::name, '_ag_label_vertex'::name))::integer, nextval('fiore._ag_label_vertex_id_seq'::regclass));
-
-
---
--- Name: chat_messages id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.chat_messages ALTER COLUMN id SET DEFAULT nextval('public.chat_messages_id_seq'::regclass);
 
-
---
--- Name: communities id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.communities ALTER COLUMN id SET DEFAULT nextval('public.communities_id_seq'::regclass);
-
-
---
--- Name: community_members id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.community_members ALTER COLUMN id SET DEFAULT nextval('public.community_members_id_seq'::regclass);
 
-
---
--- Name: community_posts id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.community_posts ALTER COLUMN id SET DEFAULT nextval('public.community_posts_id_seq'::regclass);
-
-
---
--- Name: event_participants id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.event_participants ALTER COLUMN id SET DEFAULT nextval('public.event_participants_id_seq'::regclass);
 
-
---
--- Name: events id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.events ALTER COLUMN id SET DEFAULT nextval('public.events_id_seq'::regclass);
-
-
---
--- Name: media_items id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.media_items ALTER COLUMN id SET DEFAULT nextval('public.media_items_id_seq'::regclass);
 
-
---
--- Name: notifications id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.notifications ALTER COLUMN id SET DEFAULT nextval('public.notifications_id_seq'::regclass);
-
-
---
--- Name: post_favorites id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.post_favorites ALTER COLUMN id SET DEFAULT nextval('public.post_favorites_id_seq'::regclass);
 
-
---
--- Name: posts id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.posts ALTER COLUMN id SET DEFAULT nextval('public.posts_id_seq'::regclass);
-
-
---
--- Name: replies id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.replies ALTER COLUMN id SET DEFAULT nextval('public.replies_id_seq'::regclass);
 
-
---
--- Name: reply_favorites id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.reply_favorites ALTER COLUMN id SET DEFAULT nextval('public.reply_favorites_id_seq'::regclass);
-
-
---
--- Name: user_device_tokens id; Type: DEFAULT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_device_tokens ALTER COLUMN id SET DEFAULT nextval('public.user_device_tokens_id_seq'::regclass);
 
-
---
--- Name: users id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass);
 
-
---
--- Name: votes id; Type: DEFAULT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.votes ALTER COLUMN id SET DEFAULT nextval('public.votes_id_seq'::regclass);
-
-
---
--- Data for Name: ag_graph; Type: TABLE DATA; Schema: ag_catalog; Owner: -
---
-
---COPY ag_catalog.ag_graph (graphid, name, namespace) FROM stdin;
---25916	fiore	fiore
---\.
-
-
---
--- Data for Name: ag_label; Type: TABLE DATA; Schema: ag_catalog; Owner: -
---
-
---COPY ag_catalog.ag_label (name, graph, id, kind, relation, seq_name) FROM stdin;
---_ag_label_vertex	25916	1	v	fiore._ag_label_vertex	_ag_label_vertex_id_seq
---_ag_label_edge	25916	2	e	fiore._ag_label_edge	_ag_label_edge_id_seq
---User	25916	3	v	fiore."User"	User_id_seq
---Community	25916	4	v	fiore."Community"	Community_id_seq
---Post	25916	5	v	fiore."Post"	Post_id_seq
---Reply	25916	6	v	fiore."Reply"	Reply_id_seq
---Event	25916	7	v	fiore."Event"	Event_id_seq
---FOLLOWS	25916	8	e	fiore."FOLLOWS"	FOLLOWS_id_seq
---MEMBER_OF	25916	9	e	fiore."MEMBER_OF"	MEMBER_OF_id_seq
---WROTE	25916	10	e	fiore."WROTE"	WROTE_id_seq
---HAS_POST	25916	11	e	fiore."HAS_POST"	HAS_POST_id_seq
---PARTICIPATED_IN	25916	12	e	fiore."PARTICIPATED_IN"	PARTICIPATED_IN_id_seq
---VOTED	25916	13	e	fiore."VOTED"	VOTED_id_seq
---FAVORITED	25916	14	e	fiore."FAVORITED"	FAVORITED_id_seq
---REPLIED_TO	25916	15	e	fiore."REPLIED_TO"	REPLIED_TO_id_seq
---CREATED	25916	16	e	fiore."CREATED"	CREATED_id_seq
---\.
-
-
---
--- Data for Name: CREATED; Type: TABLE DATA; Schema: fiore; Owner: -
---
 
 COPY fiore."CREATED" (id, start_id, end_id, properties) FROM stdin;
 4503599627370497	844424930131980	1125899906842625	{}
@@ -1638,11 +733,6 @@ COPY fiore."CREATED" (id, start_id, end_id, properties) FROM stdin;
 4503599627370582	844424930131980	1970324836974638	{}
 \.
 
-
---
--- Data for Name: Community; Type: TABLE DATA; Schema: fiore; Owner: -
---
-
 COPY fiore."Community" (id, properties) FROM stdin;
 1125899906842625	{"id": 1, "name": "Tech Enthusiasts", "interest": "Tech"}
 1125899906842626	{"id": 2, "name": "Gaming Hub", "interest": "Gaming"}
@@ -1659,11 +749,6 @@ COPY fiore."Community" (id, properties) FROM stdin;
 1125899906842637	{"id": 121, "name": "Pytest Community 105953369530", "interest": "Music"}
 1125899906842661	{"id": 145, "name": "Pytest Community 152730452783", "interest": "Music"}
 \.
-
-
---
--- Data for Name: Event; Type: TABLE DATA; Schema: fiore; Owner: -
---
 
 COPY fiore."Event" (id, properties) FROM stdin;
 1970324836974593	{"id": 1, "title": "Tech Talk: Future of AI", "event_timestamp": "2025-04-03T01:09:14.605861+05:30"}
@@ -1691,11 +776,6 @@ COPY fiore."Event" (id, properties) FROM stdin;
 1970324836974615	{"id": 360, "title": "Test Event w/ Img 092016", "event_timestamp": "2025-05-14T03:50:16.496348+00:00"}
 \.
 
-
---
--- Data for Name: FAVORITED; Type: TABLE DATA; Schema: fiore; Owner: -
---
-
 COPY fiore."FAVORITED" (id, start_id, end_id, properties) FROM stdin;
 3940649673949185	844424930131969	1407374883553281	{}
 3940649673949186	844424930131970	1407374883553282	{}
@@ -1711,11 +791,6 @@ COPY fiore."FAVORITED" (id, start_id, end_id, properties) FROM stdin;
 3940649673949196	844424930131980	1688849860263943	{}
 \.
 
-
---
--- Data for Name: FOLLOWS; Type: TABLE DATA; Schema: fiore; Owner: -
---
-
 COPY fiore."FOLLOWS" (id, start_id, end_id, properties) FROM stdin;
 2251799813685249	844424930131980	844424930131969	{}
 2251799813685250	844424930131980	844424930131970	{}
@@ -1727,11 +802,6 @@ COPY fiore."FOLLOWS" (id, start_id, end_id, properties) FROM stdin;
 2251799813685256	844424930131970	844424930131978	{}
 2251799813685258	844424930131980	844424930131978	{}
 \.
-
-
---
--- Data for Name: HAS_POST; Type: TABLE DATA; Schema: fiore; Owner: -
---
 
 COPY fiore."HAS_POST" (id, start_id, end_id, properties) FROM stdin;
 3096224743817217	1125899906842625	1407374883553281	{}
@@ -1813,11 +883,6 @@ COPY fiore."HAS_POST" (id, start_id, end_id, properties) FROM stdin;
 3096224743817445	1125899906842625	1407374883553426	{}
 \.
 
-
---
--- Data for Name: MEMBER_OF; Type: TABLE DATA; Schema: fiore; Owner: -
---
-
 COPY fiore."MEMBER_OF" (id, start_id, end_id, properties) FROM stdin;
 2533274790395906	844424930131969	1125899906842625	{}
 2533274790395907	844424930131970	1125899906842625	{}
@@ -1851,11 +916,6 @@ COPY fiore."MEMBER_OF" (id, start_id, end_id, properties) FROM stdin;
 2533274790396024	844424930131980	1125899906842637	{}
 \.
 
-
---
--- Data for Name: PARTICIPATED_IN; Type: TABLE DATA; Schema: fiore; Owner: -
---
-
 COPY fiore."PARTICIPATED_IN" (id, start_id, end_id, properties) FROM stdin;
 3377699720527875	844424930131979	1970324836974593	{}
 3377699720527876	844424930131978	1970324836974594	{}
@@ -1866,11 +926,6 @@ COPY fiore."PARTICIPATED_IN" (id, start_id, end_id, properties) FROM stdin;
 3377699720527881	844424930131979	1970324836974598	{}
 3377699720527942	844424930131980	1970324836974602	{}
 \.
-
-
---
--- Data for Name: Post; Type: TABLE DATA; Schema: fiore; Owner: -
---
 
 COPY fiore."Post" (id, properties) FROM stdin;
 1407374883553281	{"id": 1, "title": "Latest in Tech", "created_at": "2025-03-05T08:59:17.753175+05:30"}
@@ -1959,11 +1014,6 @@ COPY fiore."Post" (id, properties) FROM stdin;
 1407374883553430	{"id": 181, "title": "Pytest Post NoMedia 160506", "created_at": "2025-05-07T16:05:06.848110+05:30"}
 1407374883553432	{"id": 183, "title": "Pytest Post NoMedia 161008", "created_at": "2025-05-07T16:10:08.057146+05:30"}
 \.
-
-
---
--- Data for Name: REPLIED_TO; Type: TABLE DATA; Schema: fiore; Owner: -
---
 
 COPY fiore."REPLIED_TO" (id, start_id, end_id, properties) FROM stdin;
 4222124650659841	1688849860263937	1407374883553281	{}
@@ -2076,11 +1126,6 @@ COPY fiore."REPLIED_TO" (id, start_id, end_id, properties) FROM stdin;
 4222124650660014	1688849860264110	1407374883553282	{}
 \.
 
-
---
--- Data for Name: Reply; Type: TABLE DATA; Schema: fiore; Owner: -
---
-
 COPY fiore."Reply" (id, properties) FROM stdin;
 1688849860263937	{"id": 1, "created_at": "2025-03-05T09:01:24.202915+05:30"}
 1688849860263938	{"id": 2, "created_at": "2025-03-05T09:01:24.202915+05:30"}
@@ -2192,11 +1237,6 @@ COPY fiore."Reply" (id, properties) FROM stdin;
 1688849860264110	{"id": 184, "created_at": "2025-05-07T16:10:12.624525+05:30"}
 \.
 
-
---
--- Data for Name: User; Type: TABLE DATA; Schema: fiore; Owner: -
---
-
 COPY fiore."User" (id, properties) FROM stdin;
 844424930131970	{"id": 3, "name": "Charlie Brown", "username": "charlieb"}
 844424930131971	{"id": 7, "name": "x12e", "username": "x2412"}
@@ -2213,11 +1253,6 @@ COPY fiore."User" (id, properties) FROM stdin;
 844424930131982	{"id": 1055, "name": "Shailesh Kumar Gupta", "username": "eskge", "image_path": "users/eskge/profile/70c315ec-9557-4962-8357-a94642a03041.jpg"}
 844424930131969	{"id": 2, "name": "Bob Smith", "username": "bobsmith", "image_path": "users/bobsmith/profile/RaspberryPi.png"}
 \.
-
-
---
--- Data for Name: VOTED; Type: TABLE DATA; Schema: fiore; Owner: -
---
 
 COPY fiore."VOTED" (id, start_id, end_id, properties) FROM stdin;
 3659174697238529	844424930131969	1407374883553281	{}
@@ -2258,11 +1293,6 @@ COPY fiore."VOTED" (id, start_id, end_id, properties) FROM stdin;
 3659174697238549	844424930131980	1407374883553299	{"vote_type": true, "created_at": "2025-05-04T07:14:39.736391+00:00"}
 3659174697238596	844424930131980	1688849860264019	{}
 \.
-
-
---
--- Data for Name: WROTE; Type: TABLE DATA; Schema: fiore; Owner: -
---
 
 COPY fiore."WROTE" (id, start_id, end_id, properties) FROM stdin;
 2814749767106561	844424930131980	1407374883553281	{}
@@ -2460,26 +1490,11 @@ COPY fiore."WROTE" (id, start_id, end_id, properties) FROM stdin;
 2814749767106854	844424930131980	1688849860264110	{}
 \.
 
-
---
--- Data for Name: _ag_label_edge; Type: TABLE DATA; Schema: fiore; Owner: -
---
-
 COPY fiore._ag_label_edge (id, start_id, end_id, properties) FROM stdin;
 \.
 
-
---
--- Data for Name: _ag_label_vertex; Type: TABLE DATA; Schema: fiore; Owner: -
---
-
 COPY fiore._ag_label_vertex (id, properties) FROM stdin;
 \.
-
-
---
--- Data for Name: chat_message_media; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.chat_message_media (message_id, media_id) FROM stdin;
 1390	67
@@ -2531,11 +1546,6 @@ COPY public.chat_message_media (message_id, media_id) FROM stdin;
 1472	324
 1474	329
 \.
-
-
---
--- Data for Name: chat_messages; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.chat_messages (id, community_id, event_id, user_id, content, "timestamp") FROM stdin;
 1	1	\N	1	Hi everyone! Looking forward to the AI talk.	2025-03-31 01:09:14.697765+05:30
@@ -2770,11 +1780,6 @@ COPY public.chat_messages (id, community_id, event_id, user_id, content, "timest
 1475	4	\N	1	kuch nhi	2025-05-07 18:08:17.524629+05:30
 \.
 
-
---
--- Data for Name: communities; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.communities (id, name, description, created_by, created_at, interest, location, location_address) FROM stdin;
 1	Tech Enthusiasts	A community for tech lovers	1	2025-03-05 08:58:09.725786+05:30	Tech	\N	\N
 2	Gaming Hub	Discuss latest games and updates	2	2025-03-05 08:58:09.725786+05:30	Gaming	\N	\N
@@ -2792,20 +1797,10 @@ COPY public.communities (id, name, description, created_by, created_at, interest
 145	Pytest Community 152730452783	Test	1	2025-05-07 15:27:30.470872+05:30	Music	\N	\N
 \.
 
-
---
--- Data for Name: community_logo; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.community_logo (community_id, media_id, set_at) FROM stdin;
 16	10	2025-05-04 01:34:52.045248+05:30
 1	330	2025-05-07 16:09:59.172736+05:30
 \.
-
-
---
--- Data for Name: community_members; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.community_members (id, user_id, community_id, joined_at) FROM stdin;
 1	1	1	2025-03-12 10:57:33.176098+05:30
@@ -2840,11 +1835,6 @@ COPY public.community_members (id, user_id, community_id, joined_at) FROM stdin;
 2843	1	13	2025-04-25 00:11:52.495565+05:30
 \.
 
-
---
--- Data for Name: community_posts; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.community_posts (id, community_id, post_id, added_at) FROM stdin;
 1	1	1	2025-03-12 10:58:37.331211+05:30
 2	1	2	2025-03-12 10:58:37.331211+05:30
@@ -2859,11 +1849,6 @@ COPY public.community_posts (id, community_id, post_id, added_at) FROM stdin;
 12	1	10	2025-03-12 11:13:56.695975+05:30
 \.
 
-
---
--- Data for Name: event_participants; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.event_participants (id, event_id, user_id, joined_at) FROM stdin;
 1	1	1	2025-03-31 01:09:14.664311+05:30
 2	1	4	2025-03-31 01:09:14.664311+05:30
@@ -2875,11 +1860,6 @@ COPY public.event_participants (id, event_id, user_id, joined_at) FROM stdin;
 13	6	4	2025-04-02 11:57:00.567004+05:30
 21	8	5	2025-04-03 22:48:17.3868+05:30
 \.
-
-
---
--- Data for Name: events; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.events (id, community_id, creator_id, title, description, location, event_timestamp, max_participants, image_url, created_at, location_coords) FROM stdin;
 1	1	1	Tech Talk: Future of AI	Discussing advancements in AI and ML.	Online (Zoom)	2025-04-03 01:09:14.605861+05:30	50	https://images.unsplash.com/photo-1593349114759-15e4b8a451a7	2025-03-31 01:09:14.605861+05:30	\N
@@ -2906,11 +1886,6 @@ COPY public.events (id, community_id, creator_id, title, description, location, 
 360	1	1	Test Event w/ Img 092016	Banner test!	Virtual	2025-05-14 09:20:16.496348+05:30	100	communities/tech_enthusiasts/events/8c792a33-9f16-4941-a0b6-96b8eaf308c7.txt	2025-05-07 09:20:19.188556+05:30	\N
 383	1	1	Pytest Event w/ Img 155020	Banner!	Virtual	2025-05-21 15:50:20.458144+05:30	50	media/communities/tech_enthusiasts/events/8a265cc1-32fd-4751-aeb1-cc51f78c90e8.png	2025-05-07 15:50:20.477722+05:30	\N
 \.
-
-
---
--- Data for Name: media_items; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.media_items (id, uploader_user_id, minio_object_name, mime_type, file_size_bytes, original_filename, created_at, width, height, duration_seconds) FROM stdin;
 225	1	media/communities/1/chat/1428/7cc5a99c-25b3-440c-a678-1af97a6abc95.png	image/png	172650	icon.png	2025-05-07 12:37:50.249324+05:30	\N	\N	\N
@@ -3056,11 +2031,6 @@ COPY public.media_items (id, uploader_user_id, minio_object_name, mime_type, fil
 324	1	media/communities/1/chat/1472/38f81bf2-5f96-43ce-b510-efb5042b6d56.png	image/png	172650	icon.png	2025-05-07 16:04:54.156971+05:30	\N	\N	\N
 \.
 
-
---
--- Data for Name: notifications; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.notifications (id, recipient_user_id, actor_user_id, type, related_entity_type, related_entity_id, content_preview, is_read, created_at) FROM stdin;
 1	2	1	post_reply	post	2	alicej replied: "Test reply for notification generation!"	f	2025-05-07 15:02:05.644298+05:30
 2	2	1	post_reply	post	2	alicej replied: "Pytest reply no media 150209"	f	2025-05-07 15:02:09.493806+05:30
@@ -3120,11 +2090,6 @@ COPY public.notifications (id, recipient_user_id, actor_user_id, type, related_e
 56	5	1	new_follower	user	1	alicej started following you.	f	2025-05-07 16:10:16.643417+05:30
 \.
 
-
---
--- Data for Name: post_favorites; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.post_favorites (id, user_id, post_id, favorited_at) FROM stdin;
 1	2	1	2025-03-12 10:58:37.337404+05:30
 2	3	2	2025-03-12 10:58:37.337404+05:30
@@ -3132,11 +2097,6 @@ COPY public.post_favorites (id, user_id, post_id, favorited_at) FROM stdin;
 4	3	7	2025-03-12 10:58:37.337404+05:30
 5	2	10	2025-03-12 10:58:37.337404+05:30
 \.
-
-
---
--- Data for Name: post_media; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.post_media (post_id, media_id, display_order) FROM stdin;
 52	4	0
@@ -3196,11 +2156,6 @@ COPY public.post_media (post_id, media_id, display_order) FROM stdin;
 126	185	0
 128	188	0
 \.
-
-
---
--- Data for Name: posts; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.posts (id, user_id, content, created_at, title) FROM stdin;
 1	1	Check out the new AI advancements this year!	2025-03-05 08:59:17.753175+05:30	Latest in Tech
@@ -3289,11 +2244,6 @@ COPY public.posts (id, user_id, content, created_at, title) FROM stdin;
 181	1	Test.	2025-05-07 16:05:06.84811+05:30	Pytest Post NoMedia 160506
 183	1	Test.	2025-05-07 16:10:08.057146+05:30	Pytest Post NoMedia 161008
 \.
-
-
---
--- Data for Name: replies; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.replies (id, post_id, user_id, content, parent_reply_id, created_at) FROM stdin;
 1	1	2	AI is evolving so fast! What do you think about GPT-5?	\N	2025-03-05 09:01:24.202915+05:30
@@ -3406,11 +2356,6 @@ COPY public.replies (id, post_id, user_id, content, parent_reply_id, created_at)
 184	2	1	Pytest reply no media 161012	\N	2025-05-07 16:10:12.624525+05:30
 \.
 
-
---
--- Data for Name: reply_favorites; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.reply_favorites (id, user_id, reply_id, favorited_at) FROM stdin;
 1	3	1	2025-03-12 10:58:37.339852+05:30
 2	1	2	2025-03-12 10:58:37.339852+05:30
@@ -3420,11 +2365,6 @@ COPY public.reply_favorites (id, user_id, reply_id, favorited_at) FROM stdin;
 6	2	6	2025-03-12 10:58:37.339852+05:30
 7	1	7	2025-03-12 10:58:37.339852+05:30
 \.
-
-
---
--- Data for Name: reply_media; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.reply_media (reply_id, media_id, display_order) FROM stdin;
 94	72	0
@@ -3449,34 +2389,14 @@ COPY public.reply_media (reply_id, media_id, display_order) FROM stdin;
 118	186	0
 \.
 
-
---
--- Data for Name: spatial_ref_sys; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.spatial_ref_sys (srid, auth_name, auth_srid, srtext, proj4text) FROM stdin;
 \.
-
-
---
--- Data for Name: user_blocks; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.user_blocks (blocker_id, blocked_id, created_at) FROM stdin;
 \.
 
-
---
--- Data for Name: user_device_tokens; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.user_device_tokens (id, user_id, device_token, platform, last_used_at, created_at) FROM stdin;
 \.
-
-
---
--- Data for Name: user_followers; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.user_followers (follower_id, following_id, created_at) FROM stdin;
 1	2	2025-04-28 16:08:30.326
@@ -3492,20 +2412,10 @@ COPY public.user_followers (follower_id, following_id, created_at) FROM stdin;
 1	5	2025-04-29 10:04:44.944635
 \.
 
-
---
--- Data for Name: user_profile_picture; Type: TABLE DATA; Schema: public; Owner: -
---
-
 COPY public.user_profile_picture (user_id, media_id, set_at) FROM stdin;
 4	130	2025-05-05 11:51:51.695493+05:30
 1	182	2025-05-07 09:20:08.540481+05:30
 \.
-
-
---
--- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.users (id, name, username, gender, email, password_hash, created_at, interest, college_email, college, interests, last_seen, current_location_address, notify_new_post_in_community, notify_new_reply_to_post, notify_new_event_in_community, notify_event_reminder, notify_direct_message, notify_event_update, location, location_last_updated, location_address) FROM stdin;
 7	x12e	x2412	Male	x124124	$2b$10$v7ZeQnWlQHqRXKH2E5AUiOWPiV1hUa0vh515qU1mX7vwUVZAOfOP2	2025-03-05 09:22:43.861367+05:30	\N	\N	\N	\N	2025-03-31 00:56:34.57811+05:30	\N	t	t	t	t	f	t	\N	\N	\N
@@ -3523,11 +2433,6 @@ COPY public.users (id, name, username, gender, email, password_hash, created_at,
 4	Divansh Prasad	divansh	Male	divanshthebest@gmail.com	$2a$06$Hv2JBsgYF5.8/S7YLgIzBugK1jDBY3PgUXf95ys82rO6lJSzAIdZK	2025-03-05 08:58:09.721498+05:30	API,Testing	\N	API Test College 51	\N	2025-05-05 11:52:05.388809+05:30	\N	f	t	t	f	t	t	\N	\N	\N
 3	Charlie Brown	charlieb	Male	charlie@example.com	$2a$06$cwLWRg/f0OnrsZ1zulJCZeEK1dm.gaonY/we92J5BtvXsS9TRAJA.	2025-03-05 08:58:09.721498+05:30	\N	\N	\N	\N	2025-03-31 00:56:34.57811+05:30	\N	t	t	t	t	f	t	\N	\N	\N
 \.
-
-
---
--- Data for Name: votes; Type: TABLE DATA; Schema: public; Owner: -
---
 
 COPY public.votes (id, user_id, post_id, reply_id, vote_type, created_at) FROM stdin;
 1	2	1	\N	t	2025-03-05 09:02:35.111778+05:30
@@ -3564,1154 +2469,377 @@ COPY public.votes (id, user_id, post_id, reply_id, vote_type, created_at) FROM s
 45	4	47	\N	t	2025-03-30 20:54:54.622673+05:30
 \.
 
-
---
--- Name: CREATED_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
-
 SELECT pg_catalog.setval('fiore."CREATED_id_seq"', 93, true);
-
-
---
--- Name: Community_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
 
 SELECT pg_catalog.setval('fiore."Community_id_seq"', 44, true);
 
-
---
--- Name: Event_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
-
 SELECT pg_catalog.setval('fiore."Event_id_seq"', 49, true);
-
-
---
--- Name: FAVORITED_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
 
 SELECT pg_catalog.setval('fiore."FAVORITED_id_seq"', 188, true);
 
-
---
--- Name: FOLLOWS_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
-
 SELECT pg_catalog.setval('fiore."FOLLOWS_id_seq"', 110, true);
-
-
---
--- Name: HAS_POST_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
 
 SELECT pg_catalog.setval('fiore."HAS_POST_id_seq"', 246, true);
 
-
---
--- Name: MEMBER_OF_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
-
 SELECT pg_catalog.setval('fiore."MEMBER_OF_id_seq"', 184, true);
-
-
---
--- Name: PARTICIPATED_IN_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
 
 SELECT pg_catalog.setval('fiore."PARTICIPATED_IN_id_seq"', 122, true);
 
-
---
--- Name: Post_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
-
 SELECT pg_catalog.setval('fiore."Post_id_seq"', 153, true);
-
-
---
--- Name: REPLIED_TO_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
 
 SELECT pg_catalog.setval('fiore."REPLIED_TO_id_seq"', 175, true);
 
-
---
--- Name: Reply_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
-
 SELECT pg_catalog.setval('fiore."Reply_id_seq"', 175, true);
-
-
---
--- Name: User_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
 
 SELECT pg_catalog.setval('fiore."User_id_seq"', 14, true);
 
-
---
--- Name: VOTED_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
-
 SELECT pg_catalog.setval('fiore."VOTED_id_seq"', 132, true);
-
-
---
--- Name: WROTE_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
 
 SELECT pg_catalog.setval('fiore."WROTE_id_seq"', 295, true);
 
-
---
--- Name: _ag_label_edge_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
-
 SELECT pg_catalog.setval('fiore._ag_label_edge_id_seq', 1, false);
-
-
---
--- Name: _ag_label_vertex_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
 
 SELECT pg_catalog.setval('fiore._ag_label_vertex_id_seq', 1, false);
 
-
---
--- Name: _label_id_seq; Type: SEQUENCE SET; Schema: fiore; Owner: -
---
-
 SELECT pg_catalog.setval('fiore._label_id_seq', 16, true);
-
-
---
--- Name: chat_messages_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
 
 SELECT pg_catalog.setval('public.chat_messages_id_seq', 1475, true);
 
-
---
--- Name: communities_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
-
 SELECT pg_catalog.setval('public.communities_id_seq', 152, true);
-
-
---
--- Name: community_members_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
 
 SELECT pg_catalog.setval('public.community_members_id_seq', 2862, true);
 
-
---
--- Name: community_posts_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
-
 SELECT pg_catalog.setval('public.community_posts_id_seq', 12, true);
-
-
---
--- Name: event_participants_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
 
 SELECT pg_catalog.setval('public.event_participants_id_seq', 2091, true);
 
-
---
--- Name: events_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
-
 SELECT pg_catalog.setval('public.events_id_seq', 386, true);
-
-
---
--- Name: media_items_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
 
 SELECT pg_catalog.setval('public.media_items_id_seq', 333, true);
 
-
---
--- Name: notifications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
-
 SELECT pg_catalog.setval('public.notifications_id_seq', 56, true);
-
-
---
--- Name: post_favorites_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
 
 SELECT pg_catalog.setval('public.post_favorites_id_seq', 8, true);
 
-
---
--- Name: posts_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
-
 SELECT pg_catalog.setval('public.posts_id_seq', 184, true);
-
-
---
--- Name: replies_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
 
 SELECT pg_catalog.setval('public.replies_id_seq', 185, true);
 
-
---
--- Name: reply_favorites_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
-
 SELECT pg_catalog.setval('public.reply_favorites_id_seq', 8, true);
-
-
---
--- Name: user_device_tokens_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
 
 SELECT pg_catalog.setval('public.user_device_tokens_id_seq', 7, true);
 
-
---
--- Name: users_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
-
 SELECT pg_catalog.setval('public.users_id_seq', 1056, true);
 
-
---
--- Name: votes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
---
-
 SELECT pg_catalog.setval('public.votes_id_seq', 45, true);
-
-
---
--- Name: _ag_label_edge _ag_label_edge_pkey; Type: CONSTRAINT; Schema: fiore; Owner: -
---
---
-
---ALTER TABLE ONLY fiore._ag_label_edge
---    ADD CONSTRAINT _ag_label_edge_pkey PRIMARY KEY (id);
-
-
---
--- Name: _ag_label_vertex _ag_label_vertex_pkey; Type: CONSTRAINT; Schema: fiore; Owner: -
---
-
---ALTER TABLE ONLY fiore._ag_label_vertex
---    ADD CONSTRAINT _ag_label_vertex_pkey PRIMARY KEY (id);
-
-
---
--- Name: chat_message_media chat_message_media_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.chat_message_media
     ADD CONSTRAINT chat_message_media_pkey PRIMARY KEY (message_id, media_id);
 
-
---
--- Name: chat_messages chat_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.chat_messages
     ADD CONSTRAINT chat_messages_pkey PRIMARY KEY (id);
-
-
---
--- Name: communities communities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.communities
     ADD CONSTRAINT communities_pkey PRIMARY KEY (id);
 
-
---
--- Name: community_logo community_logo_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.community_logo
     ADD CONSTRAINT community_logo_pkey PRIMARY KEY (community_id);
-
-
---
--- Name: community_members community_members_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.community_members
     ADD CONSTRAINT community_members_pkey PRIMARY KEY (id);
 
-
---
--- Name: community_members community_members_user_id_community_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.community_members
     ADD CONSTRAINT community_members_user_id_community_id_key UNIQUE (user_id, community_id);
-
-
---
--- Name: community_posts community_posts_community_id_post_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.community_posts
     ADD CONSTRAINT community_posts_community_id_post_id_key UNIQUE (community_id, post_id);
 
-
---
--- Name: community_posts community_posts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.community_posts
     ADD CONSTRAINT community_posts_pkey PRIMARY KEY (id);
-
-
---
--- Name: event_participants event_participants_event_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.event_participants
     ADD CONSTRAINT event_participants_event_id_user_id_key UNIQUE (event_id, user_id);
 
-
---
--- Name: event_participants event_participants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.event_participants
     ADD CONSTRAINT event_participants_pkey PRIMARY KEY (id);
-
-
---
--- Name: events events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.events
     ADD CONSTRAINT events_pkey PRIMARY KEY (id);
 
-
---
--- Name: media_items media_items_minio_object_name_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.media_items
     ADD CONSTRAINT media_items_minio_object_name_key UNIQUE (minio_object_name);
-
-
---
--- Name: media_items media_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.media_items
     ADD CONSTRAINT media_items_pkey PRIMARY KEY (id);
 
-
---
--- Name: notifications notifications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.notifications
     ADD CONSTRAINT notifications_pkey PRIMARY KEY (id);
-
-
---
--- Name: post_favorites post_favorites_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.post_favorites
     ADD CONSTRAINT post_favorites_pkey PRIMARY KEY (id);
 
-
---
--- Name: post_favorites post_favorites_user_id_post_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.post_favorites
     ADD CONSTRAINT post_favorites_user_id_post_id_key UNIQUE (user_id, post_id);
-
-
---
--- Name: post_media post_media_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.post_media
     ADD CONSTRAINT post_media_pkey PRIMARY KEY (post_id, media_id);
 
-
---
--- Name: posts posts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.posts
     ADD CONSTRAINT posts_pkey PRIMARY KEY (id);
-
-
---
--- Name: replies replies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.replies
     ADD CONSTRAINT replies_pkey PRIMARY KEY (id);
 
-
---
--- Name: reply_favorites reply_favorites_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.reply_favorites
     ADD CONSTRAINT reply_favorites_pkey PRIMARY KEY (id);
-
-
---
--- Name: reply_favorites reply_favorites_user_id_reply_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.reply_favorites
     ADD CONSTRAINT reply_favorites_user_id_reply_id_key UNIQUE (user_id, reply_id);
 
-
---
--- Name: reply_media reply_media_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.reply_media
     ADD CONSTRAINT reply_media_pkey PRIMARY KEY (reply_id, media_id);
-
-
---
--- Name: votes unique_user_post_vote; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.votes
     ADD CONSTRAINT unique_user_post_vote UNIQUE (user_id, post_id);
 
-
---
--- Name: votes unique_user_reply_vote; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.votes
     ADD CONSTRAINT unique_user_reply_vote UNIQUE (user_id, reply_id);
-
-
---
--- Name: user_blocks user_blocks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_blocks
     ADD CONSTRAINT user_blocks_pkey PRIMARY KEY (blocker_id, blocked_id);
 
-
---
--- Name: user_device_tokens user_device_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.user_device_tokens
     ADD CONSTRAINT user_device_tokens_pkey PRIMARY KEY (id);
-
-
---
--- Name: user_followers user_followers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_followers
     ADD CONSTRAINT user_followers_pkey PRIMARY KEY (follower_id, following_id);
 
-
---
--- Name: user_profile_picture user_profile_picture_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.user_profile_picture
     ADD CONSTRAINT user_profile_picture_pkey PRIMARY KEY (user_id);
-
-
---
--- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_email_key UNIQUE (email);
 
-
---
--- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-
---
--- Name: users users_username_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_username_key UNIQUE (username);
 
-
---
--- Name: votes votes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.votes
     ADD CONSTRAINT votes_pkey PRIMARY KEY (id);
 
-
---
--- Name: community_id_graph_idx; Type: INDEX; Schema: fiore; Owner: -
---
-
 CREATE INDEX community_id_graph_idx ON fiore."Community" USING btree ((((properties OPERATOR(ag_catalog.->>) 'id'::text))::bigint));
-
-
---
--- Name: event_id_graph_idx; Type: INDEX; Schema: fiore; Owner: -
---
 
 CREATE INDEX event_id_graph_idx ON fiore."Event" USING btree ((((properties OPERATOR(ag_catalog.->>) 'id'::text))::bigint));
 
-
---
--- Name: post_id_graph_idx; Type: INDEX; Schema: fiore; Owner: -
---
-
 CREATE INDEX post_id_graph_idx ON fiore."Post" USING btree ((((properties OPERATOR(ag_catalog.->>) 'id'::text))::bigint));
-
-
---
--- Name: reply_id_graph_idx; Type: INDEX; Schema: fiore; Owner: -
---
 
 CREATE INDEX reply_id_graph_idx ON fiore."Reply" USING btree ((((properties OPERATOR(ag_catalog.->>) 'id'::text))::bigint));
 
-
---
--- Name: user_id_graph_idx; Type: INDEX; Schema: fiore; Owner: -
---
-
 CREATE INDEX user_id_graph_idx ON fiore."User" USING btree ((((properties OPERATOR(ag_catalog.->>) 'id'::text))::bigint));
-
-
---
--- Name: idx_chat_message_media_media; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_chat_message_media_media ON public.chat_message_media USING btree (media_id);
 
-
---
--- Name: idx_chat_messages_community_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_chat_messages_community_id ON public.chat_messages USING btree (community_id) WHERE (community_id IS NOT NULL);
-
-
---
--- Name: idx_chat_messages_event_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_chat_messages_event_id ON public.chat_messages USING btree (event_id) WHERE (event_id IS NOT NULL);
 
-
---
--- Name: idx_chat_messages_timestamp; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_chat_messages_timestamp ON public.chat_messages USING btree ("timestamp" DESC);
-
-
---
--- Name: idx_communities_created_by; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_communities_created_by ON public.communities USING btree (created_by);
 
-
---
--- Name: idx_communities_fts; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_communities_fts ON public.communities USING gin (to_tsvector('english'::regconfig, ((COALESCE(name, ''::text) || ' '::text) || COALESCE(description, ''::text))));
-
-
---
--- Name: idx_communities_interest; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_communities_interest ON public.communities USING btree (interest);
 
-
---
--- Name: idx_communities_location; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_communities_location ON public.communities USING gist (location);
-
-
---
--- Name: idx_community_logo_media; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_community_logo_media ON public.community_logo USING btree (media_id);
 
-
---
--- Name: idx_event_participants_event_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_event_participants_event_id ON public.event_participants USING btree (event_id);
-
-
---
--- Name: idx_event_participants_user_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_event_participants_user_id ON public.event_participants USING btree (user_id);
 
-
---
--- Name: idx_events_community_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_events_community_id ON public.events USING btree (community_id);
-
-
---
--- Name: idx_events_event_timestamp; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_events_event_timestamp ON public.events USING btree (event_timestamp);
 
-
---
--- Name: idx_events_event_timestamp_desc; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_events_event_timestamp_desc ON public.events USING btree (event_timestamp DESC);
-
-
---
--- Name: idx_events_location_coords; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_events_location_coords ON public.events USING gist (location_coords);
 
-
---
--- Name: idx_followers_follower; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_followers_follower ON public.user_followers USING btree (follower_id);
-
-
---
--- Name: idx_followers_following; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_followers_following ON public.user_followers USING btree (following_id);
 
-
---
--- Name: idx_media_items_minio_object; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_media_items_minio_object ON public.media_items USING btree (minio_object_name);
-
-
---
--- Name: idx_media_items_uploader; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_media_items_uploader ON public.media_items USING btree (uploader_user_id);
 
-
---
--- Name: idx_notifications_actor; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_notifications_actor ON public.notifications USING btree (actor_user_id);
-
-
---
--- Name: idx_notifications_recipient_created; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_notifications_recipient_created ON public.notifications USING btree (recipient_user_id, created_at DESC);
 
-
---
--- Name: idx_notifications_recipient_unread; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_notifications_recipient_unread ON public.notifications USING btree (recipient_user_id, is_read, created_at DESC);
-
-
---
--- Name: idx_notifications_related_entity; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_notifications_related_entity ON public.notifications USING btree (related_entity_type, related_entity_id);
 
-
---
--- Name: idx_post_media_media; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_post_media_media ON public.post_media USING btree (media_id);
-
-
---
--- Name: idx_posts_created_at; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_posts_created_at ON public.posts USING btree (created_at DESC);
 
-
---
--- Name: idx_posts_fts; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_posts_fts ON public.posts USING gin (to_tsvector('english'::regconfig, (((COALESCE(title, ''::character varying))::text || ' '::text) || COALESCE(content, ''::text))));
-
-
---
--- Name: idx_posts_user_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_posts_user_id ON public.posts USING btree (user_id);
 
-
---
--- Name: idx_replies_created_at; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_replies_created_at ON public.replies USING btree (created_at);
-
-
---
--- Name: idx_replies_post_id; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_replies_post_id ON public.replies USING btree (post_id);
 
-
---
--- Name: idx_reply_media_media; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_reply_media_media ON public.reply_media USING btree (media_id);
-
-
---
--- Name: idx_user_blocks_blocked; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_user_blocks_blocked ON public.user_blocks USING btree (blocked_id);
 
-
---
--- Name: idx_user_blocks_blocker; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_user_blocks_blocker ON public.user_blocks USING btree (blocker_id);
-
-
---
--- Name: idx_user_device_tokens_token_platform; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE UNIQUE INDEX idx_user_device_tokens_token_platform ON public.user_device_tokens USING btree (device_token, platform);
 
-
---
--- Name: idx_user_device_tokens_user_id; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_user_device_tokens_user_id ON public.user_device_tokens USING btree (user_id);
-
-
---
--- Name: idx_user_profile_picture_media; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_user_profile_picture_media ON public.user_profile_picture USING btree (media_id);
 
-
---
--- Name: idx_users_college; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_users_college ON public.users USING btree (college);
-
-
---
--- Name: idx_users_fts; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_users_fts ON public.users USING gin (to_tsvector('english'::regconfig, ((COALESCE(name, ''::text) || ' '::text) || COALESCE(username, ''::text))));
 
-
---
--- Name: idx_users_interest; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_users_interest ON public.users USING btree (interest);
-
-
---
--- Name: idx_users_last_seen; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_users_last_seen ON public.users USING btree (last_seen DESC NULLS LAST);
 
-
---
--- Name: idx_users_location; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_users_location ON public.users USING gist (location);
-
-
---
--- Name: idx_votes_on_post; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX idx_votes_on_post ON public.votes USING btree (post_id) WHERE (post_id IS NOT NULL);
 
-
---
--- Name: idx_votes_on_reply; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX idx_votes_on_reply ON public.votes USING btree (reply_id) WHERE (reply_id IS NOT NULL);
-
-
---
--- Name: chat_message_media chat_message_media_media_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.chat_message_media
     ADD CONSTRAINT chat_message_media_media_id_fkey FOREIGN KEY (media_id) REFERENCES public.media_items(id) ON DELETE CASCADE;
 
-
---
--- Name: chat_message_media chat_message_media_message_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.chat_message_media
     ADD CONSTRAINT chat_message_media_message_id_fkey FOREIGN KEY (message_id) REFERENCES public.chat_messages(id) ON DELETE CASCADE;
-
-
---
--- Name: chat_messages chat_messages_community_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.chat_messages
     ADD CONSTRAINT chat_messages_community_id_fkey FOREIGN KEY (community_id) REFERENCES public.communities(id) ON DELETE CASCADE;
 
-
---
--- Name: chat_messages chat_messages_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.chat_messages
     ADD CONSTRAINT chat_messages_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: communities communities_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.communities
     ADD CONSTRAINT communities_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE CASCADE;
 
-
---
--- Name: community_logo community_logo_community_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.community_logo
     ADD CONSTRAINT community_logo_community_id_fkey FOREIGN KEY (community_id) REFERENCES public.communities(id) ON DELETE CASCADE;
-
-
---
--- Name: community_logo community_logo_media_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.community_logo
     ADD CONSTRAINT community_logo_media_id_fkey FOREIGN KEY (media_id) REFERENCES public.media_items(id) ON DELETE RESTRICT;
 
-
---
--- Name: community_members community_members_community_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.community_members
     ADD CONSTRAINT community_members_community_id_fkey FOREIGN KEY (community_id) REFERENCES public.communities(id) ON DELETE CASCADE;
-
-
---
--- Name: community_members community_members_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.community_members
     ADD CONSTRAINT community_members_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
-
---
--- Name: community_posts community_posts_community_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.community_posts
     ADD CONSTRAINT community_posts_community_id_fkey FOREIGN KEY (community_id) REFERENCES public.communities(id) ON DELETE CASCADE;
-
-
---
--- Name: community_posts community_posts_post_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.community_posts
     ADD CONSTRAINT community_posts_post_id_fkey FOREIGN KEY (post_id) REFERENCES public.posts(id) ON DELETE CASCADE;
 
-
---
--- Name: event_participants event_participants_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.event_participants
     ADD CONSTRAINT event_participants_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id) ON DELETE CASCADE;
-
-
---
--- Name: event_participants event_participants_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.event_participants
     ADD CONSTRAINT event_participants_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
-
---
--- Name: events events_community_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.events
     ADD CONSTRAINT events_community_id_fkey FOREIGN KEY (community_id) REFERENCES public.communities(id) ON DELETE CASCADE;
-
-
---
--- Name: events events_creator_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.events
     ADD CONSTRAINT events_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
-
---
--- Name: media_items media_items_uploader_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.media_items
     ADD CONSTRAINT media_items_uploader_user_id_fkey FOREIGN KEY (uploader_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: notifications notifications_actor_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.notifications
     ADD CONSTRAINT notifications_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
-
---
--- Name: notifications notifications_recipient_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.notifications
     ADD CONSTRAINT notifications_recipient_user_id_fkey FOREIGN KEY (recipient_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: post_favorites post_favorites_post_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.post_favorites
     ADD CONSTRAINT post_favorites_post_id_fkey FOREIGN KEY (post_id) REFERENCES public.posts(id) ON DELETE CASCADE;
 
-
---
--- Name: post_favorites post_favorites_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.post_favorites
     ADD CONSTRAINT post_favorites_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: post_media post_media_media_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.post_media
     ADD CONSTRAINT post_media_media_id_fkey FOREIGN KEY (media_id) REFERENCES public.media_items(id) ON DELETE CASCADE;
 
-
---
--- Name: post_media post_media_post_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.post_media
     ADD CONSTRAINT post_media_post_id_fkey FOREIGN KEY (post_id) REFERENCES public.posts(id) ON DELETE CASCADE;
-
-
---
--- Name: posts posts_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.posts
     ADD CONSTRAINT posts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
-
---
--- Name: replies replies_parent_reply_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.replies
     ADD CONSTRAINT replies_parent_reply_id_fkey FOREIGN KEY (parent_reply_id) REFERENCES public.replies(id) ON DELETE CASCADE;
-
-
---
--- Name: replies replies_post_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.replies
     ADD CONSTRAINT replies_post_id_fkey FOREIGN KEY (post_id) REFERENCES public.posts(id) ON DELETE CASCADE;
 
-
---
--- Name: replies replies_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.replies
     ADD CONSTRAINT replies_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: reply_favorites reply_favorites_reply_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.reply_favorites
     ADD CONSTRAINT reply_favorites_reply_id_fkey FOREIGN KEY (reply_id) REFERENCES public.replies(id) ON DELETE CASCADE;
 
-
---
--- Name: reply_favorites reply_favorites_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.reply_favorites
     ADD CONSTRAINT reply_favorites_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: reply_media reply_media_media_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.reply_media
     ADD CONSTRAINT reply_media_media_id_fkey FOREIGN KEY (media_id) REFERENCES public.media_items(id) ON DELETE CASCADE;
 
-
---
--- Name: reply_media reply_media_reply_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.reply_media
     ADD CONSTRAINT reply_media_reply_id_fkey FOREIGN KEY (reply_id) REFERENCES public.replies(id) ON DELETE CASCADE;
-
-
---
--- Name: user_blocks user_blocks_blocked_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_blocks
     ADD CONSTRAINT user_blocks_blocked_id_fkey FOREIGN KEY (blocked_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
-
---
--- Name: user_blocks user_blocks_blocker_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.user_blocks
     ADD CONSTRAINT user_blocks_blocker_id_fkey FOREIGN KEY (blocker_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: user_device_tokens user_device_tokens_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_device_tokens
     ADD CONSTRAINT user_device_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
-
---
--- Name: user_followers user_followers_follower_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.user_followers
     ADD CONSTRAINT user_followers_follower_id_fkey FOREIGN KEY (follower_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: user_followers user_followers_following_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_followers
     ADD CONSTRAINT user_followers_following_id_fkey FOREIGN KEY (following_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
-
---
--- Name: user_profile_picture user_profile_picture_media_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.user_profile_picture
     ADD CONSTRAINT user_profile_picture_media_id_fkey FOREIGN KEY (media_id) REFERENCES public.media_items(id) ON DELETE RESTRICT;
-
-
---
--- Name: user_profile_picture user_profile_picture_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.user_profile_picture
     ADD CONSTRAINT user_profile_picture_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
-
---
--- Name: votes votes_post_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.votes
     ADD CONSTRAINT votes_post_id_fkey FOREIGN KEY (post_id) REFERENCES public.posts(id) ON DELETE CASCADE;
-
-
---
--- Name: votes votes_reply_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.votes
     ADD CONSTRAINT votes_reply_id_fkey FOREIGN KEY (reply_id) REFERENCES public.replies(id) ON DELETE CASCADE;
 
-
---
--- Name: votes votes_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY public.votes
     ADD CONSTRAINT votes_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- PostgreSQL database dump complete
---
 
