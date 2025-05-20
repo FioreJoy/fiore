@@ -1,46 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-// --- Screen Imports ---
-import 'screens/auth/login_screen.dart';
-import 'screens/main_navigation_screen.dart';
+// --- Core Imports ---
+// AppConstants might be needed by app.dart, not directly here now.
+// import 'core/constants/app_constants.dart';
 
-// --- Service Imports ---
-import 'services/auth_provider.dart';
-import 'services/api_client.dart';
-import 'services/websocket_service.dart';
-import 'services/api/auth_service.dart';
-import 'services/api/user_service.dart';
-import 'services/api/community_service.dart';
-import 'services/api/event_service.dart';
-import 'services/api/post_service.dart';
-import 'services/api/reply_service.dart';
-import 'services/api/vote_service.dart';
-import 'services/api/chat_service.dart';
-import 'services/api/settings_service.dart';
-import 'services/api/block_service.dart';
-import 'services/api/location_service.dart';
-import 'services/api/favorite_service.dart';
-import 'services/api/notification_service.dart';
-import 'services/notification_provider.dart';
+// --- Data Layer Imports (API service classes - using their new file names) ---
+import 'data/datasources/remote/api_client.dart';
+import 'data/datasources/remote/websocket_service.dart';
+import 'data/datasources/remote/auth_api.dart'; // File name changed
+import 'data/datasources/remote/user_api.dart'; // File name changed
+import 'data/datasources/remote/community_api.dart';
+import 'data/datasources/remote/event_api.dart';
+import 'data/datasources/remote/post_api.dart';
+import 'data/datasources/remote/reply_api.dart';
+import 'data/datasources/remote/vote_api.dart';
+import 'data/datasources/remote/chat_api.dart';
+import 'data/datasources/remote/settings_api.dart';
+import 'data/datasources/remote/block_api.dart';
+import 'data/datasources/remote/location_api.dart';
+import 'data/datasources/remote/favorite_api.dart';
+import 'data/datasources/remote/notification_api.dart';
 
-// --- Theme Imports ---
-import 'services/theme_provider.dart';
-import 'theme/app_palettes.dart';    // Import AppPalette definitions
-import 'theme/theme_builder.dart'; // Import the theme builder function
+// --- Presentation Layer (Providers) Imports ---
+import 'presentation/providers/auth_provider.dart';
+import 'presentation/providers/notification_provider.dart';
+import 'core/theme/theme_provider.dart';
 
-// --- App Constants ---
-import 'app_constants.dart';
+// --- App Widget Import ---
+import 'app.dart'; // Contains the MaterialApp
+
+// --- Assume original class names (AuthService, UserService etc.) are still used INSIDE the _api.dart files ---
+// These typedefs bridge the gap between old class names and new file names if class names weren't changed.
+// If class names *were* changed (e.g. to AuthApi), then remove these typedefs and use the new class names directly.
+typedef AuthApiService = AuthService;
+typedef BlockApiService = BlockService;
+typedef ChatApiService = ChatService;
+typedef CommunityApiService = CommunityService;
+typedef EventApiService = EventService;
+typedef FavoriteApiService = FavoriteService;
+typedef LocationApiService = LocationService;
+typedef NotificationApiService = NotificationService;
+typedef PostApiService = PostService;
+typedef ReplyApiService = ReplyService;
+typedef SettingsApiService = SettingsService;
+typedef UserApiService = UserService;
+typedef VoteApiService = VoteService;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final authProvider = AuthProvider();
-  final themeProvider = ThemeProvider();
+  final authProvider = AuthProvider(); // Initialize early
+  final themeProvider = ThemeProvider(); // Initialize early
+  // auto-login and theme loading are handled in their constructors
 
   runApp(
     MultiProvider(
       providers: [
+        // Core Infrastructure
         Provider<ApiClient>(
           create: (_) => ApiClient(),
           dispose: (_, apiClient) => apiClient.dispose(),
@@ -49,118 +66,67 @@ void main() async {
           create: (_) => WebSocketService(),
           dispose: (_, wsService) => wsService.dispose(),
         ),
-        Provider<LocationService>(
-          create: (_) => LocationService(),
+        Provider<LocationApiService>(
+          // If LocationService class still exists in location_api.dart
+          create: (_) => LocationApiService(),
         ),
+
+        // API Service Providers (using typedefs for clarity or original class names)
+        ProxyProvider<ApiClient, AuthApiService>(
+          update: (_, apiClient, __) => AuthApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, UserApiService>(
+          update: (_, apiClient, __) => UserApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, CommunityApiService>(
+          update: (_, apiClient, __) => CommunityApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, EventApiService>(
+          update: (_, apiClient, __) => EventApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, PostApiService>(
+          update: (_, apiClient, __) => PostApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, ReplyApiService>(
+          update: (_, apiClient, __) => ReplyApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, VoteApiService>(
+          update: (_, apiClient, __) => VoteApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, FavoriteApiService>(
+          update: (_, apiClient, __) => FavoriteApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, ChatApiService>(
+          update: (_, apiClient, __) => ChatApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, SettingsApiService>(
+          update: (_, apiClient, __) => SettingsApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, BlockApiService>(
+          update: (_, apiClient, __) => BlockApiService(apiClient),
+        ),
+        ProxyProvider<ApiClient, NotificationApiService>(
+          update: (_, apiClient, __) => NotificationApiService(apiClient),
+        ),
+
+        // App State Management Providers
         ChangeNotifierProvider<AuthProvider>.value(value: authProvider),
         ChangeNotifierProvider<ThemeProvider>.value(value: themeProvider),
-        ProxyProvider<ApiClient, AuthService>(
-          update: (_, apiClient, __) => AuthService(apiClient),
-        ),
-        ProxyProvider<ApiClient, UserService>(
-          update: (_, apiClient, __) => UserService(apiClient),
-        ),
-        ProxyProvider<ApiClient, CommunityService>(
-          update: (_, apiClient, __) => CommunityService(apiClient),
-        ),
-        ProxyProvider<ApiClient, EventService>(
-          update: (_, apiClient, __) => EventService(apiClient),
-        ),
-        ProxyProvider<ApiClient, PostService>(
-          update: (_, apiClient, __) => PostService(apiClient),
-        ),
-        ProxyProvider<ApiClient, ReplyService>(
-          update: (_, apiClient, __) => ReplyService(apiClient),
-        ),
-        ProxyProvider<ApiClient, VoteService>(
-          update: (_, apiClient, __) => VoteService(apiClient),
-        ),
-        ProxyProvider<ApiClient, FavoriteService>(
-          update: (_, apiClient, __) => FavoriteService(apiClient),
-        ),
-        ProxyProvider<ApiClient, ChatService>(
-          update: (_, apiClient, __) => ChatService(apiClient),
-        ),
-        ProxyProvider<ApiClient, SettingsService>(
-          update: (_, apiClient, __) => SettingsService(apiClient),
-        ),
-        ProxyProvider<ApiClient, BlockService>(
-          update: (_, apiClient, __) => BlockService(apiClient),
-        ),
-        ProxyProvider<ApiClient, NotificationService>(
-          update: (_, apiClient, __) => NotificationService(apiClient),
-        ),
-        ChangeNotifierProxyProvider2<NotificationService, AuthProvider, NotificationProvider>(
+
+        ChangeNotifierProxyProvider2<NotificationApiService, AuthProvider,
+            NotificationProvider>(
           create: (context) {
-            final notificationService = context.read<NotificationService>();
+            final notificationService = context.read<NotificationApiService>();
             final authProviderForNotif = context.read<AuthProvider>();
-            return NotificationProvider(notificationService, authProviderForNotif);
+            return NotificationProvider(
+                notificationService, authProviderForNotif);
           },
-          update: (context, notificationService, authProviderForNotif, previousNotificationProvider) {
-            return NotificationProvider(notificationService, authProviderForNotif);
-          },
+          update: (_, notificationService, authProviderForNotif, previous) =>
+              previous ??
+              NotificationProvider(notificationService, authProviderForNotif),
         ),
       ],
       child: const FioreApp(),
     ),
   );
-}
-
-class FioreApp extends StatelessWidget {
-  const FioreApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final authProvider = context.watch<AuthProvider>();
-    final themeProvider = context.watch<ThemeProvider>();
-
-    if (authProvider.isLoading || themeProvider.isLoading) {
-      return const MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-      );
-    }
-
-    ThemeData themeToApply;
-    ThemeData darkThemeToApply;
-
-    // If a specific named theme is selected, ThemeProvider.currentTheme already holds the correct ThemeData
-    // and ThemeProvider.themeMode reflects its brightness.
-    if (themeProvider.currentThemeName != fioreLightPalette.name &&
-        themeProvider.currentThemeName != fioreDarkPalette.name &&
-        themeProvider.themeMode != ThemeMode.system) {
-      // A custom palette is active
-      themeToApply = themeProvider.currentTheme; // This IS the custom theme
-      // For MaterialApp, if currentTheme is dark, it should go to darkTheme slot.
-      // If currentTheme is light, it goes to theme slot.
-      // This logic is a bit redundant if themeMode is correctly set by ThemeProvider.
-      if (themeProvider.currentTheme.brightness == Brightness.dark) {
-        darkThemeToApply = themeProvider.currentTheme;
-        themeToApply = buildThemeFromPalette(fioreLightPalette); // Default light
-      } else {
-        darkThemeToApply = buildThemeFromPalette(fioreDarkPalette); // Default dark
-      }
-    } else {
-      // Using system, or explicit Fiore Light/Dark via simple toggle
-      themeToApply = buildThemeFromPalette(fioreLightPalette);
-      darkThemeToApply = buildThemeFromPalette(fioreDarkPalette);
-    }
-
-    return MaterialApp(
-      title: AppConstants.appName,
-      debugShowCheckedModeBanner: false,
-      themeMode: themeProvider.themeMode,
-      theme: themeToApply,
-      darkTheme: darkThemeToApply,
-      home: authProvider.isAuthenticated
-          ? const MainNavigationScreen()
-          : const LoginScreen(),
-      routes: {
-        '/login': (context) => const LoginScreen(),
-        '/main': (context) => const MainNavigationScreen(),
-      },
-    );
-  }
 }
