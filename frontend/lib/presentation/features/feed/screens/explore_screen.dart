@@ -172,7 +172,7 @@ class _ExploreScreenState extends State<ExploreScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Connections',
+          'Fiore',
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: ThemeConstants.headingText,

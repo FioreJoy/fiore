@@ -1,5 +1,4 @@
-// frontend/lib/services/api/chat_service.dart
-
+// frontend/lib/data/datasources/remote/chat_api.dart
 import 'dart:io'; // For File type
 import 'package:http/http.dart' as http; // For MultipartFile
 import 'package:http_parser/http_parser.dart'; // For MediaType
@@ -12,24 +11,40 @@ class ChatService {
 
   ChatService(this._apiClient);
 
+  /// Fetches chat messages. Can be for a community, an event, or a DM.
   Future<List<dynamic>> getChatMessages({
     required String token,
     int? communityId,
     int? eventId,
+    int? dmWithUserId, // New parameter for DMs
     int limit = 50,
     int? beforeId,
   }) async {
-    if (!((communityId != null && eventId == null) ||
-        (communityId == null && eventId != null))) {
+    // Validate that exactly one context (community, event, or DM) is provided
+    int providedContexts = 0;
+    if (communityId != null) providedContexts++;
+    if (eventId != null) providedContexts++;
+    if (dmWithUserId != null) providedContexts++;
+
+    if (providedContexts != 1) {
       throw ArgumentError(
-          "ChatService Error: Must provide exactly one of communityId or eventId.");
+          "ChatService Error: Must provide exactly one of communityId, eventId, or dmWithUserId.");
     }
+
     try {
       final queryParams = <String, String>{'limit': limit.toString()};
-      if (communityId != null)
+      if (communityId != null) {
         queryParams['community_id'] = communityId.toString();
-      if (eventId != null) queryParams['event_id'] = eventId.toString();
-      if (beforeId != null) queryParams['before_id'] = beforeId.toString();
+      }
+      if (eventId != null) {
+        queryParams['event_id'] = eventId.toString();
+      }
+      if (dmWithUserId != null) {
+        queryParams['dm_with_user_id'] = dmWithUserId.toString();
+      }
+      if (beforeId != null) {
+        queryParams['before_id'] = beforeId.toString();
+      }
 
       final response = await _apiClient.get(
         ApiEndpoints.chatMessages,
@@ -38,27 +53,33 @@ class ChatService {
       );
       return response as List<dynamic>? ?? [];
     } catch (e) {
-      final room =
-          communityId != null ? "community $communityId" : "event $eventId";
-      //print("ChatService: Failed to fetch messages for $room - $e");
+      String roomInfo = "unknown source";
+      if (communityId != null) roomInfo = "community $communityId";
+      else if (eventId != null) roomInfo = "event $eventId";
+      else if (dmWithUserId != null) roomInfo = "DM with user $dmWithUserId";
+      print("ChatService: Failed to fetch messages for $roomInfo - $e");
       rethrow;
     }
   }
 
-  // --- NEW METHOD: Send Chat Message via HTTP (for text + optional media) ---
-  /// Sends a chat message via HTTP, allowing for text and file attachments.
-  /// The backend is expected to save the message and then broadcast it via WebSocket.
+  /// Sends a chat message via HTTP (text + optional media).
+  /// Can be a community, event, or DM message.
   Future<Map<String, dynamic>> sendChatMessageWithMedia({
     required String token,
     required String content,
     int? communityId,
     int? eventId,
-    List<File>? files, // List of files to upload
+    int? dmRecipientUserId, // New parameter for DMs
+    List<File>? files,
   }) async {
-    if (!((communityId != null && eventId == null) ||
-        (communityId == null && eventId != null))) {
+    int providedContexts = 0;
+    if (communityId != null) providedContexts++;
+    if (eventId != null) providedContexts++;
+    if (dmRecipientUserId != null) providedContexts++;
+
+    if (providedContexts != 1) {
       throw ArgumentError(
-          "ChatService Error: Must provide exactly one of communityId or eventId for sending message.");
+          "ChatService Error: Must provide exactly one of communityId, eventId, or dmRecipientUserId for sending message.");
     }
     if (content.trim().isEmpty && (files == null || files.isEmpty)) {
       throw ArgumentError(
@@ -66,12 +87,11 @@ class ChatService {
     }
 
     try {
+      // --- All text fields go into the 'fields' map for multipart request ---
       final fields = {'content': content.trim()};
-      // Add community_id or event_id to query params as backend expects them there for POST
-      final queryParams = <String, String>{};
-      if (communityId != null)
-        queryParams['community_id'] = communityId.toString();
-      if (eventId != null) queryParams['event_id'] = eventId.toString();
+      if (communityId != null) fields['community_id'] = communityId.toString();
+      if (eventId != null) fields['event_id'] = eventId.toString();
+      if (dmRecipientUserId != null) fields['dm_recipient_user_id'] = dmRecipientUserId.toString();
 
       List<http.MultipartFile>? filesToUpload;
       if (files != null && files.isNotEmpty) {
@@ -79,12 +99,9 @@ class ChatService {
         for (var file in files) {
           String? mimeType;
           final extension = file.path.split('.').last.toLowerCase();
-          if (extension == 'jpg' || extension == 'jpeg')
-            mimeType = 'image/jpeg';
-          else if (extension == 'png')
-            mimeType = 'image/png';
+          if (extension == 'jpg' || extension == 'jpeg') mimeType = 'image/jpeg';
+          else if (extension == 'png') mimeType = 'image/png';
           else if (extension == 'gif') mimeType = 'image/gif';
-          // Add more types if needed
 
           filesToUpload.add(await http.MultipartFile.fromPath(
             'files', // Backend expects a list under the key 'files'
@@ -94,41 +111,23 @@ class ChatService {
         }
       }
 
-      // Construct the endpoint URL with query parameters
-      final uri = Uri.parse('${_apiClient.baseUrl}${ApiEndpoints.chatMessages}')
-          .replace(queryParameters: queryParams);
-
-      // Use ApiClient's multipartRequest for consistency, passing the full URI
-      // Note: multipartRequest in ApiClient needs to be able to take a full Uri or build it
-      // For now, let's assume we pass endpoint string and it appends query params.
-      // If ApiClient.multipartRequest needs an update to handle queryParams, that's a separate step.
-      // Let's assume ApiClient.multipartRequest can handle an endpoint string and we can append query params to it.
-      // Or, more simply, the backend `POST /chat/messages` might accept community_id/event_id in the form fields too.
-      // Let's assume they are sent as query parameters as per the existing GET.
-
-      String endpointWithParams = ApiEndpoints.chatMessages;
-      if (queryParams.isNotEmpty) {
-        final queryString = Uri(queryParameters: queryParams).query;
-        endpointWithParams += '?$queryString';
-      }
-
-      //print("ChatService: Sending HTTP chat message to $endpointWithParams with fields: $fields, files: ${filesToUpload?.length ?? 0}");
-
+      // The endpoint is the same for all types, parameters differentiate it.
+      // No query parameters needed for POST if IDs are in form fields.
       final response = await _apiClient.multipartRequest(
         'POST',
-        endpointWithParams, // Endpoint now includes query params
+        ApiEndpoints.chatMessages,
         token: token,
-        fields: fields,
+        fields: fields, // All context IDs now go into fields
         files: filesToUpload,
       );
-      // Backend /chat/messages POST returns the created ChatMessageData
       return response as Map<String, dynamic>;
     } catch (e) {
-      final room =
-          communityId != null ? "community $communityId" : "event $eventId";
-      //print("ChatService: Failed to send HTTP chat message for $room - $e");
+      String roomInfo = "unknown source";
+      if (communityId != null) roomInfo = "community $communityId";
+      else if (eventId != null) roomInfo = "event $eventId";
+      else if (dmRecipientUserId != null) roomInfo = "DM to user $dmRecipientUserId";
+      print("ChatService: Failed to send HTTP chat message for $roomInfo - $e");
       rethrow;
     }
   }
-// --- END NEW METHOD ---
 }

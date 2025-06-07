@@ -182,21 +182,21 @@ def get_media_items_for_reply(cursor: psycopg2.extensions.cursor, reply_id: int)
     return results
 
 def get_media_items_for_chat_message(cursor: psycopg2.extensions.cursor, message_id: int) -> List[Dict[str, Any]]:
-    # Assuming no display order for chat media for now
+    # This function fetches media items linked to a specific chat message ID
+    # It does NOT generate the full MinIO URL itself; that's done in the calling function (e.g., chat router or higher CRUD layer)
     cursor.execute(
         """
-        SELECT mi.*
+        SELECT mi.id, mi.uploader_user_id, mi.minio_object_name, mi.mime_type, 
+               mi.file_size_bytes, mi.original_filename, mi.created_at, 
+               mi.width, mi.height, mi.duration_seconds
         FROM public.media_items mi
         JOIN public.chat_message_media cmm ON mi.id = cmm.media_id
         WHERE cmm.message_id = %s
-        ORDER BY mi.created_at ASC;
+        ORDER BY mi.created_at ASC; 
         """,
         (message_id,)
     )
-    items = cursor.fetchall()
-    results = []
-    for item in items:
-        item_dict = dict(item)
-        item_dict['url'] = utils.get_minio_url(item_dict.get('minio_object_name'))
-        results.append(item_dict)
-    return results
+    # Fetchall returns a list of RealDictRow objects
+    items_db = cursor.fetchall()
+    # Convert RealDictRow to standard dicts for easier processing and serialization
+    return [dict(item) for item in items_db]

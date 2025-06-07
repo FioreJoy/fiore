@@ -299,19 +299,25 @@ class EventDisplay(EventBase):
 class ChatMessageCreate(BaseModel): # Input via WS or HTTP Post body
     content: str = Field(..., min_length=1)
 
+# --- Chat Schemas ---
 class ChatMessageData(BaseModel): # Structure for WS broadcast & HTTP GET response
     message_id: int
-    community_id: Optional[int] = None
-    event_id: Optional[int] = None
-    user_id: int
-    username: str # Include username for display convenience
+    user_id: int # Sender's ID
+    username: str
     content: str
     timestamp: datetime
-    media: Optional[List[MediaItemDisplay]] = [] # Default to empty list
+    media: List[MediaItemDisplay] = [] # Always include, can be empty
 
-    class Config:
-        from_attributes = True
+    community_id: Optional[int] = None # Null for DMs
+    event_id: Optional[int] = None     # Null for DMs
 
+    # New fields for DMs
+    sender_id: Optional[int] = None    # Will be same as user_id for DMs, Null otherwise
+    recipient_id: Optional[int] = None # Null for group chats
+
+    profile_image_url: Optional[str] = None # Sender's profile image URL
+
+    class Config: from_attributes = True
 
 # --- Settings & Privacy Schemas (Placeholders/Examples) ---
 

@@ -13,7 +13,6 @@ bcrypt
 Pillow
 PyJWT
 python-multipart
-websockets
 minio
 aiodataloader
 pytest
@@ -21,3 +20,5 @@ pytest-asyncio
 pytest-ordering
 faker
 tqdm
+python-socketio[asyncio]
+aioredis

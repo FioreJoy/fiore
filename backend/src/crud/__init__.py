@@ -44,7 +44,8 @@ from ._event import (
 )
 from ._chat import (
     create_chat_message_db,
-    get_chat_messages_db
+    get_chat_messages_db,
+    get_direct_messages_db
 )
 
 from ._vote import (

@@ -1,7 +1,7 @@
 import bcrypt
 
 # The new password you want to set
-new_password = "x"
+new_password = input('Enter password: ')
 
 # Generate salt
 salt = bcrypt.gensalt(rounds=10)
@@ -10,4 +10,5 @@ salt = bcrypt.gensalt(rounds=10)
 hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), salt)
 
 # Print the hash
-print("New bcrypt hash:", hashed_password.decode('utf-8'))
+print("Salt:", salt)
+print("Bcrypt hash:", hashed_password.decode('utf-8'))

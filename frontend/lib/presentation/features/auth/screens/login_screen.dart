@@ -131,7 +131,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 15),
                   Text(
-                    'Connect with your communities.',
+                    'Connect with people around you!',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 16,

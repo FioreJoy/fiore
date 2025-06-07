@@ -1,411 +1,309 @@
-// frontend/lib/services/websocket_service.dart
-
+// frontend/lib/data/datasources/remote/websocket_service.dart
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io'; // Required for WebSocketException
-import 'dart:math'; // Required for pow
+import 'dart:math';
+
+import 'package:flutter/foundation.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+
 import '../../../app_constants.dart';
 
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/status.dart' as ws_status;
+const String _apiKeyFromEnv = String.fromEnvironment('API_KEY', defaultValue: '');
+const String _wsBaseUrl = AppConstants.wsUrl;
 
-// Use AppConstants only if wsBaseUrl isn't defined by environment
-// import '../app_constants.dart';
-import 'api_endpoints.dart'; // For WS path structure
+class WebSocketService with ChangeNotifier {
+  final String wsUrl = _wsBaseUrl;
+  final String apiKey = _apiKeyFromEnv;
 
-// Define API Key and WS Base URL as constants (load from environment ideally)
-// Compile using: flutter run --dart-define=API_KEY=YOUR_KEY --dart-define=WS_BASE_URL=ws://your-url
-const String _apiKey = String.fromEnvironment('API_KEY');
-const String _wsBaseUrlFromEnv = AppConstants.wsUrl;
+  IO.Socket? _socket;
 
-/// Manages the WebSocket connection, message stream, and presence updates.
-class WebSocketService {
-  final String wsBaseUrl;
-  final String apiKey = _apiKey;
-
-  WebSocketChannel? _channel;
-  StreamSubscription? _streamSubscription;
-
-  // Controller for ALL raw incoming messages (parsed JSON maps)
-  final StreamController<Map<String, dynamic>> _rawMessagesController =
-      StreamController.broadcast();
+  final StreamController<Map<String, dynamic>> _rawMessagesController = StreamController.broadcast();
   Stream<Map<String, dynamic>> get rawMessages => _rawMessagesController.stream;
 
-  // Controller specifically for online presence counts: Map<String roomKey, int onlineCount>
-  final StreamController<Map<String, int>> _onlineCountController =
-      StreamController.broadcast();
-  Stream<Map<String, int>> get onlineCounts => _onlineCountController.stream;
-
-  // Controller for connection state changes (e.g., 'connecting', 'connected', 'disconnected', 'error')
-  final StreamController<String> _connectionStateController =
-      StreamController.broadcast();
+  final StreamController<String> _connectionStateController = StreamController.broadcast();
   Stream<String> get connectionState => _connectionStateController.stream;
 
-  // Internal state
-  String? _currentRoomKey; // Stores 'type_id' format, e.g., "community_1"
-  String? _currentToken; // Token used for the current connection
-  bool _isConnected =
-      false; // Reflects successful connection AND listener active
-  bool _isConnecting =
-      false; // Prevents multiple concurrent connection attempts
+  String? _currentRoomKey;
+  String? _currentTokenForConnection;
+  String? _myUserIdForConnection;
+
+  bool _isConnectedAndAuthenticated = false;
+  bool _isAttemptingConnection = false;
   Timer? _reconnectTimer;
   int _reconnectAttempts = 0;
-  static const int _maxReconnectAttempts = 5; // Limit reconnection attempts
+  static const int _maxReconnectAttempts = 7;
 
-  WebSocketService({String? wsUrl})
-      : wsBaseUrl = _wsBaseUrlFromEnv.isNotEmpty
-            ? _wsBaseUrlFromEnv
-            : throw Exception(
-                "WS_BASE_URL environment variable not set during build.") // Fail fast if not set
-  {
-    if (apiKey.isEmpty) {
-      const errorMessage =
-          "API_KEY environment variable not set. WebSocketService cannot function.";
-      //print("FATAL ERROR: $errorMessage");
-      throw Exception(errorMessage);
+  WebSocketService() {
+    if (apiKey.isEmpty && kDebugMode) {
+      print("WebSocketService WARN: API_KEY is empty. This might be required for WebSocket authentication on server.");
     }
-    _connectionStateController.add('disconnected'); // Initial state
-    //print("WebSocketService initialized. Base URL: $wsBaseUrl, API Key: ${apiKey.substring(0, 1)}...");
+    if (wsUrl.isEmpty) {
+      final String errorMessage = "WS_BASE_URL (via AppConstants.wsUrl) is not set. WebSocketService cannot function.";
+      print("FATAL ERROR: $errorMessage");
+      if (!_connectionStateController.isClosed) _connectionStateController.add('error_configuration');
+    } else {
+      if (!_connectionStateController.isClosed) _connectionStateController.add('disconnected');
+    }
+    print("WebSocketService (Socket.IO Client): Initialized. Base URL: $wsUrl");
   }
 
-  // --- Public Getters ---
-  bool get isConnected =>
-      _isConnected && _channel != null && _channel?.closeCode == null;
-  String? get currentRoomKey => _currentRoomKey; // This now returns 'type_id'
+  bool get isConnected => _isConnectedAndAuthenticated && _socket?.connected == true;
+  String? get currentRoomKeyAttemptingOrConnected => _currentRoomKey;
 
-  // --- Connection Management ---
+  void connect(String roomType, int roomIdOrRecipientId, String token, String myUserId) {
+    if (wsUrl.isEmpty) {
+      print("WebSocketService Error: WS Base URL is not configured. Cannot connect.");
+      if (!_connectionStateController.isClosed) _connectionStateController.add('error_configuration');
+      return;
+    }
 
-  /// Connects to a specific WebSocket room (community or event).
-  void connect(String roomType, int roomId, String token) {
-    final targetRoomKey =
-        getRoomKey(roomType, roomId); // Use helper for 'type_id' format
+    final targetRoomKey = _generateWsRoomKey(roomType, roomIdOrRecipientId, myUserId);
+
     if (targetRoomKey == null) {
-      //print("WebSocketService: Invalid roomType or roomId for connection.");
-      _handleDisconnect("Invalid room details");
+      print("WebSocketService: Invalid roomType ('$roomType'), roomId/recipientId ('$roomIdOrRecipientId'), or myUserId ('$myUserId') for connection.");
+      _handleSocketDisconnect("Invalid room parameters for connect call");
       return;
     }
-    //print("WebSocketService: Connect called for target room: $targetRoomKey");
 
-    if (_isConnecting) {
-      //print("WebSocketService: Already attempting to connect.");
+    print("WebSocketService: connect() called. MyUID: $myUserId, TargetRoom: $targetRoomKey, Token: ${token.isNotEmpty ? "Present" : "MISSING!"}");
+
+    if (_isAttemptingConnection && _currentRoomKey == targetRoomKey && _currentTokenForConnection == token && _myUserIdForConnection == myUserId) {
+      print("WebSocketService: Already attempting to connect to $targetRoomKey with same params.");
       return;
     }
-    if (isConnected &&
-        _currentRoomKey == targetRoomKey &&
-        _currentToken == token) {
-      //print("WebSocketService: Already connected to $targetRoomKey.");
+
+    if (isConnected && _currentRoomKey == targetRoomKey && _currentTokenForConnection == token && _myUserIdForConnection == myUserId) {
+      print("WebSocketService: Already connected to $targetRoomKey with the same token. Ensuring room join.");
+      _ensureJoinedToRoom(targetRoomKey);
       return;
     }
-    if (isConnected) {
-      //print(  "WebSocketService: Switching rooms. Disconnecting previous connection ($_currentRoomKey)...");
-      disconnect(ws_status.normalClosure, "Client switching room/token");
+
+    if (_socket != null && (_socket!.connected || _isAttemptingConnection)) {
+      print("WebSocketService: New connection request or param change. Disconnecting existing socket (if any) for $_currentRoomKey...");
+      disconnect();
     }
 
-    _isConnecting = true;
-    _currentRoomKey = targetRoomKey; // Store 'type_id' format
-    _currentToken = token;
-    _isConnected = false;
-    if (!_connectionStateController.isClosed)
-      _connectionStateController.add('connecting');
-    //print("WebSocketService: Set state to connecting for $_currentRoomKey...");
+    _isAttemptingConnection = true;
+    _currentRoomKey = targetRoomKey;
+    _currentTokenForConnection = token;
+    _myUserIdForConnection = myUserId;
+    _isConnectedAndAuthenticated = false;
+    if (!_connectionStateController.isClosed) _connectionStateController.add('connecting');
+    notifyListeners();
 
-    // Construct URL with backend path format and query parameters
-    final wsPath =
-        ApiEndpoints.websocketRoomPath(roomType, roomId); // Gets '/ws/type/id'
-    final url = Uri.parse('$wsBaseUrl$wsPath'
-        '?token=${Uri.encodeComponent(token)}'
-        '&api_key=${Uri.encodeComponent(apiKey)}');
-    //print("WebSocketService: Connecting WebSocket to actual URL: $url");
+    final Map<String, dynamic> authPayload = {'token': token};
+    if (apiKey.isNotEmpty) authPayload['api_key'] = apiKey;
 
     try {
-      // *** Initiate Connection ***
-      _channel = WebSocketChannel.connect(url);
-      //print(  "WebSocketService: WebSocketChannel.connect called successfully for $url.");
+      final String connectionUrl = '$wsUrl/sio';
+      print("WebSocketService: Attempting IO.io connection to: $connectionUrl");
 
-      // *** Connection attempt initiated, listener setup next ***
-      _isConnecting = false;
+      _socket = IO.io(
+          connectionUrl,
+          IO.OptionBuilder()
+              .setTransports(['websocket'])
+              .disableAutoConnect()
+              .setAuth(authPayload)
+              .build());
 
-      _streamSubscription?.cancel(); // Cancel previous listener
+      _setupSocketEventListeners(myUserId);
+      _socket!.connect();
+      print("WebSocketService: IO.Socket.connect() called for target room $_currentRoomKey at $connectionUrl");
 
-      _streamSubscription = _channel!.stream.listen(
-        (message) {
-          // Set connected state on first message OR maybe immediately after listen attached?
-          // Let's stick to setting it immediately after listen attached for responsiveness.
-          _handleMessage(message);
-        },
-        onDone: () {
-          final closeCode = _channel?.closeCode;
-          final closeReason = _channel?.closeReason ?? "No reason provided";
-          //print(      "WebSocketService: Disconnected (onDone). Room: $_currentRoomKey, Code: $closeCode, Reason: $closeReason");
-          final disconnectedByKey =
-              _currentRoomKey; // Capture key before clearing
-          _handleDisconnect("WebSocket disconnected by server (onDone)");
-          // Attempt to reconnect only if closure was unexpected
-          if (closeCode != ws_status.normalClosure &&
-              closeCode != ws_status.goingAway) {
-            // Pass the key it TRIED to connect to, even if _currentRoomKey is now null
-            _scheduleReconnection(disconnectedByKey);
-          }
-        },
-        onError: (error, stackTrace) {
-          //print("WebSocketService: Stream Error ($_currentRoomKey): $error");
-          //print(stackTrace);
-          final errorRoomKey = _currentRoomKey; // Capture key
-          _handleDisconnect("WebSocket stream error: $error");
-          _scheduleReconnection(
-              errorRoomKey); // Attempt to reconnect on stream errors
-        },
-        cancelOnError: true, // Stop listening after an error on the stream
-      );
-      //print("WebSocketService: Listener attached for $_currentRoomKey.");
+    } catch (e, s) {
+      print("WebSocketService: CRITICAL Error initiating Socket.IO connection object: $e\n$s");
+      _isAttemptingConnection = false;
+      _handleSocketError("Connection initiation failed: $e");
+    }
+  }
 
-      // --- *** IMMEDIATE STATE UPDATE *** ---
-      // If we reached here without an exception, assume connection is established
-      // and listener is ready. Update state immediately.
-      _isConnected = true;
-      _reconnectAttempts =
-          0; // Reset attempts on new successful connection attempt
-      _reconnectTimer?.cancel();
-      if (!_connectionStateController.isClosed) {
-        _connectionStateController.add('connected');
-        //print(    "WebSocketService: Emitted 'connected' state for $_currentRoomKey.");
-      } else {
-        //print(    "WebSocketService: Error - Connection state controller closed before emitting 'connected'.");
+  void _setupSocketEventListeners(String myUserIdForReconnectContext) {
+    if (_socket == null) {
+      print("WebSocketService Error: _setupSocketEventListeners called with null socket.");
+      return;
+    }
+    _socket!.clearListeners();
+
+    _socket!.onConnect((_) {
+      print("WebSocketService: Socket.IO Connected! SID: ${_socket?.id}, Target Room: $_currentRoomKey");
+      _isAttemptingConnection = false; _isConnectedAndAuthenticated = true;
+      _reconnectAttempts = 0; _reconnectTimer?.cancel();
+      if (!_connectionStateController.isClosed) _connectionStateController.add('connected');
+      if (_currentRoomKey != null) {
+        _ensureJoinedToRoom(_currentRoomKey!);
       }
-      notifyListeners(); // If using ChangeNotifier
-      // --- *** END IMMEDIATE STATE UPDATE *** ---
-    } catch (e, stackTrace) {
-      // Immediate error during WebSocketChannel.connect() or listener setup
-      //print("WebSocketService: Connection failed during initialization: $e");
-      //print(stackTrace);
-      final failedRoomKey = _currentRoomKey; // Capture key before clearing
-      // Ensure flags are reset even if connect object wasn't assigned
-      _isConnecting = false;
-      _isConnected = false;
-      _handleDisconnect(
-          "Connection initialization failed: $e"); // Use handler for cleanup
-      _scheduleReconnection(failedRoomKey); // Schedule retry after init failure
-    }
+      notifyListeners();
+    });
+
+    _socket!.on('connect_error', (data) {
+      print("WebSocketService: Socket.IO Connection Error for $_currentRoomKey: $data");
+      _isAttemptingConnection = false;
+      _handleSocketError("Connection error: $data");
+      _scheduleReconnection(_currentRoomKey, _currentTokenForConnection, myUserIdForReconnectContext);
+    });
+
+    _socket!.on('error', (data) {
+      print("WebSocketService: Socket.IO Generic Error Event for $_currentRoomKey: $data");
+      if (!_connectionStateController.isClosed) _connectionStateController.add('error_server: $data');
+    });
+
+    _socket!.onDisconnect((reason) {
+      print("WebSocketService: Socket.IO Disconnected. Room: $_currentRoomKey, Reason: $reason");
+      final String? roomKeyBeforeDisconnect = _currentRoomKey;
+      final String? tokenBeforeDisconnect = _currentTokenForConnection;
+      final String? myUserIdBeforeDisconnect = myUserIdForReconnectContext;
+
+      _handleSocketDisconnect("Disconnected: $reason ($roomKeyBeforeDisconnect)");
+
+      bool shouldReconnect = (reason != 'io client disconnect' && reason != 'io server disconnect');
+      if (shouldReconnect) {
+        _scheduleReconnection(roomKeyBeforeDisconnect, tokenBeforeDisconnect, myUserIdBeforeDisconnect);
+      }
+    });
+
+    _socket!.on('new_message', (data) {
+      if (data is Map<String, dynamic> && !_rawMessagesController.isClosed) {
+        _rawMessagesController.add(data);
+      } else if (data is String) {
+        try {
+          final Map<String,dynamic> parsedData = json.decode(data);
+          if (!_rawMessagesController.isClosed) _rawMessagesController.add(parsedData);
+        } catch (e) {print("WS: Error decoding string message $e for 'new_message'");}
+      }
+    });
+    _socket!.on('room_joined', (data) => print("WS: Server confirmed room joined: $data"));
+    _socket!.on('room_left', (data) => print("WS: Server confirmed room left: $data"));
+    _socket!.on('room_join_error', (data) => print("WS ERROR joining room: $data"));
+    _socket!.on('message_error', (data) => print("WS ERROR with message: $data"));
   }
 
-  /// Disconnects the current WebSocket connection.
-  void disconnect([int? code, String? reason]) {
-    if (_channel == null && !_isConnecting) {
-      //print(  "WebSocketService: Disconnect called but no active channel or connection attempt.");
-      return;
-    }
-    //print("WebSocketService: Closing connection for $_currentRoomKey... Code: ${code ?? 'Normal'}, Reason: ${reason ?? 'Client request'}");
-    _reconnectTimer
-        ?.cancel(); // Prevent reconnection attempts if closing manually
-    _isConnecting = false;
-    _channel?.sink.close(code ?? ws_status.normalClosure, reason);
-    // State cleanup will happen in onDone/onError via _handleDisconnect
-    // Force state update if needed immediately (e.g., user clicks disconnect button)
-    if (_isConnected || _isConnecting) {
-      _handleDisconnect(reason ?? "Client initiated disconnect");
-    }
+  void _ensureJoinedToRoom(String roomKey) {
+    if (_socket != null && _socket!.connected) {
+      print("WebSocketService: Client emitting 'join_room' for $roomKey");
+      _socket!.emit('join_room', {'room_key': roomKey});
+    } else { print("WebSocketService: Cannot join room $roomKey, socket not connected.");}
   }
 
-  /// Handles state cleanup and notification on disconnection or error.
-  void _handleDisconnect(String reason) {
-    // Check flags to prevent redundant calls if onDone/onError both trigger quickly
-    if (!_isConnected && !_isConnecting) {
-      //print("WebSocketService: Redundant disconnect handling call ignored.");
-      return;
+  void leaveCurrentRoomAndDisconnect() {
+    if (_socket != null && _socket!.connected && _currentRoomKey != null) {
+      print("WebSocketService: Emitting 'leave_room' for $_currentRoomKey and preparing to disconnect fully.");
+      _socket!.emit('leave_room', {'room_key': _currentRoomKey});
     }
+    disconnect();
+  }
 
-    //print("WebSocketService: Handling disconnect for $_currentRoomKey. Reason: $reason");
-    final disconnectedRoomKey = _currentRoomKey; // Store before clearing
+  void _handleSocketDisconnect(String reason) {
+    print("WebSocketService: Handling full socket disconnect/cleanup. Reason: $reason");
+    bool wasConnectedOrAttempting = _isConnectedAndAuthenticated || _isAttemptingConnection;
 
-    // Reset state immediately
-    _isConnected = false;
-    _isConnecting = false;
-    _streamSubscription?.cancel();
-    _streamSubscription = null;
-    _channel = null; // Important to clear the channel reference
-    _currentRoomKey = null;
-    _currentToken = null; // Clear token associated with the closed connection
+    _isConnectedAndAuthenticated = false; _isAttemptingConnection = false;
+    _currentRoomKey = null; _currentTokenForConnection = null; _myUserIdForConnection = null;
 
-    // Notify UI about disconnection
-    if (!_connectionStateController.isClosed) {
+    _socket?.dispose(); _socket = null;
+
+    if (wasConnectedOrAttempting && !_connectionStateController.isClosed) {
       _connectionStateController.add('disconnected');
     }
-
-    // Clear online count for the room that was disconnected
-    if (disconnectedRoomKey != null && !_onlineCountController.isClosed) {
-      _onlineCountController.add({disconnectedRoomKey: 0});
-      //print("WebSocketService: Cleared online count for $disconnectedRoomKey");
-    }
-    notifyListeners(); // If using ChangeNotifier
+    notifyListeners();
   }
 
-  /// Schedules a reconnection attempt with exponential backoff.
-  /// Needs the roomKey it should try to reconnect to.
-  void _scheduleReconnection(String? roomKeyToReconnect) {
-    if (_reconnectTimer?.isActive ?? false || _isConnecting || _isConnected) {
-      //print(  "WebSocketService: Skipping reconnection schedule (timer active, connecting, or connected).");
-      return;
-    }
-    if (roomKeyToReconnect == null) {
-      //print(  "WebSocketService: Skipping reconnection schedule (no target room key provided).");
-      return;
-    }
+  void _handleSocketError(String errorReason){
+    print("WebSocketService: Handling socket error. Reason: $errorReason");
+    _isConnectedAndAuthenticated = false; _isAttemptingConnection = false;
+    _socket?.dispose(); _socket = null;
+    if(!_connectionStateController.isClosed) _connectionStateController.add('error: $errorReason');
+    notifyListeners();
+  }
 
-    if (_reconnectAttempts >= _maxReconnectAttempts) {
-      //print(  "WebSocketService: Max reconnection attempts reached for $roomKeyToReconnect. Stopping.");
-      // Optionally emit a permanent failure state?
-      _reconnectAttempts = 0; // Reset for future manual attempts
+  void _scheduleReconnection(String? roomKeyToReconnect, String? tokenToUse, String? myUserIdForReconnect) {
+    if (_reconnectTimer?.isActive ?? false || _isAttemptingConnection || isConnected) {
+      print("WS Reconnect: Skipping, already active/connecting/connected or no user ID.");
       return;
+    }
+    if (roomKeyToReconnect == null || tokenToUse == null || myUserIdForReconnect == null || myUserIdForReconnect.isEmpty) {
+      print("WS Reconnect: Skipping, crucial data missing (room: $roomKeyToReconnect, token: ${tokenToUse!=null}, myUID: $myUserIdForReconnect).");
+      _reconnectAttempts = 0; return;
+    }
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      print("WS Reconnect: Max attempts for $roomKeyToReconnect. Stopping.");
+      _reconnectAttempts = 0;
+      if(!_connectionStateController.isClosed) _connectionStateController.add('error_max_retries'); return;
     }
 
     _reconnectAttempts++;
-    final delaySeconds =
-        (pow(2, _reconnectAttempts) as num).clamp(2, 30).toInt();
+    final delaySeconds = (pow(2, _reconnectAttempts-1) as num).clamp(2, 60).toInt();
+    print("WS Reconnect: Attempt #${_reconnectAttempts} for $roomKeyToReconnect in $delaySeconds s (myUID: $myUserIdForReconnect)...");
 
-    //print("WebSocketService: Scheduling reconnection attempt #$_reconnectAttempts for $roomKeyToReconnect in $delaySeconds seconds...");
     _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
-      //print(  "WebSocketService: Attempting reconnection (Attempt #$_reconnectAttempts) for $roomKeyToReconnect...");
-      // Need the token associated with the FAILED connection attempt.
-      // _currentToken might have been cleared or changed if user logged out/switched rooms.
-      // Robust reconnection requires preserving the token/room details of the failed attempt.
-      // For now, we'll assume _currentToken might still be valid if user hasn't logged out.
-      if (_currentToken != null) {
-        final parts = roomKeyToReconnect.split('_');
-        if (parts.length == 2) {
-          final roomType = parts[0];
-          final roomId = int.tryParse(parts[1]);
-          if (roomId != null) {
-            // Re-trigger connection ONLY if no other connection is active/connecting
-            if (!isConnected && !_isConnecting) {
-              //print("WebSocketService: Retrying connection via schedule...");
-              connect(roomType, roomId, _currentToken!);
-            } else {
-              //print(          "WebSocketService: Reconnection cancelled, already connected/connecting to another room.");
-              _reconnectAttempts = 0; // Reset attempts as state changed
-            }
-          } else {
-            //print(        "WebSocketService: Reconnect parse failed: Invalid room ID in key '$roomKeyToReconnect'");
-            _reconnectAttempts = 0;
-          }
-        } else {
-          //print(      "WebSocketService: Reconnect parse failed: Invalid room key format '$roomKeyToReconnect'");
-          _reconnectAttempts = 0;
-        }
-      } else {
-        //print("WebSocketService: Cannot reconnect - token missing.");
-        _reconnectAttempts = 0; // Reset
-      }
+      print("WS Reconnect: Firing scheduled reconnection for $roomKeyToReconnect (myUID: $myUserIdForReconnect)...");
+      final parts = roomKeyToReconnect.split('_');
+      String type; int id;
+      if (parts.length >= 2 && (parts[0] == 'community' || parts[0] == 'event')) {
+        type = parts[0];
+        id = int.tryParse(parts.last) ?? 0;
+      } else if (parts.length == 3 && parts[0] == 'dm') {
+        type = 'dm';
+        final myIdParsed = int.tryParse(myUserIdForReconnect) ?? 0;
+        final id1 = int.tryParse(parts[1]) ?? 0; final id2 = int.tryParse(parts[2]) ?? 0;
+        id = (myIdParsed == id1) ? id2 : id1;
+        if(id == 0 || myIdParsed == 0) { print("WS Reconnect ERROR: Could not determine recipient ID from $roomKeyToReconnect with myID $myUserIdForReconnect"); _reconnectAttempts = 0; return; }
+      } else { print("WS Reconnect ERROR: Invalid roomKey '$roomKeyToReconnect'"); _reconnectAttempts = 0; return; }
+
+      if (id > 0) {
+        if (!isConnected && !_isAttemptingConnection) {
+          print("WS Reconnect: Calling connect($type, $id, token, $myUserIdForReconnect)...");
+          connect(type, id, tokenToUse, myUserIdForReconnect);
+        } else { print("WS Reconnect: Cancelled, state changed (connected/connecting)."); _reconnectAttempts = 0;}
+      } else { print("WS Reconnect ERROR: Could not parse valid ID for reconnection to $roomKeyToReconnect"); _reconnectAttempts = 0; }
     });
   }
 
-  /// Handles incoming WebSocket messages.
-  void _handleMessage(dynamic message) {
-    if (message is! String) {
-      //print("WS Service: Received non-string message: ${message.runtimeType}");
-      return;
-    }
-    //print("WebSocketService: Received raw: $message");
-    try {
-      final data = json.decode(message) as Map<String, dynamic>;
-
-      if (!_rawMessagesController.isClosed) {
-        _rawMessagesController.add(data);
-      } else {
-        //print("WS Service: Warning - Raw message controller closed.");
-        return;
-      } // Stop if closed
-
-      // Handle Presence Updates
-      if (data['type'] == 'presence_update' &&
-          data['room_key'] != null &&
-          data['online_count'] != null) {
-        final String roomKey = data['room_key'];
-        final int onlineCount = data['online_count'];
-        //print(    "WS Service: Parsed presence update for $roomKey: $onlineCount online.");
-        if (!_onlineCountController.isClosed) {
-          _onlineCountController.add({roomKey: onlineCount});
-        } else {
-          //print("WS Service: Warning - Online count controller closed.");
-        }
-      }
-      // Handle Chat Messages (assuming they have message_id)
-      else if (data.containsKey('message_id')) {
-        //print(    "WS Service: Identified chat message (ID: ${data['message_id']}).");
-        // UI listener on rawMessages stream handles parsing & display
-      }
-      // Handle explicit Errors from backend
-      else if (data['type'] == 'error' && data['error'] != null) {
-        //print("WS Service: Received error from backend WS: ${data['error']}");
-        if (!_rawMessagesController.isClosed) {
-          _rawMessagesController
-              .addError(Exception("Backend WS Error: ${data['error']}"));
-        }
-      }
-      // Handle other potential message types from backend
-      else {
-        //print("WS Service: Received unknown message structure: $data");
-      }
-    } catch (e, stackTrace) {
-      //print("WS Service: Error parsing message '$message': $e");
-      //print(stackTrace);
-      if (!_rawMessagesController.isClosed) {
-        _rawMessagesController
-            .addError(FormatException("Invalid WS message format: $e"));
-      }
+  void disconnect() {
+    print("WebSocketService: Manual disconnect called for current socket: ${_socket?.id}, room: $_currentRoomKey.");
+    _reconnectTimer?.cancel(); _reconnectAttempts = 0;
+    _isAttemptingConnection = false;
+    if (_socket != null) {
+      _socket!.disconnect();
+    } else {
+      _handleSocketDisconnect("Manual disconnect called on null socket.");
     }
   }
 
-  /// Sends a JSON encoded message over the WebSocket.
-  void sendMessage(Map<String, dynamic> messageData) {
+  void sendMessage(String eventName, Map<String, dynamic> messageData) {
     if (!isConnected) {
-      // Use the getter here
-      final errorMsg =
-          "Cannot send message: WebSocket not connected to $_currentRoomKey.";
-      //print("WebSocketService: $errorMsg");
+      final errorMsg = "Cannot send message: WebSocket not connected/authenticated to room $_currentRoomKey.";
+      print("WebSocketService: $errorMsg");
       throw Exception(errorMsg);
     }
     try {
-      final messageJson = json.encode(messageData);
-      //print("WebSocketService: Sending to $_currentRoomKey: $messageJson");
-      _channel!.sink.add(
-          messageJson); // Use null assertion as _isConnected check implies _channel != null
-    } catch (e, stackTrace) {
-      //print("WebSocketService: Error encoding or sending message: $e");
-      //print(stackTrace);
-      _handleDisconnect("Error during send: $e");
+      _socket!.emit(eventName, messageData);
+    } catch (e) {
+      print("WebSocketService: Error emitting message event '$eventName': $e");
       throw Exception("Failed to send message: $e");
     }
   }
 
-  /// Closes resources when the service is permanently disposed.
+  String? _generateWsRoomKey(String type, int id, String myCurrentUserId) {
+    if (myCurrentUserId.isEmpty) { print("WS_Service ERROR: myCurrentUserId is empty, cannot make DM room key."); return null; }
+    final int? u1 = int.tryParse(myCurrentUserId);
+    if (u1 == null) { print("WS_Service ERROR: myCurrentUserId '$myCurrentUserId' is not a valid int."); return null;}
+
+    if (type == 'dm') {
+      final int u2 = id;
+      if (u1 == 0 || u2 == 0) {print("WS_Service ERROR: Zero user ID for DM room key ($u1, $u2)"); return null;}
+      if (u1 == u2) {print("WS_Service ERROR: Cannot create DM room key with self ($u1, $u2)"); return null;}
+      return (u1 < u2) ? "dm_${u1}_${u2}" : "dm_${u2}_${u1}";
+    }
+    return "${type}_$id";
+  }
+
+  @override
   void dispose() {
-    //print("WebSocketService: Disposing...");
+    print("WebSocketService: Disposing (Socket.IO client version)...");
     _reconnectTimer?.cancel();
-    _streamSubscription?.cancel();
-    // Close sink gently first, then close controllers
-    _channel?.sink.close(ws_status.goingAway).catchError((e) {
-      //print("WebSocketService: Error closing sink during dispose: $e");
-    });
-    _channel = null; // Ensure channel is cleared
-
-    // Add checks before closing controllers
+    _socket?.dispose();
     if (!_rawMessagesController.isClosed) _rawMessagesController.close();
-    if (!_onlineCountController.isClosed) _onlineCountController.close();
-    if (!_connectionStateController.isClosed)
-      _connectionStateController.close();
-
-    //print("WebSocketService: Resources disposed.");
+    if (!_connectionStateController.isClosed) _connectionStateController.close();
+    super.dispose();
   }
-
-  // Helper to generate room key string (type_id format)
-  String? getRoomKey(String? type, int? id) {
-    if (type == null || id == null || id <= 0) return null;
-    return "${type}_${id}";
-  }
-
-  // Helper for potential ChangeNotifier implementation
-  void notifyListeners() {
-    // If WebSocketService were a ChangeNotifier, call notifyListeners() here
-    // Currently it uses Streams for state changes.
-  }
-} // End of WebSocketService
+}
