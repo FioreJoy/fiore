@@ -1,0 +1,421 @@
+INFO:     Started server process [2143036]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:1163 (Press CTRL+C to quit)
+MinIO Bucket 'fiorejoy' already exists.
+✅ MinIO client initialized for endpoint: https://minio.fiorejoy.com
+--- Manager Initialized ---
+✅ GraphQL Schema Assembled.
+✅ FastAPI application configured.
+✅ Token generated for user 4
+INFO:     45.117.28.37:0 - "POST /auth/login HTTP/1.1" 200 OK
+INFO:     45.117.28.37:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     45.117.28.37:0 - "OPTIONS /communities/1/events HTTP/1.1" 200 OK
+INFO:     45.117.28.37:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     45.117.28.37:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     45.117.28.37:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     45.117.28.37:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     45.117.28.37:0 - "OPTIONS /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     45.117.28.37:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     45.117.28.37:0 - "OPTIONS /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     45.117.28.37:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /communities/1/events HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /users/4 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/4 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /posts?user_id=4&limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 4 posts (Comm: None, User: 4)
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /posts?user_id=4&limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /users/me/communities?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /auth/me HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /users/me/events?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+DEBUG GET /me: User data prepared: {'id': 4, 'name': 'Divansh Prasad', 'username': 'divansh', 'email': 'divanshthebest@gmail.com', 'gender': 'Male', 'college': 'API Test College 51', 'interest': 'API,Testing', 'interests': ['API', 'Testing'], 'created_at': datetime.datetime(2025, 3, 5, 8, 58, 9, 721498, tzinfo=datetime.timezone(datetime.timedelta(seconds=19800))), 'last_seen': datetime.datetime(2025, 8, 6, 10, 16, 3, 513564, tzinfo=datetime.timezone(datetime.timedelta(seconds=19800))), 'notify_new_post_in_community': False, 'notify_new_reply_to_post': True, 'notify_new_event_in_community': True, 'notify_event_reminder': False, 'notify_event_update': True, 'notify_direct_message': True, 'current_location_address': None, 'location_last_updated': None, 'longitude': None, 'latitude': None, 'current_location': None, 'image_url': 'https://minio.fiorejoy.com/fiorejoy/users/divansh/profile/becb7ab6-285c-41df-8aba-2e2f26a4364c.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ymz7RtXeS0mAG4DXmPbv%2F20250806%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250806T044603Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=47d04b5c700a166719c28665fdd350fcb11aed33928ca1db952319951ecdde16', 'image_path': 'users/divansh/profile/becb7ab6-285c-41df-8aba-2e2f26a4364c.png', 'followers_count': 0, 'following_count': 0, 'is_following': False}
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /auth/me HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/events?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+DEBUG GET /me: User data prepared: {'id': 4, 'name': 'Divansh Prasad', 'username': 'divansh', 'email': 'divanshthebest@gmail.com', 'gender': 'Male', 'college': 'API Test College 51', 'interest': 'API,Testing', 'interests': ['API', 'Testing'], 'created_at': datetime.datetime(2025, 3, 5, 8, 58, 9, 721498, tzinfo=datetime.timezone(datetime.timedelta(seconds=19800))), 'last_seen': datetime.datetime(2025, 8, 6, 10, 16, 45, 337027, tzinfo=datetime.timezone(datetime.timedelta(seconds=19800))), 'notify_new_post_in_community': False, 'notify_new_reply_to_post': True, 'notify_new_event_in_community': True, 'notify_event_reminder': False, 'notify_event_update': True, 'notify_direct_message': True, 'current_location_address': None, 'location_last_updated': None, 'longitude': None, 'latitude': None, 'current_location': None, 'image_url': 'https://minio.fiorejoy.com/fiorejoy/users/divansh/profile/becb7ab6-285c-41df-8aba-2e2f26a4364c.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ymz7RtXeS0mAG4DXmPbv%2F20250806%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250806T044645Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=0af5e2c2ff87b92ba1f58437c461fb9ac603d99353060b676777bd38b1b4c3f5', 'image_path': 'users/divansh/profile/becb7ab6-285c-41df-8aba-2e2f26a4364c.png', 'followers_count': 0, 'following_count': 0, 'is_following': False}
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /auth/me HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+No update data provided for profile for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "PUT /auth/me HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/4 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 4 posts (Comm: None, User: 4)
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /posts?user_id=4&limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/events?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/4 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /location/events/nearby?latitude=12.9842328&longitude=77.7281103&radius_km=50&limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 4 posts (Comm: None, User: 4)
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /posts?user_id=4&limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /location/events/nearby?latitude=12.9842328&longitude=77.7281103&radius_km=50&limit=10&offset=0 HTTP/1.1" 404 Not Found
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/events?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /users/me/events?limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /users/me/events?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/events?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/events?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /chat/messages?limit=50&event_id=6 HTTP/1.1" 200 OK
+✅ Fetched 0 messages via HTTP for Event 6
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /chat/messages?limit=50&event_id=6 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /users/4/following?limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /users/4/following?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+Router get_following_route: CRUD returned 1 users. Data from CRUD: [{'id': 1, 'name': 'Alice Johnson', 'username': 'alicej', 'email': 'alice@example.com', 'gender': 'Female', 'college': 'Pytest College 50', 'interest': 'API,Testing', 'interests': None, 'location_address': None, 'location_last_updated': None, 'longitude': None, 'latitude': None}]
+Router get_following_route: Processed 1 users to return. Processed Data: [UserBase(id=1, name='Alice Johnson', username='alicej', email='alice@example.com', gender='Female', college='Pytest College 50', interest='API,Testing', image_url='https://minio.fiorejoy.com/fiorejoy/users/alicej/profile/0bbcbe05-218a-4a2d-aee1-39ba85e9481d.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ymz7RtXeS0mAG4DXmPbv%2F20250806%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250806T044749Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=be8badd573251cf9f70058ccb8ec10e6ccc6d89e1e408ec89e7edc1ad11e988f', current_location=None)]
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/4/following?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+Router get_following_route: CRUD returned 1 users. Data from CRUD: [{'id': 1, 'name': 'Alice Johnson', 'username': 'alicej', 'email': 'alice@example.com', 'gender': 'Female', 'college': 'Pytest College 50', 'interest': 'API,Testing', 'interests': None, 'location_address': None, 'location_last_updated': None, 'longitude': None, 'latitude': None}]
+Router get_following_route: Processed 1 users to return. Processed Data: [UserBase(id=1, name='Alice Johnson', username='alicej', email='alice@example.com', gender='Female', college='Pytest College 50', interest='API,Testing', image_url='https://minio.fiorejoy.com/fiorejoy/users/alicej/profile/0bbcbe05-218a-4a2d-aee1-39ba85e9481d.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ymz7RtXeS0mAG4DXmPbv%2F20250806%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250806T044750Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=4d7afee654c91f5a257e76bd1375519e8e1826232a09f9a337bbf22f19a02441', current_location=None)]
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/4/following?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+✅ Fetched 0 messages via HTTP for Event 6
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /chat/messages?limit=50&event_id=6 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /chat/messages?limit=50&dm_with_user_id=1 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /chat/messages?limit=50&dm_with_user_id=1 HTTP/1.1" 400 Bad Request
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+✅ Fetched 0 messages via HTTP for Event 6
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /chat/messages?limit=50&event_id=6 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /chat/messages?limit=50&event_id=2 HTTP/1.1" 200 OK
+✅ Fetched 4 messages via HTTP for Event 2
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /chat/messages?limit=50&event_id=2 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /communities HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /communities HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /communities HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /communities HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /communities/145/join HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+✅ User 4 joined community 145
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "POST /communities/145/join HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /auth/login HTTP/1.1" 200 OK
+✅ Token generated for user 4
+INFO:     163.116.195.124:0 - "POST /auth/login HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     163.116.195.124:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     163.116.195.124:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /users/4 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+INFO:     163.116.195.124:0 - "GET /users/4 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /posts?user_id=4&limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 4 posts (Comm: None, User: 4)
+INFO:     163.116.195.124:0 - "GET /posts?user_id=4&limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /users/me/communities?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /users/me/communities?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /users/me/events?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /users/me/events?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /auth/me HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /location/events/nearby?latitude=12.984155&longitude=77.728566&radius_km=50&limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+DEBUG GET /me: User data prepared: {'id': 4, 'name': 'Divansh Prasad', 'username': 'divansh', 'email': 'divanshthebest@gmail.com', 'gender': 'Male', 'college': 'API Test College 51', 'interest': 'API,Testing', 'interests': ['API', 'Testing'], 'created_at': datetime.datetime(2025, 3, 5, 8, 58, 9, 721498, tzinfo=datetime.timezone(datetime.timedelta(seconds=19800))), 'last_seen': datetime.datetime(2025, 8, 6, 11, 22, 12, 557677, tzinfo=datetime.timezone(datetime.timedelta(seconds=19800))), 'notify_new_post_in_community': False, 'notify_new_reply_to_post': True, 'notify_new_event_in_community': True, 'notify_event_reminder': False, 'notify_event_update': True, 'notify_direct_message': True, 'current_location_address': None, 'location_last_updated': None, 'longitude': None, 'latitude': None, 'current_location': None, 'image_url': 'https://minio.fiorejoy.com/fiorejoy/users/divansh/profile/becb7ab6-285c-41df-8aba-2e2f26a4364c.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ymz7RtXeS0mAG4DXmPbv%2F20250806%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250806T055212Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=d16aad29048867f395e863d6d1ce0b16e692190431880c5197823aada391c24a', 'image_path': 'users/divansh/profile/becb7ab6-285c-41df-8aba-2e2f26a4364c.png', 'followers_count': 0, 'following_count': 0, 'is_following': False}
+INFO:     163.116.195.124:0 - "GET /auth/me HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "GET /location/events/nearby?latitude=12.984155&longitude=77.728566&radius_km=50&limit=10&offset=0 HTTP/1.1" 404 Not Found
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /communities/1/events HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "OPTIONS /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     2402:3a80:4393:696:54be:afff:fe7c:b56d:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     163.116.195.124:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     163.116.195.124:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+INFO:     163.116.195.124:0 - "GET /users/4 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 4 posts (Comm: None, User: 4)
+INFO:     163.116.195.124:0 - "GET /posts?user_id=4&limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /location/events/nearby?latitude=12.984057&longitude=77.728745&radius_km=50&limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /users/me/communities?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "GET /location/events/nearby?latitude=12.984057&longitude=77.728745&radius_km=50&limit=10&offset=0 HTTP/1.1" 404 Not Found
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /users/me/events?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     163.116.195.124:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     163.116.195.124:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     163.116.195.124:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     163.116.195.124:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     163.116.195.124:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     163.116.195.124:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /communities/1/events HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     163.116.195.124:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     163.116.195.124:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /users/4 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /users/me/communities?limit=50&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+INFO:     163.116.195.124:0 - "GET /users/4 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /posts?user_id=4&limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 4 posts (Comm: None, User: 4)
+INFO:     163.116.195.124:0 - "GET /posts?user_id=4&limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /users/me/communities?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /users/me/communities?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /location/events/nearby?latitude=12.984049&longitude=77.728798&radius_km=50&limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /users/me/events?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "GET /location/events/nearby?latitude=12.984049&longitude=77.728798&radius_km=50&limit=10&offset=0 HTTP/1.1" 404 Not Found
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.195.124:0 - "GET /users/me/events?limit=20&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.195.124:0 - "OPTIONS /auth/me HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+DEBUG GET /me: User data prepared: {'id': 4, 'name': 'Divansh Prasad', 'username': 'divansh', 'email': 'divanshthebest@gmail.com', 'gender': 'Male', 'college': 'API Test College 51', 'interest': 'API,Testing', 'interests': ['API', 'Testing'], 'created_at': datetime.datetime(2025, 3, 5, 8, 58, 9, 721498, tzinfo=datetime.timezone(datetime.timedelta(seconds=19800))), 'last_seen': datetime.datetime(2025, 8, 6, 11, 32, 46, 24232, tzinfo=datetime.timezone(datetime.timedelta(seconds=19800))), 'notify_new_post_in_community': False, 'notify_new_reply_to_post': True, 'notify_new_event_in_community': True, 'notify_event_reminder': False, 'notify_event_update': True, 'notify_direct_message': True, 'current_location_address': None, 'location_last_updated': None, 'longitude': None, 'latitude': None, 'current_location': None, 'image_url': 'https://minio.fiorejoy.com/fiorejoy/users/divansh/profile/becb7ab6-285c-41df-8aba-2e2f26a4364c.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ymz7RtXeS0mAG4DXmPbv%2F20250806%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250806T060246Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=ca921ddfd27b02d056abf2fc715e94f3ec7884acfe46b99434ab52cbcf3186e8', 'image_path': 'users/divansh/profile/becb7ab6-285c-41df-8aba-2e2f26a4364c.png', 'followers_count': 0, 'following_count': 0, 'is_following': False}
+INFO:     163.116.195.124:0 - "GET /auth/me HTTP/1.1" 200 OK
+INFO:     163.116.214.61:0 - "OPTIONS /communities/1/events HTTP/1.1" 200 OK
+INFO:     163.116.214.61:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 19 events for community 1
+INFO:     163.116.214.61:0 - "GET /communities/1/events HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.214.61:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     163.116.214.61:0 - "OPTIONS /notifications/unread-count HTTP/1.1" 200 OK
+INFO:     163.116.214.61:0 - "OPTIONS /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     163.116.214.61:0 - "OPTIONS /notifications?limit=20&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.214.61:0 - "GET /notifications/unread-count HTTP/1.1" 200 OK
+Auth Optional Success: Found User ID: 4
+✅ Fetched 10 posts (Comm: None, User: None)
+INFO:     163.116.214.61:0 - "GET /posts?limit=10&offset=0 HTTP/1.1" 200 OK
+Auth Success: Token validated for User ID: 4
+Updated last_seen for user 4
+INFO:     163.116.214.61:0 - "GET /notifications?limit=20&offset=0 HTTP/1.1" 200 OK

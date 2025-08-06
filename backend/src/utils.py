@@ -20,7 +20,7 @@ load_dotenv()
 IMAGE_DIR = "user_images" # Keep for potential fallback or local caching if needed
 
 # --- MinIO Configuration & Client (Keep as is) ---
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "").strip().strip("'").strip('"')
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "fiore") # Defaulted to fiore, you used 'connections' in test
@@ -30,7 +30,7 @@ minio_client = None
 if MINIO_ENDPOINT and MINIO_ACCESS_KEY and MINIO_SECRET_KEY:
     try:
         minio_client = Minio(
-            MINIO_ENDPOINT,
+            MINIO_ENDPOINT.replace("https://", "").replace("http://", ""),
             access_key=MINIO_ACCESS_KEY,
             secret_key=MINIO_SECRET_KEY,
             secure=MINIO_USE_SSL
