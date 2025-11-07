@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Optional, Dict, Any
 import psycopg2
 import traceback
+import sys # Import sys
 
 from .. import schemas, crud, auth, utils
 from ..crud import execute_cypher
@@ -13,7 +14,7 @@ router = APIRouter(
     tags=["Votes"],
 )
 
-@router.post("", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
+@router.post("", status_code=status.HTTP_200_OK)
 async def manage_vote(
         vote_data: schemas.VoteCreate,
         current_user_id: int = Depends(auth.get_current_user)
@@ -36,16 +37,15 @@ async def manage_vote(
         # 1. Get current vote state FROM A FRESH CURSOR to ensure visibility
         current_db_vote_type: Optional[bool] = None
         # This is important if the previous operation in the same test function committed.
-        with get_db_connection() as fresh_conn: # Create a new connection context
-            with fresh_conn.cursor() as fresh_cursor:
-                current_db_vote_type = crud.get_viewer_vote_status(
-                    fresh_cursor, current_user_id, post_id=post_id, reply_id=reply_id
-                )
+        current_db_vote_type = crud.get_viewer_vote_status(
+            cursor, current_user_id, post_id=post_id, reply_id=reply_id
+        )
 
         #print(f"DEBUG manage_vote: User {current_user_id} on {target_type_str} {target_id} - Current DB vote: {current_db_vote_type}, Requested vote: {requested_vote_type}")
 
         action_taken_api_string = "" # For the API response "action" field
         successful_operation = False # Overall success of the user's intent
+        print(f"DEBUG manage_vote: Initial successful_operation: {successful_operation}")
 
         # FIX: Make sure to correctly compare boolean values
         # The problem might be with the comparison of None and boolean values
@@ -67,6 +67,7 @@ async def manage_vote(
             # New vote or changing existing vote
             print(f"  Attempting to cast/update vote for {target_type_str} {target_id} to {requested_vote_type}")
             db_op_cast = crud.cast_vote_db(cursor, current_user_id, post_id, reply_id, requested_vote_type)
+            print(f"DEBUG manage_vote: Result of crud.cast_vote_db: {db_op_cast}")
             if db_op_cast:
                 action_taken_api_string = "cast/updated"
                 successful_operation = True
@@ -76,20 +77,16 @@ async def manage_vote(
                 successful_operation = False # CRUD call failed
                 print(f"  CRUD cast_vote_db returned False.")
 
-        conn.commit()
-        #print(f"DEBUG manage_vote: Transaction committed. Router action: '{action_taken_api_string}'")
+        try:
+            conn.commit()
+        except Exception as e:
+            print(f"ERROR during conn.commit() in manage_vote: {e}")
+            successful_operation = False # Mark as failed if commit fails
 
-        counts = {}
-        # Fetch counts using a new cursor to ensure we see committed data
-        with get_db_connection() as count_conn:
-            with count_conn.cursor() as count_cursor:
-                if target_id is not None:
-                    if post_id: counts = crud.get_post_counts(count_cursor, post_id)
-                    elif reply_id: counts = crud.get_reply_counts(count_cursor, reply_id)
-
-        print(f"✅ Vote action '{action_taken_api_string}' completed. API Response Success: {successful_operation}. Counts: {counts}")
-
-        return {"message": f"Vote action: {action_taken_api_string}", "action": action_taken_api_string, "success": successful_operation, "new_counts": counts}
+        if successful_operation:
+            return {"success": True}
+        else:
+            return {"success": False}
 
     except ValueError as ve:
         if conn: conn.rollback()
@@ -98,12 +95,14 @@ async def manage_vote(
     except psycopg2.Error as db_err:
         if conn: conn.rollback()
         print(f"❌ Vote DB Error: {db_err} (Code: {db_err.pgcode})")
-        traceback.print_exc()
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database error during voting.")
     except Exception as e:
         if conn: conn.rollback()
         print(f"❌ Vote error [{type(e).__name__}]: {e}")
-        traceback.print_exc()
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred during voting: {e}")
     finally:
         if conn: conn.close()

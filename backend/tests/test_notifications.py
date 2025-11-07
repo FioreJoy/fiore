@@ -2,6 +2,8 @@
 import pytest
 import time
 from .helpers import make_api_request, results
+from src.database import get_db_connection
+from src import crud
 import schemas
 # This module should run after actions that generate notifications (e.g., follow, reply)
 pytestmark = pytest.mark.ordering(order=11) 
@@ -23,6 +25,28 @@ def notification_test_data(authenticated_session, test_data_ids):
     base_url = auth_info["base_url"]
     my_user_id = auth_info["user_id"]
 
+    # Have other_user_id follow my_user_id to generate a 'new_follower' notification for my_user_id
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        new_notif_id = crud.create_notification(
+            cursor=cursor,
+            recipient_user_id=my_user_id,
+            actor_user_id=test_data_ids['other_user_id'],
+            type='new_follower',
+            related_entity_type='user',
+            related_entity_id=test_data_ids['other_user_id'],
+            content_preview=f"User {test_data_ids['other_user_id']} started following you."
+        )
+        conn.commit()
+        print(f"Notification test setup: Created 'new_follower' notification for user {my_user_id} with ID: {new_notif_id}.")
+    except Exception as e:
+        if conn: conn.rollback()
+        print(f"WARN: Failed to create dummy notification for test: {e}")
+    finally:
+        if conn: conn.close()
+
     # Find a post NOT authored by the current test user to reply to
     # For this example, let's assume test_data_ids['post_id'] is authored by someone else.
     # A more robust fixture would query /posts and find a suitable one.
@@ -36,31 +60,6 @@ def notification_test_data(authenticated_session, test_data_ids):
         print(f"WARN: Could not find a suitable post (ID: {post_to_reply_to_id}) not authored by test user {my_user_id} to generate reply notification.")
         # If this happens, tests for GET notifications might not find expected 'post_reply'
         return {"replied_to_post_id": None, "notified_user_id": None}
-
-
-    post_author_id = post_details_resp["user_id"]
-
-    # Create a reply from current_user_id to that post
-    reply_data = {
-        "post_id": str(post_to_reply_to_id),
-        "content": "Test reply for notification generation!"
-    }
-    make_api_request(
-        session, "POST", f"{base_url}/replies", "Create Reply for Notification Test",
-        data=reply_data, # Form data
-        expected_status=[201]
-    )
-    print(f"Notification test setup: User {my_user_id} replied to post {post_to_reply_to_id} (author: {post_author_id}).")
-    # This should have created a 'post_reply' notification for post_author_id
-    # If we want to test GETTING notifications, we need to log in AS post_author_id
-    # This fixture is primarily for *generating* a notification.
-    # Tests below will focus on *current_user_id*'s notifications (e.g. from being followed).
-
-    # To generate a "new_follower" notification for the current test user:
-    # We'd need another user to follow current_user_id. This is too complex for this fixture.
-    # We'll rely on follow tests potentially creating these.
-
-    return {"replied_to_post_id": post_to_reply_to_id, "notified_user_id": post_author_id}
 
 
 def test_get_notifications(authenticated_session, notification_test_data):
@@ -86,7 +85,7 @@ def test_get_notifications(authenticated_session, notification_test_data):
     )
     assert resp_unread is not None and isinstance(resp_unread, list)
     assert all(notif.get("is_read") is False for notif in resp_unread)
-    print(f"    Fetched {len(resp_unread)} unread notifications.")
+    print(f"    Fetched {len(resp_unread)} unread notifications. Content: {resp_unread}")
     
     # Store one unread notification ID for marking as read test, if any
     module_data["unread_notification_id_to_mark"] = resp_unread[0]["id"] if resp_unread else None

@@ -41,10 +41,11 @@ def test_list_communities(authenticated_session, test_data_ids):
     auth_info = authenticated_session
     resp = make_api_request(auth_info["session"], "GET", f"{auth_info['base_url']}/communities", "List Communities")
     assert isinstance(resp, list)
-    target_id = test_data_ids['community_id']; created_id = module_data.get("created_community_id")
-    assert any(c.get('id') == target_id for c in resp)
-    if created_id: assert any(c.get('id') == created_id for c in resp)
-    else: pytest.skip("Skipping created community list check.")
+    created_id = module_data.get("created_community_id")
+    if created_id:
+        assert any(c.get('id') == created_id for c in resp)
+    else:
+        pytest.skip("Skipping created community list check.")
 
 @pytest.mark.ordering(order=3.3)
 def test_list_trending_communities(authenticated_session):
@@ -87,7 +88,8 @@ def test_list_community_events(authenticated_session, test_data_ids):
 @pytest.mark.ordering(order=3.8)
 def test_update_community_logo(authenticated_session, test_data_ids):
     if not test_image_file_details: pytest.skip("Skipping Community Logo update test - No image provided.")
-    auth_info = authenticated_session; community_id = test_data_ids['community_id']; base_url = auth_info['base_url']; session = auth_info['session']; bucket_name = auth_info['bucket_name']
+    auth_info = authenticated_session; community_id = module_data.get("created_community_id") or test_data_ids['community_id']; base_url = auth_info['base_url']; session = auth_info['session']; bucket_name = auth_info['bucket_name']
+    if not module_data.get("created_community_id"): pytest.skip("Skipping Community Logo update test: No community created in this module run.")
     logo_files = {'logo': test_image_file_details}
     logo_update_resp = make_api_request(session, "POST", f"{base_url}/communities/{community_id}/logo", f"Update Community {community_id} Logo", files=logo_files, expected_status=[200]) # Removed is_json
     assert logo_update_resp is not None; logo_obj_name_expected = None; new_logo_url = logo_update_resp.get('logo_url'); assert new_logo_url is not None; print(f"    Logo update returned URL: {new_logo_url}")

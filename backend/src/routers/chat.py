@@ -117,6 +117,7 @@ async def get_chat_messages(
         cursor = conn.cursor()
 
         # Fetch base message data
+        print(f"DEBUG: Calling get_chat_messages_db with community_id={community_id}, event_id={event_id}, limit={limit}, before_id={before_id}")
         messages_db = crud.get_chat_messages_db(cursor, community_id, event_id, limit, before_id)
 
         # --- FIX: Fetch and add media for each message ---

@@ -79,6 +79,7 @@ def get_post_counts(cursor: psycopg2.extensions.cursor, post_id: int) -> Dict[st
     expected_counts = [('reply_count', 'agtype'), ('upvotes', 'agtype'), ('downvotes', 'agtype'), ('favorite_count', 'agtype')]
     try:
         result_map = execute_cypher(cursor, cypher_q, fetch_one=True, expected_columns=expected_counts)
+        print(f"DEBUG get_post_counts: Raw result_map: {result_map}")
         if isinstance(result_map, dict):
             return {
                 "reply_count": int(result_map.get('reply_count', 0) or 0),

@@ -60,7 +60,7 @@ def load_config():
     if dotenv_path: print(f"Loading environment variables from: {dotenv_path}"); load_dotenv(dotenv_path=dotenv_path)
     else: print("Warning: .env file not found in standard locations.")
 
-    config['BASE_URL'] = os.getenv("BASE_URL", "http://localhost:1163").rstrip('/')
+    config['BASE_URL'] = os.getenv("BASE_URL", "http://localhost:1263").rstrip('/')
     config['API_KEY'] = os.getenv("API_KEY")
     config['USER_EMAIL_DEFAULT'] = os.getenv("TEST_USER_EMAIL", "alice@example.com")
     config['TEST_USER_PASSWORD'] = os.getenv("TEST_USER_PASSWORD") # Must be set in .env or provided

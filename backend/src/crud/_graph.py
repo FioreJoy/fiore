@@ -22,7 +22,8 @@ def execute_cypher(
     - Uses a default dummy output for write operations (MERGE/CREATE/DELETE/SET).
     """
     cursor.execute("LOAD 'age';")
-    cursor.execute("SET search_path = ag_catalog, '$user', public;")
+    cursor.execute("SET search_path = ag_catalog, '$user', public, fiore;")
+
 
     # --- Determine AS clause ---
     as_clause: str
@@ -44,21 +45,28 @@ def execute_cypher(
     sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', $${query}$$) {as_clause};"
 
     try:
-        # print(f"DEBUG Cypher SQL: {sql.strip()}")
+        print(f"DEBUG Cypher SQL: {sql.strip()}")
         cursor.execute(sql)
 
         if fetch_one:
             row = cursor.fetchone();
+            print(f"DEBUG Cypher Result (fetchone): {row}")
             if not row: return None
             row_dict = dict(row)
             # Parse based on expected columns definition
-            return {col_name: utils.parse_agtype(row_dict.get(col_name)) for col_name, _ in expected_columns}
+            parsed_result = {col_name: utils.parse_agtype(row_dict.get(col_name)) for col_name, _ in expected_columns}
+            print(f"DEBUG Cypher Parsed Result (fetchone): {parsed_result}")
+            return parsed_result
 
         elif fetch_all:
-            rows = cursor.fetchall(); results = []
+            rows = cursor.fetchall();
+            print(f"DEBUG Cypher Result (fetchall): {rows}")
+            results = []
             for row in rows:
                 row_dict = dict(row)
-                results.append({col_name: utils.parse_agtype(row_dict.get(col_name)) for col_name, _ in expected_columns})
+                parsed_row = {col_name: utils.parse_agtype(row_dict.get(col_name)) for col_name, _ in expected_columns}
+                results.append(parsed_row)
+            print(f"DEBUG Cypher Parsed Result (fetchall): {results}")
             return results
         else: # Write operation succeeded if no error
             return True

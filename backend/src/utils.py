@@ -168,59 +168,45 @@ def format_location_for_db(location_str: str) -> str:
 
 # --- Helper for Parsing agtype Results ---
 def parse_agtype(value: Any) -> Any:
-    if isinstance(value, bool): return value
-    if value is None: return None
+    if isinstance(value, (bool, int, float)) or value is None:
+        return value
 
     if isinstance(value, str):
         val_lower = value.lower()
-        if val_lower == 'true': return True
-        elif val_lower == 'false': return False
+        if val_lower == 'true':
+            return True
+        if val_lower == 'false':
+            return False
 
-        # *** NEW: Handle ::edge or ::vertex agtype string representation ***
-        # Example: '{"id": ..., "label": "VOTED", ..., "properties": {"vote_type": true}}::edge'
-        if value.endswith("::edge") or value.endswith("::vertex"):
-            try:
-                # Attempt to strip the suffix and parse the JSON part
-                json_part_str = value
-                if value.endswith("::edge"):
-                    json_part_str = value[:-6]
-                elif value.endswith("::vertex"):
-                    json_part_str = value[:-8]
+        # Handle quoted strings
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
 
-                parsed_json = json.loads(json_part_str)
-                # If it's a graph element, we're often interested in its properties
-                if isinstance(parsed_json, dict) and "properties" in parsed_json:
-                    # Recursively parse the properties map as well
-                    properties_map = parsed_json["properties"]
-                    if isinstance(properties_map, dict):
-                        parsed_properties = {}
-                        for k, v_prop in properties_map.items():
-                            # Important: recursively call parse_agtype for nested properties
-                            # This ensures if a property is 'true'::agtype, it becomes Python True
-                            parsed_properties[k] = parse_agtype(v_prop)
-                        parsed_json["properties"] = parsed_properties
-                    return parsed_json # Return the full parsed graph element (dict)
-                return parsed_json # Or the parsed JSON if not in element structure
-            except json.JSONDecodeError:
-                # If JSON parsing fails after stripping suffix, fall through to other checks
-                print(f"WARN parse_agtype: Failed to parse JSON part of graph element string: {value}")
-                pass
-                # *** END NEW ***
+        # Handle ::edge or ::vertex agtype string representation
+        if '::' in value:
+            parts = value.split('::')
+            if len(parts) == 2:
+                val, type = parts
+                if type == 'integer':
+                    return int(val)
+                if type == 'float':
+                    return float(val)
+                if type == 'boolean':
+                    return val.lower() == 'true'
+                if type in ('edge', 'vertex', 'path'):
+                    try:
+                        return json.loads(val)
+                    except json.JSONDecodeError:
+                        pass  # Fall through to other checks
 
+        # Handle JSON-like strings
         if (value.startswith('{') and value.endswith('}')) or \
                 (value.startswith('[') and value.endswith(']')):
-            try: return json.loads(value)
-            except json.JSONDecodeError: pass
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                pass  # Not a valid JSON, return as is
 
-        if value.startswith('"') and value.endswith('"') and len(value) >= 2:
-            unquoted_val = value[1:-1]; unquoted_val_lower = unquoted_val.lower()
-            if unquoted_val_lower == 'true': return True
-            elif unquoted_val_lower == 'false': return False
-            return unquoted_val
-
-        return value
-
-    if isinstance(value, (int, float)): return value
     return value
 
 # --- Helper to safely quote strings for embedding in Cypher ---

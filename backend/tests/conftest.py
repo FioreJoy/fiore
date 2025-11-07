@@ -1,4 +1,3 @@
-# tests/conftest.py
 import pytest
 import requests
 import os
@@ -6,27 +5,35 @@ from dotenv import load_dotenv
 from pathlib import Path
 import sys
 import time # For potential delays if needed
+import psycopg2
+from psycopg2.extras import RealDictCursor # For fetching rows as dictionaries
+
+# --- Load Test Configuration ---
+dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+if dotenv_path.is_file():
+    print(f"\nLoading environment variables from: {dotenv_path}")
+    load_dotenv(dotenv_path=dotenv_path)
+else:
+    print(f"\nWarning: .env file not found at {dotenv_path}. Tests might fail.")
 
 # Add src to path if helpers are needed from there and not copied
 #sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
-# --- Load Test Configuration ---
+
 def load_test_config():
     """Loads configuration from .env and sets defaults."""
     config = {}
-    dotenv_path = Path(__file__).resolve().parent.parent / '.env'
-    if dotenv_path.is_file():
-        print(f"\nLoading environment variables from: {dotenv_path}")
-        load_dotenv(dotenv_path=dotenv_path)
-    else:
-        print(f"\nWarning: .env file not found at {dotenv_path}. Tests might fail.")
-
-    config['BASE_URL'] = os.getenv("BASE_URL", "http://localhost:1163").rstrip('/')
+    config['BASE_URL'] = os.getenv("BASE_URL", "http://localhost:1263").rstrip('/')
     config['API_KEY'] = os.getenv("API_KEY")
     config['TEST_USER_EMAIL'] = os.getenv("TEST_USER_EMAIL", "alice@example.com")
     config['TEST_USER_PASSWORD'] = os.getenv("TEST_USER_PASSWORD")
     config['TEST_IMAGE_PATH_ABS'] = os.getenv("TEST_IMAGE_PATH_ABS") # Absolute path for image
     config['MINIO_BUCKET'] = os.getenv("MINIO_BUCKET", "connections") # Needed for URL parsing
+    config['DB_NAME'] = os.getenv("DB_NAME")
+    config['DB_USER'] = os.getenv("DB_USER")
+    config['DB_PASSWORD'] = os.getenv("DB_PASSWORD")
+    config['DB_HOST'] = os.getenv("DB_HOST", "localhost")
+    config['DB_PORT'] = os.getenv("DB_PORT", 5432)
 
     # Placeholder IDs
     try:
@@ -78,7 +85,89 @@ def test_user_credentials():
 @pytest.fixture(scope="session")
 def test_data_ids():
     """Provides dictionary of IDs for existing test entities."""
-    return CONFIG['TEST_DATA_IDS']
+import psycopg2
+from psycopg2.extras import RealDictCursor # For fetching rows as dictionaries
+
+# ... (rest of the imports)
+
+@pytest.fixture(scope="session")
+def db_connection():
+    """Provides a database connection for test setup/teardown."""
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            dbname=CONFIG['DB_NAME'],
+            user=CONFIG['DB_USER'],
+            password=CONFIG['DB_PASSWORD'],
+            host=CONFIG['DB_HOST'],
+            port=CONFIG['DB_PORT'],
+            client_encoding='UTF8'
+        )
+        cursor = conn.cursor()
+        cursor.execute("SET search_path TO ag_catalog, public, fiore;")
+        conn.commit()
+        cursor.close()
+        yield conn
+    except psycopg2.OperationalError as e:
+        pytest.fail(f"Database connection failed for tests: {e}")
+    finally:
+        if conn: conn.close()
+
+@pytest.fixture(scope="session")
+def test_data_ids(db_connection):
+    """Provides dynamically retrieved IDs for existing test entities."""
+    cursor = db_connection.cursor(cursor_factory=RealDictCursor)
+    ids = {}
+
+@pytest.fixture(scope="session")
+def test_data_ids(db_connection, authenticated_session):
+    """Provides dynamically retrieved IDs for existing test entities."""
+    cursor = db_connection.cursor(cursor_factory=RealDictCursor)
+    ids = {}
+    logged_in_user_id = authenticated_session['user_id']
+
+    # Fetch a user ID that is not the logged-in user
+    cursor.execute("SELECT id FROM users WHERE id != %s ORDER BY id ASC LIMIT 1;", (logged_in_user_id,))
+    user_id = cursor.fetchone()['id'] if cursor.rowcount > 0 else 1 # Fallback to 1
+    ids['target_user_id'] = user_id
+
+    # Fetch another user ID for 'other_user_id'
+    cursor.execute(f"SELECT id FROM users WHERE id NOT IN (%s, %s) ORDER BY id ASC LIMIT 1;", (logged_in_user_id, user_id))
+    other_user_id = cursor.fetchone()['id'] if cursor.rowcount > 0 else 5 # Fallback to 5
+    ids['other_user_id'] = other_user_id
+
+    # Fetch a community ID
+    cursor.execute("SELECT id FROM communities ORDER BY id ASC LIMIT 1;")
+    community_id = cursor.fetchone()['id'] if cursor.rowcount > 0 else 1 # Fallback to 1
+    ids['community_id'] = community_id
+
+    # Fetch an event ID
+    cursor.execute("SELECT id FROM events ORDER BY id ASC LIMIT 1;")
+    event_id = cursor.fetchone()['id'] if cursor.rowcount > 0 else 1 # Fallback to 1
+    ids['event_id'] = event_id
+
+    # Fetch a post ID
+    cursor.execute("SELECT id FROM posts ORDER BY id ASC LIMIT 1;")
+    post_id = cursor.fetchone()['id'] if cursor.rowcount > 0 else 2 # Fallback to 2
+    ids['post_id'] = post_id
+
+    # Fetch a reply ID
+    cursor.execute("SELECT id FROM replies ORDER BY id ASC LIMIT 1;")
+    reply_id = cursor.fetchone()['id'] if cursor.rowcount > 0 else 1 # Fallback to 1
+    ids['reply_id'] = reply_id
+
+    # Fetch a post ID to link (e.g., a second post)
+    cursor.execute(f"SELECT id FROM posts WHERE id != %s ORDER BY id ASC LIMIT 1;", (post_id,))
+    post_id_to_link = cursor.fetchone()['id'] if cursor.rowcount > 0 else 45 # Fallback to 45
+    ids['post_id_to_link'] = post_id_to_link
+
+    # Fetch a post ID in a community (e.g., a third post)
+    cursor.execute(f"SELECT p.id FROM posts p JOIN community_posts cp ON p.id = cp.post_id ORDER BY p.id ASC LIMIT 1;")
+    post_id_in_comm = cursor.fetchone()['id'] if cursor.rowcount > 0 else 10 # Fallback to 10
+    ids['post_id_in_comm'] = post_id_in_comm
+
+    cursor.close()
+    return ids
 
 @pytest.fixture(scope="session")
 def http_session():

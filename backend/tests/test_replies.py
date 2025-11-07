@@ -66,10 +66,30 @@ def test_get_replies_for_post(authenticated_session, test_data_ids):
              assert len(media_list) == 0, f"Reply {created_reply_id} unexpectedly has media."
              print(f"    Reply Media Check: SUCCESS - No media found (as expected).")
 
+@pytest.fixture(scope="module")
+def created_post_for_reply_test(authenticated_session, test_data_ids):
+    """Creates a post and returns its ID."""
+    auth_info = authenticated_session
+    community_id = test_data_ids['community_id']
+    post_fields = {"title": f"Pytest Replies Post {datetime.now().strftime('%H%M%S')}", "content": "Test.", "community_id": str(community_id)}
+    resp = make_api_request(auth_info["session"], "POST", f"{auth_info['base_url']}/posts", "Create Post (for replies test)", data=post_fields, expected_status=[201])
+    assert resp is not None
+    return resp.get("id")
+
+@pytest.fixture(scope="module")
+def created_reply_for_favorite_test(authenticated_session, created_post_for_reply_test):
+    """Creates a reply for the created post and returns its ID."""
+    auth_info = authenticated_session
+    post_id = created_post_for_reply_test
+    reply_fields = {"post_id": str(post_id), "content": f"Pytest Favorite Reply {datetime.now().strftime('%H%M%S')}"}
+    resp = make_api_request(auth_info["session"], "POST", f"{auth_info['base_url']}/replies", "Create Reply (for favorite test)", data=reply_fields, expected_status=[201])
+    assert resp is not None
+    return resp.get("id")
+
 @pytest.mark.ordering(order=6.4)
-def test_favorite_unfavorite_reply(authenticated_session, test_data_ids):
+def test_favorite_unfavorite_reply(authenticated_session, created_reply_for_favorite_test):
     auth_info = authenticated_session; session = auth_info['session']; base_url = auth_info['base_url']
-    reply_id_to_fav = module_data.get("created_reply_id_with_media") or test_data_ids['reply_id']
+    reply_id_to_fav = created_reply_for_favorite_test
     print(f"--- Test: Favoriting/Unfavoriting Reply ID: {reply_id_to_fav} ---")
     resp_fav = make_api_request(session, "POST", f"{base_url}/replies/{reply_id_to_fav}/favorite", f"Favorite Reply {reply_id_to_fav}", data=None, expected_status=[200])
     assert resp_fav is not None and resp_fav.get("success") is True; fav_count_after_fav = resp_fav["new_counts"]["favorite_count"]; assert fav_count_after_fav > 0

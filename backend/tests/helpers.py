@@ -78,6 +78,9 @@ def make_api_request(
             return response_data
         else:
             print(f"    Result: FAILED")
+            error_detail = response_data.get("detail") if isinstance(response_data, dict) else None
+            if error_detail:
+                print(f"    Error Detail: {error_detail}")
             print(f"    Response: {response_text[:1000]}") # Log full body on failure
             results["failed"].append({"name": test_name, "endpoint": f"{method.upper()} {url}", "status": response.status_code, "response": response_data or response_text})
             return None

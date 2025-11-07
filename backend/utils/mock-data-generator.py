@@ -76,7 +76,8 @@ def get_db_connection():
             user=DB_USER,
             password=DB_PASSWORD,
             host=DB_HOST,
-            port=DB_PORT
+            port=DB_PORT,
+            client_encoding='UTF8'
         )
         return conn
     except psycopg2.OperationalError as e:
@@ -90,8 +91,19 @@ def get_minio_client():
         print("⚠️ MinIO environment variables not fully set. Image upload disabled.")
         return None
     try:
+        # Clean the endpoint: remove http(s):// and any trailing paths
+        cleaned_endpoint = MINIO_ENDPOINT.replace("http://", "").replace("https://", "").rstrip('/')
+        # Split host and port if port is present
+        if ':' in cleaned_endpoint:
+            host, port = cleaned_endpoint.split(':')
+            # Minio client expects endpoint as host:port, but if port is default (80/443) it might be omitted
+            # For local Minio, it's usually host:port
+            endpoint_to_use = f"{host}:{port}"
+        else:
+            endpoint_to_use = cleaned_endpoint
+
         client = Minio(
-            MINIO_ENDPOINT,
+            endpoint_to_use,
             access_key=MINIO_ACCESS_KEY,
             secret_key=MINIO_SECRET_KEY,
             secure=MINIO_USE_SSL
@@ -186,6 +198,8 @@ def main(): # Changed main to synchronous
     community_interests = {}
     community_members_map = {}
     event_participants_map = {}
+    user_profile_pictures_to_process = [] # New list to store profile picture data for later processing
+    community_logos_to_process = [] # New list to store community logo data for later processing
     batch_size = 5000 # Adjust batch size based on memory/performance
 
     try:
@@ -218,32 +232,65 @@ def main(): # Changed main to synchronous
                 created_at = fake.date_time_between(start_date="-2y", end_date="now", tzinfo=timezone.utc)
                 last_seen = fake.date_time_between(start_date="-7d", end_date="now", tzinfo=timezone.utc)
 
-                image_path = None
+                profile_image_data = None
                 if minio_client:
                     placeholder = generate_placeholder_image(f"{first_name[0]}{last_name[0]}", size=(200, 200))
                     object_name = f"users/{username}/profile/{uuid.uuid4()}.png"
-                    # Use synchronous upload function
-                    if upload_to_minio_sync(minio_client, placeholder, object_name):
-                        image_path = object_name
+                    # Store the data and object_name for later upload and DB insertion
+                    profile_image_data = {"data": placeholder, "object_name": object_name, "username": username}
 
                 users_data.append((
                     name, username, gender, email, DEFAULT_PASSWORD_HASH,
-                    location_str, created_at, interest, college, image_path, last_seen
+                    location_str, created_at, interest, college, last_seen
                 ))
+                if profile_image_data: # Store for later processing
+                    user_profile_pictures_to_process.append(profile_image_data)
                 pbar.update(1)
                 i += 1
 
         insert_query_users = """
-            INSERT INTO users (name, username, gender, email, password_hash, current_location, created_at, interest, college, image_path, last_seen)
+            INSERT INTO users (name, username, gender, email, password_hash, location, created_at, interest, college, last_seen)
             VALUES %s RETURNING id, interest;
         """
+        # Modify users_data to format location as PostGIS Point
+        users_data_formatted = []
+        for user in users_data:
+            name, username, gender, email, password_hash, location_str, created_at, interest, college, last_seen = user
+            # Extract longitude and latitude from the string "(longitude,latitude)"
+            lon, lat = map(float, location_str.strip('()').split(','))
+            # Format for PostGIS
+            postgis_location = f"SRID=4326;POINT({lon} {lat})"
+            users_data_formatted.append((name, username, gender, email, password_hash, postgis_location, created_at, interest, college, last_seen))
+
         try:
-            print(f"  Inserting {len(users_data)} user records...")
-            inserted_users = execute_values(cursor, insert_query_users, users_data, fetch=True)
+            print(f"  Inserting {len(users_data_formatted)} user records...")
+            inserted_users = execute_values(cursor, insert_query_users, users_data_formatted, fetch=True)
             conn.commit()
             generated_user_ids = [u[0] for u in inserted_users]
             user_interests = {u[0]: u[1] for u in inserted_users}
             print(f"✅ Inserted {len(generated_user_ids)} users.")
+
+            # Process User Profile Pictures
+            if minio_client and user_profile_pictures_to_process:
+                print("\nProcessing user profile pictures...")
+                media_items_data = []
+                user_profile_picture_data = []
+
+                with tqdm(total=len(user_profile_pictures_to_process), desc="Uploading Profile Pics", unit="pic") as pbar_upload:
+                    for i, profile_data in enumerate(user_profile_pictures_to_process):
+                        user_id = generated_user_ids[i] # Assuming order is preserved
+                        if upload_to_minio_sync(minio_client, profile_data["data"], profile_data["object_name"]):
+                            # Insert into media_items
+                            cursor.execute("INSERT INTO media_items (uploader_user_id, minio_object_name, mime_type, file_size_bytes) VALUES (%s, %s, %s, %s) RETURNING id",
+                                           (user_id, profile_data["object_name"], "image/png", len(profile_data["data"])))
+                            media_id = cursor.fetchone()[0]
+                            media_items_data.append((user_id, media_id)) # Store for potential future use
+
+                            # Insert into user_profile_picture
+                            user_profile_picture_data.append((user_id, media_id))
+                        pbar_upload.update(1)
+                conn.commit()
+                print(f"✅ Processed {len(user_profile_picture_data)} user profile pictures.")
         except (Exception, psycopg2.Error) as error:
             print(f"\n❌ Error during user bulk insert: {error}", file=sys.stderr)
             if conn: conn.rollback()
@@ -266,34 +313,62 @@ def main(): # Changed main to synchronous
                 location_str = f"({fake.longitude()},{fake.latitude()})"
                 created_at = fake.date_time_between(start_date="-1y", end_date="now", tzinfo=timezone.utc)
 
-                logo_path = None
+                logo_data = None
                 if minio_client:
                     comm_placeholder_initial = base_name[0] if base_name else 'C'
                     placeholder = generate_placeholder_image(comm_placeholder_initial, size=(300, 300), bg_color=(random.randint(50, 150), random.randint(50, 150), random.randint(50, 150)))
                     sanitized_name_for_path = sanitize_for_path(base_name)
                     object_name = f"communities/{sanitized_name_for_path}/logo/{uuid.uuid4()}.png"
-                    # Use synchronous upload function
-                    if upload_to_minio_sync(minio_client, placeholder, object_name):
-                        logo_path = object_name
+                    logo_data = {"data": placeholder, "object_name": object_name, "community_name": base_name}
 
                 communities_data.append((
                     base_name, description, creator_id, created_at,
-                    location_str, interest, logo_path
+                    location_str, interest
                 ))
+                if logo_data: # Store for later processing
+                    community_logos_to_process.append(logo_data)
                 pbar.update(1)
 
         insert_query_communities = """
-            INSERT INTO communities (name, description, created_by, created_at, primary_location, interest, logo_path)
+            INSERT INTO communities (name, description, created_by, created_at, location, interest)
             VALUES %s RETURNING id, interest, created_by;
         """
+        # Modify communities_data to format location as PostGIS Point
+        communities_data_formatted = []
+        for community in communities_data:
+            name, description, creator_id, created_at, location_str, interest = community
+            lon, lat = map(float, location_str.strip('()').split(','))
+            postgis_location = f"SRID=4326;POINT({lon} {lat})"
+            communities_data_formatted.append((name, description, creator_id, created_at, postgis_location, interest))
+
         try:
-            print(f"  Inserting {len(communities_data)} community records...")
-            inserted_communities = execute_values(cursor, insert_query_communities, communities_data, fetch=True)
+            print(f"  Inserting {len(communities_data_formatted)} community records...")
+            inserted_communities = execute_values(cursor, insert_query_communities, communities_data_formatted, fetch=True)
             conn.commit()
             generated_community_ids = [c[0] for c in inserted_communities]
             community_interests = {c[0]: c[1] for c in inserted_communities}
             community_creators = {c[0]: c[2] for c in inserted_communities}
             print(f"✅ Inserted {len(generated_community_ids)} communities.")
+
+            # Process Community Logos
+            if minio_client and community_logos_to_process:
+                print("\nProcessing community logos...")
+                community_logo_insert_data = []
+
+                with tqdm(total=len(community_logos_to_process), desc="Uploading Community Logos", unit="logo") as pbar_upload:
+                    for i, logo_data in enumerate(community_logos_to_process):
+                        community_id = generated_community_ids[i] # Assuming order is preserved
+                        if upload_to_minio_sync(minio_client, logo_data["data"], logo_data["object_name"]):
+                            # Insert into media_items
+                            cursor.execute("INSERT INTO media_items (uploader_user_id, minio_object_name, mime_type, file_size_bytes) VALUES (%s, %s, %s, %s) RETURNING id",
+                                           (community_creators[community_id], logo_data["object_name"], "image/png", len(logo_data["data"])))
+                            media_id = cursor.fetchone()[0]
+
+                            # Insert into community_logo
+                            community_logo_insert_data.append((community_id, media_id))
+                        pbar_upload.update(1)
+                conn.commit()
+                print(f"✅ Processed {len(community_logo_insert_data)} community logos.")
         except (Exception, psycopg2.Error) as error:
             print(f"\n❌ Error during community bulk insert: {error}", file=sys.stderr)
             if conn: conn.rollback()

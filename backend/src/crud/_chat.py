@@ -95,6 +95,8 @@ def get_chat_messages_db(
     params.append(limit)
 
     try:
+        print(f"DEBUG Cypher Query: {query}")
+        print(f"DEBUG Cypher Params: {params}")
         cursor.execute(query, tuple(params))
         # Fetchall returns list of RealDictRow
         return cursor.fetchall()

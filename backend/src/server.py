@@ -37,7 +37,7 @@ origins = [
     "http://localhost:9339", "http://127.0.0.1", "http://127.0.0.1:9339",
     "http://localhost:5001", "http://100.97.215.85:5001",
     "http://100.94.150.11:6219", "http://100.94.150.11:6192",
-    "https://fiorejoy.github.io", "https://fiorejoy.com", "http://vivo:3333", "http://vivo:3333",
+    "https://fiorejoy.github.io", "https://fiorejoy.com", "https://dev.fiorejoy.com", "http://vivo:3333", "http://vivo:3333",
 ]
 app.add_middleware(
     CORSMiddleware, allow_origins=origins, allow_credentials=True,
