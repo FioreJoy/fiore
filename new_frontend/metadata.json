@@ -1,0 +1,5 @@
+{
+  "name": "Fiore Social",
+  "description": "A modern, responsive social media web application built with React and Tailwind CSS, connecting to the Fiore backend. It features real-time chat, community engagement, event participation, and a rich social feed.",
+  "requestFramePermissions": []
+}
